@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@logtape/logtape':
-      specifier: ^2.1.5
-      version: 2.1.5
+      specifier: ^2.2.0
+      version: 2.2.0
     '@opentelemetry/api':
       specifier: ^1.9.1
       version: 1.9.1
@@ -104,7 +104,7 @@ importers:
     dependencies:
       '@logtape/logtape':
         specifier: 'catalog:'
-        version: 2.1.5
+        version: 2.2.0
 
   packages/otel:
     dependencies:
@@ -999,8 +999,8 @@ packages:
   '@kigu/dev@0.1.0':
     resolution: {integrity: sha512-OPZxcjUXf03B2QriQ5+3Tar1s8t0D1rg39TDGDpdKDlDpHmu/F15EJ6+nD7VbNhD6ZoV8ussA9sL0vRSudcaog==}
 
-  '@logtape/logtape@2.1.5':
-    resolution: {integrity: sha512-59fyskQ9hR5mYQP9YMznZDtwRS4gIN7VIJkoRe0SLTmU+BQGaSP1s+ve8r+Binj1m6jNpwlF7yu9fz2/asSFLw==}
+  '@logtape/logtape@2.2.0':
+    resolution: {integrity: sha512-lqjd2/2CVmyYBNBEUI377+G/sazT5qQvAAGB1msth8D94ovJ/kI6RtM/uoipwWoRjs6JG34cfFE1UNbgeSFsTA==}
 
   '@manypkg/find-root@1.1.0':
     resolution: {integrity: sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA==}
@@ -2868,8 +2868,8 @@ packages:
   multitars@1.0.0:
     resolution: {integrity: sha512-H/J4fMLedtudftaYMOg7ajzLYgT3/rwbWVJbqr/iUgB8DQztn38ys5HOqI1CzSxx8QhXXwOOnnBvd4v3jG5+Mg==}
 
-  nanoid@3.3.13:
-    resolution: {integrity: sha512-sPdqC6ByMVVGvF1ynvvMo0/o+oD1VX7DaHhijt1bFgjvBkHBib4t49GoNDhf2NDta4oeUNlaGbSt5K7qjZ955Q==}
+  nanoid@3.3.15:
+    resolution: {integrity: sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -4931,7 +4931,7 @@ snapshots:
       - supports-color
       - vite
 
-  '@logtape/logtape@2.1.5': {}
+  '@logtape/logtape@2.2.0': {}
 
   '@manypkg/find-root@1.1.0':
     dependencies:
@@ -6858,7 +6858,7 @@ snapshots:
 
   multitars@1.0.0: {}
 
-  nanoid@3.3.13: {}
+  nanoid@3.3.15: {}
 
   negotiator@0.6.3: {}
 
@@ -7013,7 +7013,7 @@ snapshots:
 
   postcss@8.5.15:
     dependencies:
-      nanoid: 3.3.13
+      nanoid: 3.3.15
       picocolors: 1.1.1
       source-map-js: 1.2.1
 

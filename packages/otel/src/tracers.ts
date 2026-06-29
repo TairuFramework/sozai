@@ -4,10 +4,10 @@ import { context, propagation, type Span, SpanStatusCode, trace } from '@opentel
 import { type BaggageEntry, baggageToEntries, entriesToBaggage } from './baggage.js'
 import { ZERO_TRACE_ID } from './semantic.js'
 
-const SOZAI_VERSION = '0.1.0'
+const OTEL_PACKAGE_VERSION = '0.1.0'
 
-export function createTracer(name: string): Tracer {
-  return trace.getTracer(`sozai.${name}`, SOZAI_VERSION)
+export function createTracerFactory(prefix: string): (name: string) => Tracer {
+  return (name: string): Tracer => trace.getTracer(`${prefix}.${name}`, OTEL_PACKAGE_VERSION)
 }
 
 export type TraceContext = {

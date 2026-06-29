@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
-  createTracer,
+  createTracerFactory,
   getActiveBaggage,
   getActiveSpan,
   getActiveTraceContext,
@@ -10,9 +10,11 @@ import {
   withSyncSpan,
 } from '../src/tracers.js'
 
-describe('createTracer', () => {
-  test('returns a Tracer from the global TracerProvider', () => {
-    const tracer = createTracer('test-module')
+const createTracer = createTracerFactory('test')
+
+describe('createTracerFactory', () => {
+  test('returns a factory that produces a Tracer from the global TracerProvider', () => {
+    const tracer = createTracerFactory('sozai')('test-module')
     expect(tracer).toBeDefined()
     // Without an SDK registered, this returns a no-op tracer
     expect(typeof tracer.startSpan).toBe('function')

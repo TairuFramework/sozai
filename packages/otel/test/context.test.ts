@@ -8,7 +8,9 @@ import {
   setSpanOnContext,
   withActiveContext,
 } from '../src/context.js'
-import { createTracer } from '../src/tracers.js'
+import { createTracerFactory } from '../src/tracers.js'
+
+const createTracer = createTracerFactory('test')
 
 describe('injectTraceContext', () => {
   test('returns header unchanged when no active span', () => {

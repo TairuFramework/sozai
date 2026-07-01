@@ -15,10 +15,28 @@ catalog:
   ajv: ^8.20.0
   ajv-formats: ^3.0.1
   canonicalize: 3.0.0
-  expo: ~56.0.12
-  expo-crypto: ^56.0.4
+  expo: ^57.0.0
+  expo-crypto: ^57.0.0
   json-schema-to-ts: ^3.1.1
   uint8arrays: ^6.1.1
 
+catalogMode: prefer
+
 minimumReleaseAgeExclude:
   - '@kigu/*'
+  - '@expo/cli@57.0.2'
+  - '@expo/fingerprint@0.20.1'
+  - '@expo/inline-modules@0.1.1'
+  - '@expo/local-build-cache-provider@57.0.1'
+  - '@expo/metro-config@57.0.2'
+  - '@expo/prebuild-config@57.0.2'
+  - '@expo/router-server@57.0.1'
+  - babel-preset-expo@57.0.1
+  - expo-asset@57.0.2
+  - expo-constants@57.0.2
+  - expo-modules-autolinking@57.0.2
+  - expo@57.0.0
+
+supportedArchitectures:
+  cpu: [ current ]
+  os: [ current ]

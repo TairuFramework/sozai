@@ -122,4 +122,4 @@ try {
 
 ## Reference
 
-Full export tables and additional examples: [`docs/domains/primitives.md`](../domains/primitives.md)
+Full export tables and additional examples: [`docs/reference/primitives.md`](../reference/primitives.md)

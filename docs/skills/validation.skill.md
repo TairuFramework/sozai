@@ -231,4 +231,4 @@ canonicalStringify(a) === canonicalStringify(b) // true
 
 ## Domain Reference
 
-For the domain reference: `docs/domains/validation.md`
+For the domain reference: `docs/reference/validation.md`

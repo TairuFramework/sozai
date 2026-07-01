@@ -32,9 +32,6 @@
     "@sozai/runtime": "workspace:^",
     "expo-crypto": "catalog:"
   },
-  "devDependencies": {
-    "expo": "catalog:"
-  },
   "publishConfig": {
     "access": "public"
   }

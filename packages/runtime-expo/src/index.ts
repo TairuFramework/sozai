@@ -1,10 +1,8 @@
 import type { GetRandomValues, Runtime } from '@sozai/runtime'
-// @ts-expect-error Expo import
-import { fetch } from 'expo/fetch'
 import { getRandomValues, randomUUID } from 'expo-crypto'
 
 export const expoRuntime: Runtime = {
-  fetch,
+  fetch: globalThis.fetch,
   getRandomID: randomUUID,
   getRandomValues: getRandomValues as GetRandomValues,
 }

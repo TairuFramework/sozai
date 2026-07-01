@@ -127,4 +127,4 @@ const nonce = withHeaders.getRandomValues(new Uint8Array(32))
 
 ## Domain Reference
 
-For the full domain reference: `docs/domains/runtime.md`
+For the full domain reference: `docs/reference/runtime.md`

@@ -134,5 +134,5 @@ await withSpan(tracer, 'request', {}, async (_span) => {
 
 ## See also
 
-- Domain reference: [docs/domains/observability.md](../domains/observability.md)
+- Domain reference: [docs/reference/observability.md](../reference/observability.md)
 - Related domains: [sozai:validation](validation.skill.md), [sozai:dataflow](dataflow.skill.md), [sozai:runtime](runtime.skill.md)

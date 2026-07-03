@@ -14,8 +14,9 @@ decisions that are impossible to reverse after freeze.
 
 These change public API shape and cannot be fixed post-freeze. Decide first.
 
-- **patch — `createPatches(to, from)` argument order** is reversed from every mainstream
-  diff API. Reorder to `(from, to)`. → [next/patch-rfc6902-compliance](next/patch-rfc6902-compliance.md)
+- ~~**patch — `createPatches(to, from)` argument order.**~~ ✅ **Resolved:** kept `(to, from?)`
+  intentionally — `from` is optional (diff-from-empty), so it can't precede a required arg;
+  documented as deliberate. → [completed/2026-07-03-patch-rfc6902-compliance](completed/2026-07-03-patch-rfc6902-compliance.complete.md)
 - **codec — base64url padding.** RFC 7515 (JWS/JWT) requires *unpadded*; current output is
   padded and tests enshrine it. → [next/codec-base64url-decision](next/codec-base64url-decision.md)
 - **result — predicate narrowing.** `isOK()`/`isSome()` false-branch narrows to `never`.
@@ -26,7 +27,7 @@ These change public API shape and cannot be fixed post-freeze. Decide first.
 Follows the audit's suggested order of work (roughly severity × blast radius), with `log`
 folded in next to the otel work. Each is a self-contained unit (target: one PR).
 
-1. [patch — RFC 6902 compliance + prototype-pollution fix](next/patch-rfc6902-compliance.md) — biggest correctness surface, includes the security hole.
+1. ✅ **Done** — [patch — RFC 6902 compliance + prototype-pollution fix](completed/2026-07-03-patch-rfc6902-compliance.complete.md) (PR #1). Follow-ups in [backlog/patch-followups](backlog/patch-followups.md).
 2. [schema — Ajv instance fixes](next/schema-ajv-fixes.md) — one-line `removeSchema` guard with global blast radius, plus memoization.
 3. [runtime-expo — fetch fixes + first real tests](next/runtime-expo-fetch.md) — `polyfillFetch` currently cannot work.
 4. [lifecycle pass — cancel timers / remove listeners on settle](next/lifecycle-pass.md) — same pattern across execution/async/generator/flow.

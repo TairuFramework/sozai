@@ -5,8 +5,7 @@ function escapeKey(key: string): string {
 }
 
 function sameValueZero(a: unknown, b: unknown): boolean {
-  // biome-ignore lint/suspicious/noSelfCompare: NaN check for SameValueZero semantics
-  return a === b || (a !== a && b !== b)
+  return a === b || Object.is(a, b)
 }
 
 /**

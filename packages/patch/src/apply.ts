@@ -29,14 +29,11 @@ const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 const ARRAY_INDEX_RE = /^(0|[1-9]\d*)$/
 
 function sameValueZero(a: unknown, b: unknown): boolean {
-  // biome-ignore lint/suspicious/noSelfCompare: NaN check for SameValueZero semantics
-  return a === b || (a !== a && b !== b)
+  return a === b || Object.is(a, b)
 }
 
 /**
  * Deep structural equality with SameValueZero leaves (`NaN` equals `NaN`; `+0` equals `-0`).
- *
- * @public
  */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (sameValueZero(a, b)) {
@@ -83,7 +80,8 @@ function assertPathExists(obj: unknown, path: string): void {
 /**
  * Parses a JSON Pointer path into an array of keys.
  *
- * @param path - JSON Pointer path (e.g., "/foo/bar/0")
+ * @param path - JSON Pointer path (e.g., "/foo/bar/0"). The empty string `''` is a
+ *   valid path meaning the whole document (root), and returns `[]`.
  * @returns Array of property keys and array indices
  * @throws {PatchError} When path doesn't start with '/'
  *
@@ -134,7 +132,8 @@ export function getPath(obj: unknown, path: string): unknown {
  * @param path - JSON Pointer path
  * @param value - Value to set
  * @param opts - Options controlling existence checks and array insert semantics
- * @throws {PatchError} When path validation fails
+ * @throws {PatchError} When path validation fails, or when path is `''` (root), which
+ *   throws `PatchError('Root mutation unsupported', 'INVALID_PATH')`
  *
  * @public
  */
@@ -201,7 +200,8 @@ export function setPath(
  *
  * @param obj - Object to modify
  * @param path - JSON Pointer path
- * @throws {PatchError} When path doesn't exist or is invalid
+ * @throws {PatchError} When path doesn't exist or is invalid, or when path is `''`
+ *   (root), which throws `PatchError('Root mutation unsupported', 'INVALID_PATH')`
  *
  * @public
  */

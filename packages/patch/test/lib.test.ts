@@ -224,16 +224,26 @@ describe('applyPatches()', () => {
   })
 
   describe('root path operations', () => {
-    test('should handle root path for simple values', () => {
-      const data: unknown = { original: 'value' }
-      // Note: Root replacement would require modifying the reference,
-      // which isn't possible with current implementation
-      // This documents the current limitation
+    test('test on the whole document (empty pointer) passes on match', () => {
+      const data: Record<string, unknown> = { original: 'value' }
       expect(() =>
-        applyPatches(data as Record<string, unknown>, [
-          { op: 'test', path: '', value: { original: 'value' } },
-        ]),
+        applyPatches(data, [{ op: 'test', path: '', value: { original: 'value' } }]),
+      ).not.toThrow()
+    })
+
+    test('test on the whole document fails on mismatch', () => {
+      const data: Record<string, unknown> = { original: 'value' }
+      expect(() =>
+        applyPatches(data, [{ op: 'test', path: '', value: { original: 'other' } }]),
       ).toThrow(PatchError)
+    })
+
+    test('mutating the root is rejected clearly', () => {
+      const data: Record<string, unknown> = { a: 1 }
+      expect(() => applyPatches(data, [{ op: 'replace', path: '', value: { b: 2 } }])).toThrow(
+        'Root mutation unsupported',
+      )
+      expect(data).toEqual({ a: 1 })
     })
   })
 

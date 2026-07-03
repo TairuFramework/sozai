@@ -64,7 +64,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 function assertValidPath(path: string): void {
-  if (!path.startsWith('/')) {
+  if (path !== '' && !path.startsWith('/')) {
     throw new PatchError('Path must start with /', 'INVALID_PATH')
   }
 }
@@ -91,6 +91,9 @@ function assertPathExists(obj: unknown, path: string): void {
  */
 export function parsePath(path: string): Array<string | number> {
   assertValidPath(path)
+  if (path === '') {
+    return []
+  }
   return path
     .slice(1)
     .split('/')
@@ -145,7 +148,7 @@ export function setPath(
   const keys = parsePath(path)
   const lastKey = keys.pop()
   if (lastKey === undefined) {
-    return
+    throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
   }
   const target = keys.reduce((acc, key) => {
     if (acc === undefined) {
@@ -209,37 +212,38 @@ export function deletePath(
 ): void {
   const keys = parsePath(path)
   const lastKey = keys.pop()
-  if (lastKey !== undefined) {
-    const target = keys.reduce((acc, key) => {
-      if (acc === undefined && strict) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      // @ts-expect-error unknown object
-      return acc[key]
-    }, obj)
-
-    if (target === undefined && strict) {
+  if (lastKey === undefined) {
+    throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
+  }
+  const target = keys.reduce((acc, key) => {
+    if (acc === undefined && strict) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
     }
+    // @ts-expect-error unknown object
+    return acc[key]
+  }, obj)
 
-    if (Array.isArray(target)) {
-      if (typeof lastKey !== 'number') {
-        throw new PatchError('Array index must be a number', 'INVALID_INDEX')
-      }
-      if (lastKey < 0 || lastKey >= target.length) {
-        throw new PatchError(
-          `Array index ${lastKey} out of bounds (length: ${target.length})`,
-          'INVALID_INDEX',
-        )
-      }
-      target.splice(lastKey, 1)
-    } else {
-      if (!Object.hasOwn(target as object, lastKey as string) && strict) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      const targetObj = target as Record<string, unknown>
-      delete targetObj[lastKey as string]
+  if (target === undefined && strict) {
+    throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+  }
+
+  if (Array.isArray(target)) {
+    if (typeof lastKey !== 'number') {
+      throw new PatchError('Array index must be a number', 'INVALID_INDEX')
     }
+    if (lastKey < 0 || lastKey >= target.length) {
+      throw new PatchError(
+        `Array index ${lastKey} out of bounds (length: ${target.length})`,
+        'INVALID_INDEX',
+      )
+    }
+    target.splice(lastKey, 1)
+  } else {
+    if (!Object.hasOwn(target as object, lastKey as string) && strict) {
+      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    }
+    const targetObj = target as Record<string, unknown>
+    delete targetObj[lastKey as string]
   }
 }
 

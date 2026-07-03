@@ -18,6 +18,41 @@ export class PatchError extends Error {
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 const ARRAY_INDEX_RE = /^(0|[1-9]\d*)$/
 
+function sameValueZero(a: unknown, b: unknown): boolean {
+  // biome-ignore lint/suspicious/noSelfCompare: NaN check for SameValueZero semantics
+  return a === b || (a !== a && b !== b)
+}
+
+/**
+ * Deep structural equality with SameValueZero leaves (`NaN` equals `NaN`; `+0` equals `-0`).
+ *
+ * @public
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (sameValueZero(a, b)) {
+    return true
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    return false
+  }
+  const aArray = Array.isArray(a)
+  if (aArray !== Array.isArray(b)) {
+    return false
+  }
+  if (aArray) {
+    const aArr = a as Array<unknown>
+    const bArr = b as Array<unknown>
+    return aArr.length === bArr.length && aArr.every((v, i) => deepEqual(v, bArr[i]))
+  }
+  const aObj = a as Record<string, unknown>
+  const bObj = b as Record<string, unknown>
+  const aKeys = Object.keys(aObj)
+  return (
+    aKeys.length === Object.keys(bObj).length &&
+    aKeys.every((k) => Object.hasOwn(bObj, k) && deepEqual(aObj[k], bObj[k]))
+  )
+}
+
 function assertValidPath(path: string): void {
   if (!path.startsWith('/')) {
     throw new PatchError('Path must start with /', 'INVALID_PATH')
@@ -264,7 +299,7 @@ export function applyPatches(
       case 'test': {
         assertPathExists(data, patch.path)
         const value = getPath(data, patch.path)
-        if (!Object.is(value, patch.value)) {
+        if (!deepEqual(value, patch.value)) {
           throw new PatchError(
             `Test operation failed at path ${patch.path}: expected ${JSON.stringify(patch.value)}, got ${JSON.stringify(value)}`,
             'TEST_FAILED',

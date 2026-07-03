@@ -176,10 +176,22 @@ describe('applyPatches()', () => {
       expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: 0 }])).toThrow(PatchError)
     })
 
-    test('should distinguish between +0 and -0', () => {
+    test('treats +0 and -0 as equal (JSON equality)', () => {
       const data: Record<string, unknown> = { foo: +0 }
       expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: +0 }])).not.toThrow()
-      expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: -0 }])).toThrow(
+      expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: -0 }])).not.toThrow()
+    })
+
+    test('passes on deep-equal objects and arrays', () => {
+      const data: Record<string, unknown> = { a: { x: [1, 2], y: 'z' } }
+      expect(() =>
+        applyPatches(data, [{ op: 'test', path: '/a', value: { x: [1, 2], y: 'z' } }]),
+      ).not.toThrow()
+    })
+
+    test('fails on deep-unequal objects', () => {
+      const data: Record<string, unknown> = { a: { x: [1, 2] } }
+      expect(() => applyPatches(data, [{ op: 'test', path: '/a', value: { x: [1, 3] } }])).toThrow(
         PatchError,
       )
     })

@@ -27,13 +27,6 @@ export function polyfillCrypto(override = false) {
   }
 }
 
-export function polyfillFetch(override = false) {
-  if (override || typeof globalThis.fetch !== 'function') {
-    globalThis.fetch = fetch
-  }
-}
-
 export function polyfill(override = false) {
   polyfillCrypto(override)
-  polyfillFetch(override)
 }

@@ -40,13 +40,6 @@ function assertPathExists(obj: unknown, path: string): void {
   }
 }
 
-function assertPathDoesNotExist(obj: unknown, path: string): void {
-  const value = getPath(obj, path)
-  if (value !== undefined) {
-    throw new PatchError(`Path ${path} already exists`, 'PATH_EXISTS')
-  }
-}
-
 /**
  * Parses a JSON Pointer path into an array of keys.
  *
@@ -97,7 +90,7 @@ export function getPath(obj: unknown, path: string): unknown {
  * @param obj - Object to modify
  * @param path - JSON Pointer path
  * @param value - Value to set
- * @param shouldExist - Whether the path should already exist
+ * @param opts - Options controlling existence checks and array insert semantics
  * @throws {PatchError} When path validation fails
  *
  * @public
@@ -106,40 +99,57 @@ export function setPath(
   obj: Record<string, unknown> | Array<unknown>,
   path: string,
   value: unknown,
-  shouldExist = false,
+  opts: { shouldExist?: boolean; insert?: boolean; allowAppend?: boolean } = {},
 ): void {
+  const { shouldExist = false, insert = false, allowAppend = true } = opts
   const keys = parsePath(path)
   const lastKey = keys.pop()
-  if (lastKey !== undefined) {
-    const target = keys.reduce((acc, key) => {
-      if (acc === undefined) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      // @ts-expect-error unknown object
-      return acc[key]
-    }, obj)
-
-    if (target === undefined) {
+  if (lastKey === undefined) {
+    return
+  }
+  const target = keys.reduce((acc, key) => {
+    if (acc === undefined) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
     }
+    // @ts-expect-error unknown object
+    return acc[key]
+  }, obj)
 
-    if (Array.isArray(target)) {
-      if (typeof lastKey !== 'number') {
-        throw new PatchError('Array index must be a number', 'INVALID_INDEX')
+  if (target === undefined) {
+    throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+  }
+
+  if (Array.isArray(target)) {
+    if (lastKey === '-') {
+      if (!allowAppend) {
+        throw new PatchError('Append token not allowed here', 'INVALID_INDEX')
       }
-      assertValidArrayIndex(target, lastKey)
-      if (lastKey === target.length) {
-        target.push(value)
-      } else {
-        target[lastKey] = value
-      }
-    } else {
-      if (shouldExist && !Object.hasOwn(target as object, lastKey as string)) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      const targetObj = target as Record<string, unknown>
-      targetObj[lastKey as string] = value
+      target.push(value)
+      return
     }
+    if (typeof lastKey !== 'number') {
+      throw new PatchError('Array index must be a number', 'INVALID_INDEX')
+    }
+    const max = allowAppend ? target.length : target.length - 1
+    if (lastKey < 0 || lastKey > max) {
+      throw new PatchError(
+        `Array index ${lastKey} out of bounds (length: ${target.length})`,
+        'INVALID_INDEX',
+      )
+    }
+    if (insert) {
+      target.splice(lastKey, 0, value)
+    } else if (lastKey === target.length) {
+      target.push(value)
+    } else {
+      target[lastKey] = value
+    }
+  } else {
+    if (shouldExist && !Object.hasOwn(target as object, lastKey as string)) {
+      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    }
+    const targetObj = target as Record<string, unknown>
+    targetObj[lastKey as string] = value
   }
 }
 
@@ -219,19 +229,16 @@ export function applyPatches(
   for (const patch of patches) {
     switch (patch.op) {
       case 'add':
-        if (strict) {
-          assertPathDoesNotExist(data, patch.path)
-        }
-        setPath(data, patch.path, patch.value)
+        setPath(data, patch.path, patch.value, { insert: true, allowAppend: true })
         break
       case 'replace':
         if (strict) {
           assertPathExists(data, patch.path)
         }
-        setPath(data, patch.path, patch.value, strict)
+        setPath(data, patch.path, patch.value, { shouldExist: strict, allowAppend: false })
         break
       case 'set':
-        setPath(data, patch.path, patch.value)
+        setPath(data, patch.path, patch.value, { allowAppend: true })
         break
       case 'remove':
         if (strict) {

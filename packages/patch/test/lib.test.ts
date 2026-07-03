@@ -85,11 +85,10 @@ describe('applyPatches()', () => {
     expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/baz' }], false)).not.toThrow()
   })
 
-  test('should throw on existing paths for add', () => {
+  test('should replace on existing object key for add (RFC)', () => {
     const data: Record<string, unknown> = { foo: { bar: 1 } }
-    expect(() => applyPatches(data, [{ op: 'add', path: '/foo/bar', value: 2 }])).toThrow(
-      PatchError,
-    )
+    applyPatches(data, [{ op: 'add', path: '/foo/bar', value: 2 }])
+    expect(data).toEqual({ foo: { bar: 2 } })
   })
 
   test('should not throw on existing paths for add if strict is false', () => {
@@ -331,6 +330,32 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('add insert semantics', () => {
+    test('inserts before an existing index', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/1', value: 99 }])
+      expect(data.items).toEqual([1, 99, 2, 3])
+    })
+
+    test('appends with the - token', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/-', value: 4 }])
+      expect(data.items).toEqual([1, 2, 3, 4])
+    })
+
+    test('append at index === length still works', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/3', value: 4 }])
+      expect(data.items).toEqual([1, 2, 3, 4])
+    })
+
+    test('set overwrites an index (no insert)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'set', path: '/items/1', value: 99 }])
+      expect(data.items).toEqual([1, 99, 3])
+    })
+  })
+
   describe('copy operations edge cases', () => {
     test('should throw when source path does not exist', () => {
       const data: Record<string, unknown> = { foo: { bar: 1 } }
@@ -415,14 +440,10 @@ describe('applyPatches()', () => {
       }
     })
 
-    test('should throw PatchError with correct code for path exists', () => {
+    test('add on existing object key replaces without error', () => {
       const data: Record<string, unknown> = { foo: 1 }
-      try {
-        applyPatches(data, [{ op: 'add', path: '/foo', value: 2 }])
-      } catch (error) {
-        expect(error).toBeInstanceOf(PatchError)
-        expect((error as PatchError).code).toBe('PATH_EXISTS')
-      }
+      applyPatches(data, [{ op: 'add', path: '/foo', value: 2 }])
+      expect(data.foo).toBe(2)
     })
 
     test('should throw PatchError with correct code for invalid index', () => {

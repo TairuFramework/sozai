@@ -16,6 +16,7 @@ export class PatchError extends Error {
 }
 
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+const ARRAY_INDEX_RE = /^(0|[1-9]\d*)$/
 
 function assertValidPath(path: string): void {
   if (!path.startsWith('/')) {
@@ -66,12 +67,12 @@ export function parsePath(path: string): Array<string | number> {
       if (FORBIDDEN_SEGMENTS.has(unescaped)) {
         throw new PatchError(`Forbidden path segment: ${unescaped}`, 'INVALID_PATH')
       }
-      // Convert array indices to numbers, but not empty strings
-      if (unescaped === '') {
+      // Convert canonical array indices to numbers; keep everything else (including
+      // the empty string and the '-' append sentinel) as a string key.
+      if (unescaped === '' || unescaped === '-') {
         return unescaped
       }
-      const index = Number(unescaped)
-      return Number.isNaN(index) ? unescaped : index
+      return ARRAY_INDEX_RE.test(unescaped) ? Number(unescaped) : unescaped
     })
 }
 

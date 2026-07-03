@@ -78,11 +78,46 @@ describe('applyPatches()', () => {
   })
 
   test('should not throw on non-existent paths for replace/remove if strict is false', () => {
+    const replaceData: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(replaceData, [{ op: 'replace', path: '/foo/baz', value: 2 }], false),
+    ).not.toThrow()
+
+    const removeData: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(removeData, [{ op: 'remove', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(removeData).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict remove of a missing leaf key is a no-op', () => {
     const data: Record<string, unknown> = { foo: { bar: 1 } }
     expect(() =>
-      applyPatches(data, [{ op: 'replace', path: '/foo/baz', value: 2 }], false),
+      applyPatches(data, [{ op: 'remove', path: '/foo/nonexistent' }], false),
     ).not.toThrow()
-    expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/baz' }], false)).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict remove of a missing parent path does not crash', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/nope/bar' }], false)).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict copy with missing from does not throw and creates no target', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(data, [{ op: 'copy', from: '/foo/nonexistent', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict move with missing from does not throw and leaves data unchanged', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(data, [{ op: 'move', from: '/foo/nonexistent', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
   })
 
   test('should replace on existing object key for add (RFC)', () => {

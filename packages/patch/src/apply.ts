@@ -216,15 +216,21 @@ export function deletePath(
     throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
   }
   const target = keys.reduce((acc, key) => {
-    if (acc === undefined && strict) {
-      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    if (acc === undefined) {
+      if (strict) {
+        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+      }
+      return undefined
     }
     // @ts-expect-error unknown object
     return acc[key]
   }, obj)
 
-  if (target === undefined && strict) {
-    throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+  if (target === undefined) {
+    if (strict) {
+      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    }
+    return
   }
 
   if (Array.isArray(target)) {
@@ -294,13 +300,18 @@ export function applyPatches(
         if (strict) {
           assertPathExists(working, patch.path)
         }
-        deletePath(working, patch.path)
+        deletePath(working, patch.path, strict)
         break
       case 'copy': {
-        assertPathExists(working, patch.from)
+        if (strict) {
+          assertPathExists(working, patch.from)
+        }
         const value = getPath(working, patch.from)
         if (value === undefined) {
-          throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          if (strict) {
+            throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          }
+          break
         }
         setPath(working, patch.path, structuredClone(value), { insert: true, allowAppend: true })
         break
@@ -312,12 +323,17 @@ export function applyPatches(
             'INVALID_PATH',
           )
         }
-        assertPathExists(working, patch.from)
+        if (strict) {
+          assertPathExists(working, patch.from)
+        }
         const value = getPath(working, patch.from)
         if (value === undefined) {
-          throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          if (strict) {
+            throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          }
+          break
         }
-        deletePath(working, patch.from)
+        deletePath(working, patch.from, strict)
         setPath(working, patch.path, value, { insert: true, allowAppend: true })
         break
       }

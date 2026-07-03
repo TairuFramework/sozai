@@ -15,6 +15,8 @@ export class PatchError extends Error {
   }
 }
 
+const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function assertValidPath(path: string): void {
   if (!path.startsWith('/')) {
     throw new PatchError('Path must start with /', 'INVALID_PATH')
@@ -61,6 +63,9 @@ export function parsePath(path: string): Array<string | number> {
     .map((key) => {
       // Handle JSON Pointer escape sequences
       const unescaped = key.replace(/~1/g, '/').replace(/~0/g, '~')
+      if (FORBIDDEN_SEGMENTS.has(unescaped)) {
+        throw new PatchError(`Forbidden path segment: ${unescaped}`, 'INVALID_PATH')
+      }
       // Convert array indices to numbers, but not empty strings
       if (unescaped === '') {
         return unescaped
@@ -128,7 +133,7 @@ export function setPath(
         target[lastKey] = value
       }
     } else {
-      if (shouldExist && !(lastKey in target)) {
+      if (shouldExist && !Object.hasOwn(target as object, lastKey as string)) {
         throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
       }
       const targetObj = target as Record<string, unknown>
@@ -173,7 +178,7 @@ export function deletePath(
       assertValidArrayIndex(target, lastKey)
       target.splice(lastKey, 1)
     } else {
-      if (!(lastKey in target) && strict) {
+      if (!Object.hasOwn(target as object, lastKey as string) && strict) {
         throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
       }
       const targetObj = target as Record<string, unknown>

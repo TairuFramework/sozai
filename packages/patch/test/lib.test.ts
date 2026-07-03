@@ -78,18 +78,52 @@ describe('applyPatches()', () => {
   })
 
   test('should not throw on non-existent paths for replace/remove if strict is false', () => {
-    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    const replaceData: Record<string, unknown> = { foo: { bar: 1 } }
     expect(() =>
-      applyPatches(data, [{ op: 'replace', path: '/foo/baz', value: 2 }], false),
+      applyPatches(replaceData, [{ op: 'replace', path: '/foo/baz', value: 2 }], false),
     ).not.toThrow()
-    expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/baz' }], false)).not.toThrow()
+
+    const removeData: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(removeData, [{ op: 'remove', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(removeData).toEqual({ foo: { bar: 1 } })
   })
 
-  test('should throw on existing paths for add', () => {
+  test('non-strict remove of a missing leaf key is a no-op', () => {
     const data: Record<string, unknown> = { foo: { bar: 1 } }
-    expect(() => applyPatches(data, [{ op: 'add', path: '/foo/bar', value: 2 }])).toThrow(
-      PatchError,
-    )
+    expect(() =>
+      applyPatches(data, [{ op: 'remove', path: '/foo/nonexistent' }], false),
+    ).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict remove of a missing parent path does not crash', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/nope/bar' }], false)).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict copy with missing from does not throw and creates no target', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(data, [{ op: 'copy', from: '/foo/nonexistent', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('non-strict move with missing from does not throw and leaves data unchanged', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    expect(() =>
+      applyPatches(data, [{ op: 'move', from: '/foo/nonexistent', path: '/foo/baz' }], false),
+    ).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
+  test('should replace on existing object key for add (RFC)', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    applyPatches(data, [{ op: 'add', path: '/foo/bar', value: 2 }])
+    expect(data).toEqual({ foo: { bar: 2 } })
   })
 
   test('should not throw on existing paths for add if strict is false', () => {
@@ -177,10 +211,22 @@ describe('applyPatches()', () => {
       expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: 0 }])).toThrow(PatchError)
     })
 
-    test('should distinguish between +0 and -0', () => {
+    test('treats +0 and -0 as equal (JSON equality)', () => {
       const data: Record<string, unknown> = { foo: +0 }
       expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: +0 }])).not.toThrow()
-      expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: -0 }])).toThrow(
+      expect(() => applyPatches(data, [{ op: 'test', path: '/foo', value: -0 }])).not.toThrow()
+    })
+
+    test('passes on deep-equal objects and arrays', () => {
+      const data: Record<string, unknown> = { a: { x: [1, 2], y: 'z' } }
+      expect(() =>
+        applyPatches(data, [{ op: 'test', path: '/a', value: { x: [1, 2], y: 'z' } }]),
+      ).not.toThrow()
+    })
+
+    test('fails on deep-unequal objects', () => {
+      const data: Record<string, unknown> = { a: { x: [1, 2] } }
+      expect(() => applyPatches(data, [{ op: 'test', path: '/a', value: { x: [1, 3] } }])).toThrow(
         PatchError,
       )
     })
@@ -199,17 +245,40 @@ describe('applyPatches()', () => {
     })
   })
 
-  describe('root path operations', () => {
-    test('should handle root path for simple values', () => {
-      const data: unknown = { original: 'value' }
-      // Note: Root replacement would require modifying the reference,
-      // which isn't possible with current implementation
-      // This documents the current limitation
+  describe('atomicity', () => {
+    test('mutation before a later failure leaves input unchanged', () => {
+      const data: Record<string, unknown> = { foo: 1, bar: 2 }
       expect(() =>
-        applyPatches(data as Record<string, unknown>, [
-          { op: 'test', path: '', value: { original: 'value' } },
+        applyPatches(data, [
+          { op: 'replace', path: '/foo', value: 99 },
+          { op: 'test', path: '/bar', value: 3 }, // fails
         ]),
       ).toThrow(PatchError)
+      expect(data).toEqual({ foo: 1, bar: 2 })
+    })
+  })
+
+  describe('root path operations', () => {
+    test('test on the whole document (empty pointer) passes on match', () => {
+      const data: Record<string, unknown> = { original: 'value' }
+      expect(() =>
+        applyPatches(data, [{ op: 'test', path: '', value: { original: 'value' } }]),
+      ).not.toThrow()
+    })
+
+    test('test on the whole document fails on mismatch', () => {
+      const data: Record<string, unknown> = { original: 'value' }
+      expect(() =>
+        applyPatches(data, [{ op: 'test', path: '', value: { original: 'other' } }]),
+      ).toThrow(PatchError)
+    })
+
+    test('mutating the root is rejected clearly', () => {
+      const data: Record<string, unknown> = { a: 1 }
+      expect(() => applyPatches(data, [{ op: 'replace', path: '', value: { b: 2 } }])).toThrow(
+        'Root mutation unsupported',
+      )
+      expect(data).toEqual({ a: 1 })
     })
   })
 
@@ -331,6 +400,55 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('add insert semantics', () => {
+    test('inserts before an existing index', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/1', value: 99 }])
+      expect(data.items).toEqual([1, 99, 2, 3])
+    })
+
+    test('appends with the - token', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/-', value: 4 }])
+      expect(data.items).toEqual([1, 2, 3, 4])
+    })
+
+    test('append at index === length still works', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'add', path: '/items/3', value: 4 }])
+      expect(data.items).toEqual([1, 2, 3, 4])
+    })
+
+    test('set overwrites an index (no insert)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      applyPatches(data, [{ op: 'set', path: '/items/1', value: 99 }])
+      expect(data.items).toEqual([1, 99, 3])
+    })
+  })
+
+  describe('op-aware array bounds', () => {
+    test('remove at index === length throws (reaches deletePath bound)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      let caught: unknown
+      try {
+        applyPatches(data, [{ op: 'remove', path: '/items/3' }], false)
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeInstanceOf(PatchError)
+      expect((caught as PatchError).code).toBe('INVALID_INDEX')
+      expect(data.items).toEqual([1, 2, 3])
+    })
+
+    test('replace at index === length throws (does not append)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      expect(() =>
+        applyPatches(data, [{ op: 'replace', path: '/items/3', value: 9 }], false),
+      ).toThrow(PatchError)
+      expect(data.items).toEqual([1, 2, 3])
+    })
+  })
+
   describe('copy operations edge cases', () => {
     test('should throw when source path does not exist', () => {
       const data: Record<string, unknown> = { foo: { bar: 1 } }
@@ -403,6 +521,22 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('copy/move reference safety', () => {
+    test('copy produces an independent subtree', () => {
+      const data: Record<string, unknown> = { src: { n: 1 }, dst: {} }
+      applyPatches(data, [{ op: 'copy', from: '/src', path: '/dst/copied' }])
+      applyPatches(data, [{ op: 'replace', path: '/src/n', value: 2 }])
+      expect((data.dst as Record<string, Record<string, unknown>>).copied.n).toBe(1)
+    })
+
+    test('move rejects moving into own descendant', () => {
+      const data: Record<string, unknown> = { a: { b: { c: 1 } } }
+      expect(() => applyPatches(data, [{ op: 'move', from: '/a', path: '/a/b/moved' }])).toThrow(
+        PatchError,
+      )
+    })
+  })
+
   describe('error handling edge cases', () => {
     test('should throw PatchError with correct code for invalid paths', () => {
       const data: Record<string, unknown> = { foo: 1 }
@@ -415,14 +549,10 @@ describe('applyPatches()', () => {
       }
     })
 
-    test('should throw PatchError with correct code for path exists', () => {
+    test('add on existing object key replaces without error', () => {
       const data: Record<string, unknown> = { foo: 1 }
-      try {
-        applyPatches(data, [{ op: 'add', path: '/foo', value: 2 }])
-      } catch (error) {
-        expect(error).toBeInstanceOf(PatchError)
-        expect((error as PatchError).code).toBe('PATH_EXISTS')
-      }
+      applyPatches(data, [{ op: 'add', path: '/foo', value: 2 }])
+      expect(data.foo).toBe(2)
     })
 
     test('should throw PatchError with correct code for invalid index', () => {

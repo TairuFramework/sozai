@@ -4,7 +4,7 @@
  * ## Installation
  *
  * ```sh
- * npm install @sozai/patch
+ * pnpm add @sozai/patch
  * ```
  *
  * @module patch

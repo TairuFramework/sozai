@@ -1,5 +1,15 @@
 import type { PatchOperation } from './schemas.js'
 
+// The base tsconfig has `types: []` (no ambient @types/node or DOM libs), so the
+// widely-available `structuredClone` global (Node 17+, evergreen browsers, Deno) is
+// typed locally via a module-scoped const rather than an ambient global
+// augmentation, which would otherwise leak into every downstream consumer's
+// TypeScript program through the published declaration file.
+type StructuredCloneFn = <T>(value: T) => T
+const structuredClone: StructuredCloneFn = (
+  globalThis as unknown as { structuredClone: StructuredCloneFn }
+).structuredClone
+
 /**
  * Error thrown when patch operations fail.
  *
@@ -15,19 +25,49 @@ export class PatchError extends Error {
   }
 }
 
+const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+const ARRAY_INDEX_RE = /^(0|[1-9]\d*)$/
+
+function sameValueZero(a: unknown, b: unknown): boolean {
+  return a === b || Object.is(a, b)
+}
+
+/**
+ * Deep structural equality with SameValueZero leaves (`NaN` equals `NaN`; `+0` equals `-0`).
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (sameValueZero(a, b)) {
+    return true
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    return false
+  }
+  const aArray = Array.isArray(a)
+  if (aArray !== Array.isArray(b)) {
+    return false
+  }
+  if (aArray) {
+    const aArr = a as Array<unknown>
+    const bArr = b as Array<unknown>
+    return aArr.length === bArr.length && aArr.every((v, i) => deepEqual(v, bArr[i]))
+  }
+  const aObj = a as Record<string, unknown>
+  const bObj = b as Record<string, unknown>
+  const aKeys = Object.keys(aObj)
+  return (
+    aKeys.length === Object.keys(bObj).length &&
+    aKeys.every((k) => Object.hasOwn(bObj, k) && deepEqual(aObj[k], bObj[k]))
+  )
+}
+
 function assertValidPath(path: string): void {
-  if (!path.startsWith('/')) {
+  if (path !== '' && !path.startsWith('/')) {
     throw new PatchError('Path must start with /', 'INVALID_PATH')
   }
 }
 
-function assertValidArrayIndex(target: Array<unknown>, index: number): void {
-  if (index < 0 || index > target.length) {
-    throw new PatchError(
-      `Array index ${index} out of bounds (length: ${target.length})`,
-      'INVALID_INDEX',
-    )
-  }
+function isProperPrefix(from: string, path: string): boolean {
+  return path === from || path.startsWith(`${from}/`)
 }
 
 function assertPathExists(obj: unknown, path: string): void {
@@ -37,17 +77,11 @@ function assertPathExists(obj: unknown, path: string): void {
   }
 }
 
-function assertPathDoesNotExist(obj: unknown, path: string): void {
-  const value = getPath(obj, path)
-  if (value !== undefined) {
-    throw new PatchError(`Path ${path} already exists`, 'PATH_EXISTS')
-  }
-}
-
 /**
  * Parses a JSON Pointer path into an array of keys.
  *
- * @param path - JSON Pointer path (e.g., "/foo/bar/0")
+ * @param path - JSON Pointer path (e.g., "/foo/bar/0"). The empty string `''` is a
+ *   valid path meaning the whole document (root), and returns `[]`.
  * @returns Array of property keys and array indices
  * @throws {PatchError} When path doesn't start with '/'
  *
@@ -55,18 +89,24 @@ function assertPathDoesNotExist(obj: unknown, path: string): void {
  */
 export function parsePath(path: string): Array<string | number> {
   assertValidPath(path)
+  if (path === '') {
+    return []
+  }
   return path
     .slice(1)
     .split('/')
     .map((key) => {
       // Handle JSON Pointer escape sequences
       const unescaped = key.replace(/~1/g, '/').replace(/~0/g, '~')
-      // Convert array indices to numbers, but not empty strings
-      if (unescaped === '') {
+      if (FORBIDDEN_SEGMENTS.has(unescaped)) {
+        throw new PatchError(`Forbidden path segment: ${unescaped}`, 'INVALID_PATH')
+      }
+      // Convert canonical array indices to numbers; keep everything else (including
+      // the empty string and the '-' append sentinel) as a string key.
+      if (unescaped === '' || unescaped === '-') {
         return unescaped
       }
-      const index = Number(unescaped)
-      return Number.isNaN(index) ? unescaped : index
+      return ARRAY_INDEX_RE.test(unescaped) ? Number(unescaped) : unescaped
     })
 }
 
@@ -91,8 +131,9 @@ export function getPath(obj: unknown, path: string): unknown {
  * @param obj - Object to modify
  * @param path - JSON Pointer path
  * @param value - Value to set
- * @param shouldExist - Whether the path should already exist
- * @throws {PatchError} When path validation fails
+ * @param opts - Options controlling existence checks and array insert semantics
+ * @throws {PatchError} When path validation fails, or when path is `''` (root), which
+ *   throws `PatchError('Root mutation unsupported', 'INVALID_PATH')`
  *
  * @public
  */
@@ -100,40 +141,57 @@ export function setPath(
   obj: Record<string, unknown> | Array<unknown>,
   path: string,
   value: unknown,
-  shouldExist = false,
+  opts: { shouldExist?: boolean; insert?: boolean; allowAppend?: boolean } = {},
 ): void {
+  const { shouldExist = false, insert = false, allowAppend = true } = opts
   const keys = parsePath(path)
   const lastKey = keys.pop()
-  if (lastKey !== undefined) {
-    const target = keys.reduce((acc, key) => {
-      if (acc === undefined) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      // @ts-expect-error unknown object
-      return acc[key]
-    }, obj)
-
-    if (target === undefined) {
+  if (lastKey === undefined) {
+    throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
+  }
+  const target = keys.reduce((acc, key) => {
+    if (acc === undefined) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
     }
+    // @ts-expect-error unknown object
+    return acc[key]
+  }, obj)
 
-    if (Array.isArray(target)) {
-      if (typeof lastKey !== 'number') {
-        throw new PatchError('Array index must be a number', 'INVALID_INDEX')
+  if (target === undefined) {
+    throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+  }
+
+  if (Array.isArray(target)) {
+    if (lastKey === '-') {
+      if (!allowAppend) {
+        throw new PatchError('Append token not allowed here', 'INVALID_INDEX')
       }
-      assertValidArrayIndex(target, lastKey)
-      if (lastKey === target.length) {
-        target.push(value)
-      } else {
-        target[lastKey] = value
-      }
-    } else {
-      if (shouldExist && !(lastKey in target)) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      const targetObj = target as Record<string, unknown>
-      targetObj[lastKey as string] = value
+      target.push(value)
+      return
     }
+    if (typeof lastKey !== 'number') {
+      throw new PatchError('Array index must be a number', 'INVALID_INDEX')
+    }
+    const max = allowAppend ? target.length : target.length - 1
+    if (lastKey < 0 || lastKey > max) {
+      throw new PatchError(
+        `Array index ${lastKey} out of bounds (length: ${target.length})`,
+        'INVALID_INDEX',
+      )
+    }
+    if (insert) {
+      target.splice(lastKey, 0, value)
+    } else if (lastKey === target.length) {
+      target.push(value)
+    } else {
+      target[lastKey] = value
+    }
+  } else {
+    if (shouldExist && !Object.hasOwn(target as object, lastKey as string)) {
+      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    }
+    const targetObj = target as Record<string, unknown>
+    targetObj[lastKey as string] = value
   }
 }
 
@@ -142,7 +200,8 @@ export function setPath(
  *
  * @param obj - Object to modify
  * @param path - JSON Pointer path
- * @throws {PatchError} When path doesn't exist or is invalid
+ * @throws {PatchError} When path doesn't exist or is invalid, or when path is `''`
+ *   (root), which throws `PatchError('Root mutation unsupported', 'INVALID_PATH')`
  *
  * @public
  */
@@ -153,32 +212,44 @@ export function deletePath(
 ): void {
   const keys = parsePath(path)
   const lastKey = keys.pop()
-  if (lastKey !== undefined) {
-    const target = keys.reduce((acc, key) => {
-      if (acc === undefined && strict) {
+  if (lastKey === undefined) {
+    throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
+  }
+  const target = keys.reduce((acc, key) => {
+    if (acc === undefined) {
+      if (strict) {
         throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
       }
-      // @ts-expect-error unknown object
-      return acc[key]
-    }, obj)
+      return undefined
+    }
+    // @ts-expect-error unknown object
+    return acc[key]
+  }, obj)
 
-    if (target === undefined && strict) {
+  if (target === undefined) {
+    if (strict) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
     }
+    return
+  }
 
-    if (Array.isArray(target)) {
-      if (typeof lastKey !== 'number') {
-        throw new PatchError('Array index must be a number', 'INVALID_INDEX')
-      }
-      assertValidArrayIndex(target, lastKey)
-      target.splice(lastKey, 1)
-    } else {
-      if (!(lastKey in target) && strict) {
-        throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
-      }
-      const targetObj = target as Record<string, unknown>
-      delete targetObj[lastKey as string]
+  if (Array.isArray(target)) {
+    if (typeof lastKey !== 'number') {
+      throw new PatchError('Array index must be a number', 'INVALID_INDEX')
     }
+    if (lastKey < 0 || lastKey >= target.length) {
+      throw new PatchError(
+        `Array index ${lastKey} out of bounds (length: ${target.length})`,
+        'INVALID_INDEX',
+      )
+    }
+    target.splice(lastKey, 1)
+  } else {
+    if (!Object.hasOwn(target as object, lastKey as string) && strict) {
+      throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
+    }
+    const targetObj = target as Record<string, unknown>
+    delete targetObj[lastKey as string]
   }
 }
 
@@ -210,52 +281,66 @@ export function applyPatches(
   patches: Array<PatchOperation>,
   strict = true,
 ): void {
+  const working = structuredClone(data)
   for (const patch of patches) {
     switch (patch.op) {
       case 'add':
-        if (strict) {
-          assertPathDoesNotExist(data, patch.path)
-        }
-        setPath(data, patch.path, patch.value)
+        setPath(working, patch.path, patch.value, { insert: true, allowAppend: true })
         break
       case 'replace':
         if (strict) {
-          assertPathExists(data, patch.path)
+          assertPathExists(working, patch.path)
         }
-        setPath(data, patch.path, patch.value, strict)
+        setPath(working, patch.path, patch.value, { shouldExist: strict, allowAppend: false })
         break
       case 'set':
-        setPath(data, patch.path, patch.value)
+        setPath(working, patch.path, patch.value, { allowAppend: true })
         break
       case 'remove':
         if (strict) {
-          assertPathExists(data, patch.path)
+          assertPathExists(working, patch.path)
         }
-        deletePath(data, patch.path)
+        deletePath(working, patch.path, strict)
         break
       case 'copy': {
-        assertPathExists(data, patch.from)
-        const value = getPath(data, patch.from)
-        if (value === undefined) {
-          throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+        if (strict) {
+          assertPathExists(working, patch.from)
         }
-        setPath(data, patch.path, value)
+        const value = getPath(working, patch.from)
+        if (value === undefined) {
+          if (strict) {
+            throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          }
+          break
+        }
+        setPath(working, patch.path, structuredClone(value), { insert: true, allowAppend: true })
         break
       }
       case 'move': {
-        assertPathExists(data, patch.from)
-        const value = getPath(data, patch.from)
-        if (value === undefined) {
-          throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+        if (isProperPrefix(patch.from, patch.path)) {
+          throw new PatchError(
+            `Cannot move ${patch.from} into its own descendant ${patch.path}`,
+            'INVALID_PATH',
+          )
         }
-        deletePath(data, patch.from)
-        setPath(data, patch.path, value)
+        if (strict) {
+          assertPathExists(working, patch.from)
+        }
+        const value = getPath(working, patch.from)
+        if (value === undefined) {
+          if (strict) {
+            throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
+          }
+          break
+        }
+        deletePath(working, patch.from, strict)
+        setPath(working, patch.path, value, { insert: true, allowAppend: true })
         break
       }
       case 'test': {
-        assertPathExists(data, patch.path)
-        const value = getPath(data, patch.path)
-        if (!Object.is(value, patch.value)) {
+        assertPathExists(working, patch.path)
+        const value = getPath(working, patch.path)
+        if (!deepEqual(value, patch.value)) {
           throw new PatchError(
             `Test operation failed at path ${patch.path}: expected ${JSON.stringify(patch.value)}, got ${JSON.stringify(value)}`,
             'TEST_FAILED',
@@ -268,4 +353,8 @@ export function applyPatches(
         throw new PatchError(`Unknown operation: ${patch.op}`, 'INVALID_OPERATION')
     }
   }
+  for (const key of Object.keys(data)) {
+    delete data[key]
+  }
+  Object.assign(data, working)
 }

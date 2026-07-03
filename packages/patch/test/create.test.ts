@@ -208,32 +208,18 @@ describe('createPatches()', () => {
     ])
   })
 
-  test('should handle type change from object to array', () => {
+  test('should handle type change from object to array as a single replace', () => {
     const from = { data: { foo: 'bar' } }
     const to = { data: [1, 2, 3] }
     const patches = createPatches(to, from)
-    // The function treats arrays and objects differently, so it generates
-    // individual operations instead of a single replace
-    expect(patches).toEqual([
-      { op: 'remove', path: '/data/foo' },
-      { op: 'add', path: '/data/0', value: 1 },
-      { op: 'add', path: '/data/1', value: 2 },
-      { op: 'add', path: '/data/2', value: 3 },
-    ])
+    expect(patches).toEqual([{ op: 'replace', path: '/data', value: [1, 2, 3] }])
   })
 
-  test('should handle type change from array to object', () => {
+  test('should handle type change from array to object as a single replace', () => {
     const from = { data: [1, 2, 3] }
     const to = { data: { foo: 'bar' } }
     const patches = createPatches(to, from)
-    // The function treats arrays and objects differently, so it generates
-    // individual operations instead of a single replace
-    expect(patches).toEqual([
-      { op: 'remove', path: '/data/0' },
-      { op: 'remove', path: '/data/1' },
-      { op: 'remove', path: '/data/2' },
-      { op: 'add', path: '/data/foo', value: 'bar' },
-    ])
+    expect(patches).toEqual([{ op: 'replace', path: '/data', value: { foo: 'bar' } }])
   })
 
   test('should handle type change from array to primitive', () => {
@@ -300,5 +286,29 @@ describe('createPatches()', () => {
       { op: 'replace', path: '/a', value: 'world' },
       { op: 'replace', path: '/b', value: '' },
     ])
+  })
+
+  test('escapes ~ and / in emitted paths (round-trips)', () => {
+    const from = { 'a/b': 1, 'c~d': 2 }
+    const to = { 'a/b': 9, 'c~d': 2 }
+    const patches = createPatches(to, from)
+    expect(patches).toEqual([{ op: 'replace', path: '/a~1b', value: 9 }])
+
+    const result = structuredClone(from)
+    applyPatches(result, patches)
+    expect(result).toEqual(to)
+  })
+
+  test('does not emit a replace for equal NaN', () => {
+    const from = { n: Number.NaN }
+    const to = { n: Number.NaN }
+    expect(createPatches(to, from)).toEqual([])
+  })
+
+  test('does not emit undefined values', () => {
+    const from = { a: 1 }
+    const to = { a: undefined } as unknown as Record<string, unknown>
+    const patches = createPatches(to, from)
+    expect(patches).toEqual([{ op: 'remove', path: '/a' }])
   })
 })

@@ -24,15 +24,6 @@ function assertValidPath(path: string): void {
   }
 }
 
-function assertValidArrayIndex(target: Array<unknown>, index: number): void {
-  if (index < 0 || index > target.length) {
-    throw new PatchError(
-      `Array index ${index} out of bounds (length: ${target.length})`,
-      'INVALID_INDEX',
-    )
-  }
-}
-
 function assertPathExists(obj: unknown, path: string): void {
   const value = getPath(obj, path)
   if (value === undefined) {
@@ -186,7 +177,12 @@ export function deletePath(
       if (typeof lastKey !== 'number') {
         throw new PatchError('Array index must be a number', 'INVALID_INDEX')
       }
-      assertValidArrayIndex(target, lastKey)
+      if (lastKey < 0 || lastKey >= target.length) {
+        throw new PatchError(
+          `Array index ${lastKey} out of bounds (length: ${target.length})`,
+          'INVALID_INDEX',
+        )
+      }
       target.splice(lastKey, 1)
     } else {
       if (!Object.hasOwn(target as object, lastKey as string) && strict) {

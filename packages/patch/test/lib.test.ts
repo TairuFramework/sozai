@@ -356,6 +356,29 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('op-aware array bounds', () => {
+    test('remove at index === length throws (reaches deletePath bound)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      let caught: unknown
+      try {
+        applyPatches(data, [{ op: 'remove', path: '/items/3' }], false)
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeInstanceOf(PatchError)
+      expect((caught as PatchError).code).toBe('INVALID_INDEX')
+      expect(data.items).toEqual([1, 2, 3])
+    })
+
+    test('replace at index === length throws (does not append)', () => {
+      const data: Record<string, unknown> = { items: [1, 2, 3] }
+      expect(() =>
+        applyPatches(data, [{ op: 'replace', path: '/items/3', value: 9 }], false),
+      ).toThrow(PatchError)
+      expect(data.items).toEqual([1, 2, 3])
+    })
+  })
+
   describe('copy operations edge cases', () => {
     test('should throw when source path does not exist', () => {
       const data: Record<string, unknown> = { foo: { bar: 1 } }

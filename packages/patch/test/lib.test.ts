@@ -210,6 +210,19 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('atomicity', () => {
+    test('mutation before a later failure leaves input unchanged', () => {
+      const data: Record<string, unknown> = { foo: 1, bar: 2 }
+      expect(() =>
+        applyPatches(data, [
+          { op: 'replace', path: '/foo', value: 99 },
+          { op: 'test', path: '/bar', value: 3 }, // fails
+        ]),
+      ).toThrow(PatchError)
+      expect(data).toEqual({ foo: 1, bar: 2 })
+    })
+  })
+
   describe('root path operations', () => {
     test('should handle root path for simple values', () => {
       const data: unknown = { original: 'value' }

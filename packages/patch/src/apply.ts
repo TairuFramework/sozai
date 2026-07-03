@@ -271,33 +271,34 @@ export function applyPatches(
   patches: Array<PatchOperation>,
   strict = true,
 ): void {
+  const working = structuredClone(data)
   for (const patch of patches) {
     switch (patch.op) {
       case 'add':
-        setPath(data, patch.path, patch.value, { insert: true, allowAppend: true })
+        setPath(working, patch.path, patch.value, { insert: true, allowAppend: true })
         break
       case 'replace':
         if (strict) {
-          assertPathExists(data, patch.path)
+          assertPathExists(working, patch.path)
         }
-        setPath(data, patch.path, patch.value, { shouldExist: strict, allowAppend: false })
+        setPath(working, patch.path, patch.value, { shouldExist: strict, allowAppend: false })
         break
       case 'set':
-        setPath(data, patch.path, patch.value, { allowAppend: true })
+        setPath(working, patch.path, patch.value, { allowAppend: true })
         break
       case 'remove':
         if (strict) {
-          assertPathExists(data, patch.path)
+          assertPathExists(working, patch.path)
         }
-        deletePath(data, patch.path)
+        deletePath(working, patch.path)
         break
       case 'copy': {
-        assertPathExists(data, patch.from)
-        const value = getPath(data, patch.from)
+        assertPathExists(working, patch.from)
+        const value = getPath(working, patch.from)
         if (value === undefined) {
           throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
         }
-        setPath(data, patch.path, structuredClone(value), { insert: true, allowAppend: true })
+        setPath(working, patch.path, structuredClone(value), { insert: true, allowAppend: true })
         break
       }
       case 'move': {
@@ -307,18 +308,18 @@ export function applyPatches(
             'INVALID_PATH',
           )
         }
-        assertPathExists(data, patch.from)
-        const value = getPath(data, patch.from)
+        assertPathExists(working, patch.from)
+        const value = getPath(working, patch.from)
         if (value === undefined) {
           throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
         }
-        deletePath(data, patch.from)
-        setPath(data, patch.path, value, { insert: true, allowAppend: true })
+        deletePath(working, patch.from)
+        setPath(working, patch.path, value, { insert: true, allowAppend: true })
         break
       }
       case 'test': {
-        assertPathExists(data, patch.path)
-        const value = getPath(data, patch.path)
+        assertPathExists(working, patch.path)
+        const value = getPath(working, patch.path)
         if (!deepEqual(value, patch.value)) {
           throw new PatchError(
             `Test operation failed at path ${patch.path}: expected ${JSON.stringify(patch.value)}, got ${JSON.stringify(value)}`,
@@ -332,4 +333,8 @@ export function applyPatches(
         throw new PatchError(`Unknown operation: ${patch.op}`, 'INVALID_OPERATION')
     }
   }
+  for (const key of Object.keys(data)) {
+    delete data[key]
+  }
+  Object.assign(data, working)
 }

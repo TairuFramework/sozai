@@ -8,7 +8,7 @@ allowBuilds:
 nodeLinker: hoisted
 
 catalog:
-  '@logtape/logtape': ^2.2.1
+  '@logtape/logtape': ^2.2.2
   '@opentelemetry/api': ^1.9.1
   '@opentelemetry/api-logs': ^0.219.0
   '@standard-schema/spec': ^1.1.0

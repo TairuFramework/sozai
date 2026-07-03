@@ -463,6 +463,22 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('copy/move reference safety', () => {
+    test('copy produces an independent subtree', () => {
+      const data: Record<string, unknown> = { src: { n: 1 }, dst: {} }
+      applyPatches(data, [{ op: 'copy', from: '/src', path: '/dst/copied' }])
+      applyPatches(data, [{ op: 'replace', path: '/src/n', value: 2 }])
+      expect((data.dst as Record<string, Record<string, unknown>>).copied.n).toBe(1)
+    })
+
+    test('move rejects moving into own descendant', () => {
+      const data: Record<string, unknown> = { a: { b: { c: 1 } } }
+      expect(() => applyPatches(data, [{ op: 'move', from: '/a', path: '/a/b/moved' }])).toThrow(
+        PatchError,
+      )
+    })
+  })
+
   describe('error handling edge cases', () => {
     test('should throw PatchError with correct code for invalid paths', () => {
       const data: Record<string, unknown> = { foo: 1 }

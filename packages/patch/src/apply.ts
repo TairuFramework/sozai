@@ -1,5 +1,15 @@
 import type { PatchOperation } from './schemas.js'
 
+// The base tsconfig has `types: []` (no ambient @types/node or DOM libs), so the
+// widely-available `structuredClone` global (Node 17+, evergreen browsers, Deno) is
+// typed locally via a module-scoped const rather than an ambient global
+// augmentation, which would otherwise leak into every downstream consumer's
+// TypeScript program through the published declaration file.
+type StructuredCloneFn = <T>(value: T) => T
+const structuredClone: StructuredCloneFn = (
+  globalThis as unknown as { structuredClone: StructuredCloneFn }
+).structuredClone
+
 /**
  * Error thrown when patch operations fail.
  *
@@ -57,6 +67,10 @@ function assertValidPath(path: string): void {
   if (!path.startsWith('/')) {
     throw new PatchError('Path must start with /', 'INVALID_PATH')
   }
+}
+
+function isProperPrefix(from: string, path: string): boolean {
+  return path === from || path.startsWith(`${from}/`)
 }
 
 function assertPathExists(obj: unknown, path: string): void {
@@ -283,17 +297,23 @@ export function applyPatches(
         if (value === undefined) {
           throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
         }
-        setPath(data, patch.path, value)
+        setPath(data, patch.path, structuredClone(value), { insert: true, allowAppend: true })
         break
       }
       case 'move': {
+        if (isProperPrefix(patch.from, patch.path)) {
+          throw new PatchError(
+            `Cannot move ${patch.from} into its own descendant ${patch.path}`,
+            'INVALID_PATH',
+          )
+        }
         assertPathExists(data, patch.from)
         const value = getPath(data, patch.from)
         if (value === undefined) {
           throw new PatchError(`Source path ${patch.from} does not exist`, 'PATH_NOT_FOUND')
         }
         deletePath(data, patch.from)
-        setPath(data, patch.path, value)
+        setPath(data, patch.path, value, { insert: true, allowAppend: true })
         break
       }
       case 'test': {

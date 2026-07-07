@@ -68,6 +68,24 @@ describe('createValidator()', () => {
     expect(validateA({ child: 'ok' })).toEqual({ value: { child: 'ok' } })
     expect(validateA({ child: 1 })).toBeInstanceOf(ValidationError)
   })
+
+  test('memoizes the validator per schema object and options', () => {
+    const schema = { type: 'object', properties: { n: { type: 'number' } } } as const
+
+    const a = createValidator(schema)
+    const b = createValidator(schema)
+    expect(a).toBe(b) // same schema object + default options => same function reference
+
+    const c = createValidator(schema, { draft: '2020-12' })
+    expect(c).not.toBe(a) // different options => distinct validator
+
+    const d = createValidator(schema, { strict: undefined })
+    expect(d).toBe(a) // strict:undefined collapses to the default cache entry
+
+    // Distinct-but-equal schema objects do not share a cache entry.
+    const other = { type: 'object', properties: { n: { type: 'number' } } } as const
+    expect(createValidator(other)).not.toBe(a)
+  })
 })
 
 describe('ValidationErrorObject', () => {

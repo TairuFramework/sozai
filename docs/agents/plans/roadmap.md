@@ -28,7 +28,7 @@ Follows the audit's suggested order of work (roughly severity × blast radius), 
 folded in next to the otel work. Each is a self-contained unit (target: one PR).
 
 1. ✅ **Done** — [patch — RFC 6902 compliance + prototype-pollution fix](completed/2026-07-03-patch-rfc6902-compliance.complete.md) (PR #1). Follow-ups in [backlog/patch-followups](backlog/patch-followups.md).
-2. [schema — Ajv instance fixes](next/schema-ajv-fixes.md) — one-line `removeSchema` guard with global blast radius, plus memoization.
+2. ✅ **Done** — [schema — Ajv instance fixes](completed/2026-07-07-schema-ajv-fixes.complete.md) (PR #2). `removeSchema` `$id` guard (global blast radius), memoization, JSON Pointer decode, own-property `$ref` traversal.
 3. [lifecycle pass — cancel timers / remove listeners on settle](next/lifecycle-pass.md) — same pattern across execution/async/generator/flow.
 4. [result — map/mapError error handling + predicate design](next/result-option-semantics.md).
 5. [codec — base64url padding decision](next/codec-base64url-decision.md) — API-breaking; see decision gates.

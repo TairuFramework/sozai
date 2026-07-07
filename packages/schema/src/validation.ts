@@ -16,6 +16,13 @@ export type ValidatorOptions = { draft?: '07' | '2020-12'; strict?: boolean | 'l
 // we cache one instance per (draft, strict) pair and construct them lazily.
 const instances = new Map<string, Ajv | Ajv2020>()
 
+// Memoize compiled validators per schema object, keyed by normalized options.
+// WeakMap lets entries be collected when the schema object is. Keying by object
+// identity means a schema mutated in place after its first `createValidator` call
+// keeps returning the validator compiled from the ORIGINAL shape; pass a fresh
+// object to recompile. Schemas are expected to be immutable (`as const`) literals.
+const validators = new WeakMap<Schema, Map<string, Validator<unknown>>>()
+
 function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): Ajv | Ajv2020 {
   const key = `${draft}:${strict ?? 'default'}`
   let instance = instances.get(key)
@@ -45,14 +52,33 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
   schema: S,
   options?: ValidatorOptions,
 ): Validator<T> {
-  const ajv = getAjv(options?.draft ?? '07', options?.strict)
-  const check = ajv.compile(schema)
-  // Remove from AJV's internal cache
-  ajv.removeSchema(schema.$id)
+  const draft = options?.draft ?? '07'
+  const strict = options?.strict ?? 'default'
+  const cacheKey = `${draft}:${strict}`
 
-  return (value: unknown) => {
+  let byOptions = validators.get(schema)
+  if (byOptions == null) {
+    byOptions = new Map()
+    validators.set(schema, byOptions)
+  }
+  const cached = byOptions.get(cacheKey)
+  if (cached != null) {
+    return cached as Validator<T>
+  }
+
+  const ajv = getAjv(draft, options?.strict)
+  const check = ajv.compile(schema)
+  // Remove from AJV's internal cache. Guard the $id: removeSchema(undefined)
+  // clears the ENTIRE shared instance (all schemas, refs, compile cache).
+  if (schema.$id != null) {
+    ajv.removeSchema(schema.$id)
+  }
+
+  const validator: Validator<T> = (value: unknown) => {
     return check(value) ? { value: value as T } : new ValidationError(schema, value, check.errors)
   }
+  byOptions.set(cacheKey, validator as Validator<unknown>)
+  return validator
 }
 
 /**

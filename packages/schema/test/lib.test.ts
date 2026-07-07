@@ -49,6 +49,43 @@ describe('createValidator()', () => {
     validator(input)
     expect(input).toEqual(inputCopy)
   })
+
+  test('a $id-less schema does not wipe the shared instance cache', () => {
+    // Schema A registers a $id and an internal $ref on the shared (draft, strict) instance.
+    const validateA = createValidator({
+      $id: 'https://sozai.test/a',
+      type: 'object',
+      properties: { child: { $ref: '#/$defs/Child' } },
+      $defs: { Child: { type: 'string' } },
+      required: ['child'],
+      additionalProperties: false,
+    } as const)
+
+    // Schema B has no $id — the buggy removeSchema(undefined) would clear A here.
+    createValidator({ type: 'object', properties: { n: { type: 'number' } } } as const)
+
+    // A must still validate correctly after B was created.
+    expect(validateA({ child: 'ok' })).toEqual({ value: { child: 'ok' } })
+    expect(validateA({ child: 1 })).toBeInstanceOf(ValidationError)
+  })
+
+  test('memoizes the validator per schema object and options', () => {
+    const schema = { type: 'object', properties: { n: { type: 'number' } } } as const
+
+    const a = createValidator(schema)
+    const b = createValidator(schema)
+    expect(a).toBe(b) // same schema object + default options => same function reference
+
+    const c = createValidator(schema, { draft: '2020-12' })
+    expect(c).not.toBe(a) // different options => distinct validator
+
+    const d = createValidator(schema, { strict: undefined })
+    expect(d).toBe(a) // strict:undefined collapses to the default cache entry
+
+    // Distinct-but-equal schema objects do not share a cache entry.
+    const other = { type: 'object', properties: { n: { type: 'number' } } } as const
+    expect(createValidator(other)).not.toBe(a)
+  })
 })
 
 describe('ValidationErrorObject', () => {
@@ -205,6 +242,22 @@ describe('createStandardValidator()', () => {
 
     const result = standard['~standard'].validate({ id: 'abc' })
     expect(result).toEqual({ value: { id: 'abc' } })
+  })
+})
+
+describe('ValidationErrorObject path decoding', () => {
+  test('decodes JSON Pointer escapes in instancePath', () => {
+    // Property name contains a slash and a tilde; Ajv encodes them as ~1 and ~0.
+    const validator = createValidator({
+      type: 'object',
+      properties: { 'a/b~c': { type: 'number' } },
+      required: ['a/b~c'],
+    } as const)
+
+    const result = validator({ 'a/b~c': 'not-a-number' })
+    expect(result).toBeInstanceOf(ValidationError)
+    const issue = (result as ValidationError).issues[0]
+    expect(issue.path).toEqual(['a/b~c'])
   })
 })
 

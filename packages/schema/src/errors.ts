@@ -1,7 +1,8 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type { ErrorObject } from 'ajv'
-
 import type { Schema } from './types.js'
+
+import { unescapePointer } from './utils.js'
 
 /**
  * JSON schema validation error for a specified input.
@@ -13,7 +14,10 @@ export class ValidationErrorObject extends Error implements StandardSchemaV1.Iss
   constructor(errorObject: ErrorObject) {
     super(errorObject.message ?? `Validation failed for ${errorObject.keyword}`)
     this.#details = errorObject
-    this.#path = errorObject.instancePath.split('/').filter((part) => part !== '')
+    this.#path = errorObject.instancePath
+      .split('/')
+      .filter((part) => part !== '')
+      .map(unescapePointer)
   }
 
   get details(): ErrorObject {

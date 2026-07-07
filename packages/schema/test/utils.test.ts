@@ -32,8 +32,18 @@ describe('resolveReference()', () => {
     expect(() => resolveReference(root, 'other/path')).toThrow('Invalid reference format')
   })
 
-  test('throws for ref pointing to non-existent path', () => {
-    expect(() => resolveReference(root, '#/$defs/Missing')).toThrow('Reference not found')
+  test('throws for ref pointing to a key that is not an own property', () => {
+    // With own-property-only traversal, a genuinely absent key is rejected by the
+    // Object.hasOwn() check (same guard used for prototype-pollution segments),
+    // before the old null-check would have run.
+    expect(() => resolveReference(root, '#/$defs/Missing')).toThrow('Invalid reference segment')
+  })
+
+  test('throws "Reference not found" when an own property resolves to null', () => {
+    const schema = {
+      $defs: { Nullable: null },
+    } as unknown as Schema
+    expect(() => resolveReference(schema, '#/$defs/Nullable')).toThrow('Reference not found')
   })
 
   test('throws for ref traversing through non-object', () => {
@@ -74,6 +84,28 @@ describe('resolveReference()', () => {
 
   test('rejects valueOf segment (inherited method access)', () => {
     expect(() => resolveReference(root, '#/valueOf/something')).toThrow('Invalid reference segment')
+  })
+
+  test('resolves an own property named like an inherited method (toString)', () => {
+    const schema = {
+      type: 'object',
+      properties: { toString: { type: 'string' } },
+    } as unknown as Schema
+    expect(resolveReference(schema, '#/properties/toString')).toEqual({ type: 'string' })
+  })
+
+  test('resolves a $ref with an escaped slash in the key (~1)', () => {
+    const schema = {
+      $defs: { 'a/b': { type: 'string' } },
+    } as unknown as Schema
+    expect(resolveReference(schema, '#/$defs/a~1b')).toEqual({ type: 'string' })
+  })
+
+  test('resolves a $ref with a percent-encoded segment', () => {
+    const schema = {
+      $defs: { 'a b': { type: 'string' } },
+    } as unknown as Schema
+    expect(resolveReference(schema, '#/$defs/a%20b')).toEqual({ type: 'string' })
   })
 })
 

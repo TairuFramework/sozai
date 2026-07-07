@@ -1,7 +1,5 @@
 import type { Schema } from './types.js'
 
-const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf'])
-
 /**
  * Decode a single JSON Pointer reference token (RFC 6901): `~1` -> `/`, `~0` -> `~`.
  * `~1` must be replaced before `~0`.
@@ -16,16 +14,16 @@ export function resolveReference(root: Schema, ref: string): Schema {
   }
 
   const segments = ref.split('/').slice(1)
-  // biome-ignore lint/suspicious/noExplicitAny: mixed type
-  let current: any = root
+  let current: unknown = root
   for (const segment of segments) {
-    if (BLOCKED_SEGMENTS.has(segment)) {
-      throw new Error(`Invalid reference segment: ${segment}`)
-    }
+    const key = unescapePointer(decodeURIComponent(segment))
     if (current == null || typeof current !== 'object') {
       throw new Error(`Invalid reference path: ${ref}`)
     }
-    current = current[segment]
+    if (!Object.hasOwn(current, key)) {
+      throw new Error(`Invalid reference segment: ${key}`)
+    }
+    current = (current as Record<string, unknown>)[key]
     if (current == null) {
       throw new Error(`Reference not found: ${ref}`)
     }

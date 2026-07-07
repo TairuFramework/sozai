@@ -16,7 +16,14 @@ export function resolveReference(root: Schema, ref: string): Schema {
   const segments = ref.split('/').slice(1)
   let current: unknown = root
   for (const segment of segments) {
-    const key = unescapePointer(decodeURIComponent(segment))
+    let key: string
+    try {
+      key = unescapePointer(decodeURIComponent(segment))
+    } catch {
+      // A malformed percent-escape (e.g. a lone `%`) makes decodeURIComponent
+      // throw a raw URIError; surface the traversal's own error shape instead.
+      throw new Error(`Invalid reference segment: ${segment}`)
+    }
     if (current == null || typeof current !== 'object') {
       throw new Error(`Invalid reference path: ${ref}`)
     }

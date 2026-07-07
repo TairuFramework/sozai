@@ -17,7 +17,10 @@ export type ValidatorOptions = { draft?: '07' | '2020-12'; strict?: boolean | 'l
 const instances = new Map<string, Ajv | Ajv2020>()
 
 // Memoize compiled validators per schema object, keyed by normalized options.
-// WeakMap lets entries be collected when the schema object is.
+// WeakMap lets entries be collected when the schema object is. Keying by object
+// identity means a schema mutated in place after its first `createValidator` call
+// keeps returning the validator compiled from the ORIGINAL shape; pass a fresh
+// object to recompile. Schemas are expected to be immutable (`as const`) literals.
 const validators = new WeakMap<Schema, Map<string, Validator<unknown>>>()
 
 function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): Ajv | Ajv2020 {

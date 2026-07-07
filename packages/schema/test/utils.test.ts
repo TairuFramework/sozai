@@ -107,6 +107,13 @@ describe('resolveReference()', () => {
     } as unknown as Schema
     expect(resolveReference(schema, '#/$defs/a%20b')).toEqual({ type: 'string' })
   })
+
+  test('rejects a malformed percent-encoded segment with a normal error', () => {
+    const schema = { $defs: {} } as unknown as Schema
+    // A lone `%` is not a valid percent-escape; decodeURIComponent would throw a
+    // raw URIError — the traversal must surface its own Error shape instead.
+    expect(() => resolveReference(schema, '#/$defs/%')).toThrow('Invalid reference segment')
+  })
 })
 
 describe('resolveSchema()', () => {

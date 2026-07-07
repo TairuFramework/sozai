@@ -49,6 +49,25 @@ describe('createValidator()', () => {
     validator(input)
     expect(input).toEqual(inputCopy)
   })
+
+  test('a $id-less schema does not wipe the shared instance cache', () => {
+    // Schema A registers a $id and an internal $ref on the shared (draft, strict) instance.
+    const validateA = createValidator({
+      $id: 'https://sozai.test/a',
+      type: 'object',
+      properties: { child: { $ref: '#/$defs/Child' } },
+      $defs: { Child: { type: 'string' } },
+      required: ['child'],
+      additionalProperties: false,
+    } as const)
+
+    // Schema B has no $id — the buggy removeSchema(undefined) would clear A here.
+    createValidator({ type: 'object', properties: { n: { type: 'number' } } } as const)
+
+    // A must still validate correctly after B was created.
+    expect(validateA({ child: 'ok' })).toEqual({ value: { child: 'ok' } })
+    expect(validateA({ child: 1 })).toBeInstanceOf(ValidationError)
+  })
 })
 
 describe('ValidationErrorObject', () => {

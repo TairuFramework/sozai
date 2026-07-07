@@ -47,8 +47,11 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
 ): Validator<T> {
   const ajv = getAjv(options?.draft ?? '07', options?.strict)
   const check = ajv.compile(schema)
-  // Remove from AJV's internal cache
-  ajv.removeSchema(schema.$id)
+  // Remove from AJV's internal cache. Guard the $id: removeSchema(undefined)
+  // clears the ENTIRE shared instance (all schemas, refs, compile cache).
+  if (schema.$id != null) {
+    ajv.removeSchema(schema.$id)
+  }
 
   return (value: unknown) => {
     return check(value) ? { value: value as T } : new ValidationError(schema, value, check.errors)

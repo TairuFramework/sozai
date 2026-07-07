@@ -2,6 +2,14 @@ import type { Schema } from './types.js'
 
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf'])
 
+/**
+ * Decode a single JSON Pointer reference token (RFC 6901): `~1` -> `/`, `~0` -> `~`.
+ * `~1` must be replaced before `~0`.
+ */
+export function unescapePointer(segment: string): string {
+  return segment.replace(/~1/g, '/').replace(/~0/g, '~')
+}
+
 export function resolveReference(root: Schema, ref: string): Schema {
   if (!ref.startsWith('#')) {
     throw new Error(`Invalid reference format: ${ref}`)

@@ -245,6 +245,22 @@ describe('createStandardValidator()', () => {
   })
 })
 
+describe('ValidationErrorObject path decoding', () => {
+  test('decodes JSON Pointer escapes in instancePath', () => {
+    // Property name contains a slash and a tilde; Ajv encodes them as ~1 and ~0.
+    const validator = createValidator({
+      type: 'object',
+      properties: { 'a/b~c': { type: 'number' } },
+      required: ['a/b~c'],
+    } as const)
+
+    const result = validator({ 'a/b~c': 'not-a-number' })
+    expect(result).toBeInstanceOf(ValidationError)
+    const issue = (result as ValidationError).issues[0]
+    expect(issue.path).toEqual(['a/b~c'])
+  })
+})
+
 describe('ValidationError getters', () => {
   const schema = {
     $id: 'getter-test',

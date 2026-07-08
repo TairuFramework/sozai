@@ -212,6 +212,12 @@ export class Execution<V, E extends Error = Error>
     this.abort(new CancelInterruption({ cause }))
   }
 
+  /**
+   * Chains a lazy step onto this Execution. Unlike the inherited `map`/`mapError`
+   * (which are eager and do not carry `abort`/`signal`), `next` is lazy and threads
+   * the chain signal through. Prefer `next`/`ifOK`/`ifError` when you need
+   * cancellation to propagate.
+   */
   next<OutV, OutE extends Error = Error>(
     fn: NextFn<V, OutV, E, OutE>,
   ): Execution<V | OutV, E | OutE> {
@@ -271,6 +277,11 @@ export class Execution<V, E extends Error = Error>
     return this.then()
   }
 
+  /**
+   * Iterates the execution chain as an AsyncGenerator. The `<V, E>` type parameters
+   * re-annotate the erased chain element type for callers; they do not re-key the
+   * runtime behaviour.
+   */
   generate<V = unknown, E extends Error = Error>(): AsyncGenerator<Result<V, E | Interruption>> {
     return this[Symbol.asyncIterator]() as AsyncGenerator<Result<V, E | Interruption>>
   }

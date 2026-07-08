@@ -61,6 +61,10 @@ importers:
         version: 6.1.1
 
   packages/event:
+    dependencies:
+      '@sozai/async':
+        specifier: workspace:^
+        version: link:../async
     devDependencies:
       '@sozai/stream':
         specifier: workspace:^

@@ -1,3 +1,4 @@
+import { AbortInterruption } from '@sozai/async'
 import { EventEmitter } from '@sozai/event'
 import { createPipe } from '@sozai/stream'
 import { describe, expect, test } from 'vitest'
@@ -194,6 +195,23 @@ describe('consume()', () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(returnCalls).toBe(1)
   })
+
+  test('consume rejects with an AbortInterruption when the signal has no reason', async () => {
+    const controller = new AbortController()
+    async function* forever() {
+      while (true) {
+        yield 1
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+    }
+    const promise = consume(forever(), () => {}, controller.signal)
+    controller.abort() // no reason
+    const error = await promise.catch((reason) => reason)
+    expect(error).toBeInstanceOf(AbortInterruption)
+    // The auto-filled AbortError DOMException is preserved as the cause.
+    expect(error.cause).toBeInstanceOf(DOMException)
+    expect((error.cause as DOMException).name).toBe('AbortError')
+  })
 })
 
 describe('fromEmitter()', () => {
@@ -374,6 +392,20 @@ describe('fromEmitter()', () => {
 
     emitter.emit('test', undefined)
     expect(await raceTimeout(generator.next())).toEqual({ value: undefined, done: false })
+  })
+
+  test('fromEmitter serves concurrent next() calls in FIFO order', async () => {
+    const emitter = new EventEmitter<{ tick: number }>()
+    const gen = fromEmitter(emitter, 'tick')
+
+    const first = gen.next()
+    const second = gen.next()
+
+    await emitter.emit('tick', 1)
+    await emitter.emit('tick', 2)
+
+    await expect(raceTimeout(first)).resolves.toEqual({ value: 1, done: false })
+    await expect(raceTimeout(second)).resolves.toEqual({ value: 2, done: false })
   })
 })
 

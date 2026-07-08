@@ -51,4 +51,10 @@ describe('defer()', () => {
     deferred.reject()
     await expect(deferred.promise).rejects.toBeUndefined()
   })
+
+  test('reject accepts an arbitrary reason', async () => {
+    const deferred = defer<number>()
+    deferred.reject(new Error('boom'))
+    await expect(deferred.promise).rejects.toThrow('boom')
+  })
 })

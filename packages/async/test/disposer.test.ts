@@ -99,4 +99,14 @@ describe('Disposer', () => {
     await disposer.dispose()
     expect(onDisposeError).toHaveBeenCalledWith(error)
   })
+
+  test('disposes synchronously when constructed with an already-aborted signal', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const disposeFn = vi.fn(() => Promise.resolve())
+    const disposer = new Disposer({ dispose: disposeFn, signal: controller.signal })
+
+    await expect(disposer.disposed).resolves.toBeUndefined()
+    expect(disposeFn).toHaveBeenCalledTimes(1)
+  })
 })

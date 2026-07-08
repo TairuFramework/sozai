@@ -12,6 +12,8 @@
  * @module event
  */
 
+import { onAbort } from '@sozai/async'
+
 export type UnsubscribeFunction = () => void
 
 export type ListenerOptions<Data> = {
@@ -53,14 +55,7 @@ export class EventEmitter<Events extends Record<string, unknown>> {
       listeners.delete(wrappedListener)
     }
 
-    const signal = options?.signal
-    if (signal) {
-      if (signal.aborted) {
-        off()
-      } else {
-        signal.addEventListener('abort', () => off(), { once: true })
-      }
-    }
+    onAbort(options?.signal, off)
     return off
   }
 
@@ -74,26 +69,20 @@ export class EventEmitter<Events extends Record<string, unknown>> {
         reject(signal.reason)
         return
       }
-      const onAbort = signal
-        ? () => {
-            off()
-            reject(signal.reason)
-          }
-        : undefined
+      let unsubscribeAbort: () => void = () => {}
       const off = this.on(
         name,
         (data) => {
           off()
-          if (onAbort) {
-            signal?.removeEventListener('abort', onAbort)
-          }
+          unsubscribeAbort()
           resolve(data)
         },
         { filter: options?.filter },
       )
-      if (onAbort) {
-        signal?.addEventListener('abort', onAbort, { once: true })
-      }
+      unsubscribeAbort = onAbort(signal, () => {
+        off()
+        reject(signal?.reason)
+      })
     })
   }
 
@@ -136,6 +125,7 @@ export class EventEmitter<Events extends Record<string, unknown>> {
       : abortController.signal
 
     let isClosed = false
+    let unsubscribeAbort: () => void = () => {}
     return new ReadableStream({
       start: (controller) => {
         if (signal.aborted) {
@@ -147,7 +137,7 @@ export class EventEmitter<Events extends Record<string, unknown>> {
           filter: options.filter,
           signal,
         })
-        signal.addEventListener('abort', () => {
+        unsubscribeAbort = onAbort(signal, () => {
           off()
           if (!isClosed) {
             isClosed = true
@@ -157,6 +147,7 @@ export class EventEmitter<Events extends Record<string, unknown>> {
       },
       cancel() {
         isClosed = true
+        unsubscribeAbort()
         abortController.abort()
       },
     })

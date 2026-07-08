@@ -17,7 +17,8 @@ publicHoistPattern:
   - del-cli
 
 catalog:
-  '@logtape/logtape': ^2.2.3
+  '@kigu/dev': ^0.1.2
+  '@logtape/logtape': ^2.2.4
   '@opentelemetry/api': ^1.9.1
   '@opentelemetry/api-logs': ^0.220.0
   '@standard-schema/spec': ^1.1.0

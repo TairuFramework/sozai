@@ -87,6 +87,19 @@ describe('Execution', () => {
       expect(execution.isTimedOut).toBe(true)
     })
 
+    test('cancels the timeout timer on successful completion', async () => {
+      vi.useFakeTimers()
+      try {
+        const execution = new Execution(() => Promise.resolve('ok'), { timeout: 1000 })
+        const result = await execution
+        expect(result.isOK()).toBe(true)
+        // A leaked timer would still be pending; after settle none should remain.
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     test('creates Execution with both signal and timeout', async () => {
       const externalController = new AbortController()
       const execute = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve('test'), 100)))
@@ -270,6 +283,14 @@ describe('Execution', () => {
       await disposePromise
       expect(execution.isDisposed).toBe(true)
     })
+
+    test('disposing a never-awaited Execution does not run the executable', async () => {
+      const execute = vi.fn(() => Promise.resolve('ok'))
+      const execution = new Execution(execute)
+      await execution[Symbol.asyncDispose]()
+      expect(execute).not.toHaveBeenCalled()
+      expect(execution.isDisposed).toBe(true)
+    })
   })
 
   describe('abort method', () => {
@@ -305,6 +326,17 @@ describe('Execution', () => {
       expect(execution.isAborted).toBe(true)
       expect(execution.isInterrupted).toBe(true)
       expect(execution.signal.reason).toBe(interruption)
+    })
+
+    test('abort() after successful completion is a no-op', async () => {
+      const execution = new Execution(() => Promise.resolve('ok'))
+      const result = await execution
+      expect(result.isOK()).toBe(true)
+
+      execution.abort()
+      expect(execution.isAborted).toBe(false)
+      expect(execution.isCanceled).toBe(false)
+      expect(execution.isDisposed).toBe(false)
     })
   })
 
@@ -871,6 +903,15 @@ describe('Execution', () => {
       expect(result.isError()).toBe(true)
       expect(result.error).toBe(chainError)
       expect(firstExecute).toHaveBeenCalledTimes(1)
+    })
+
+    test('a throwing NextFn resolves to an error Result', async () => {
+      const execution = new Execution(() => Promise.resolve('ok')).next(() => {
+        throw new Error('boom')
+      })
+      const result = await execution
+      expect(result.isError()).toBe(true)
+      expect((result.error as Error).message).toBe('boom')
     })
   })
 

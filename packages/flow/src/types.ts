@@ -1,7 +1,7 @@
 import type { EventEmitter } from '@sozai/event'
 
 export type GeneratorDoneValue<State extends Record<string, unknown>> =
-  | { status: 'aborted'; state: State; reason: string }
+  | { status: 'aborted'; state: State; reason: unknown }
   | { status: 'end'; state: State }
   | { status: 'error'; state: State; error: Error }
 

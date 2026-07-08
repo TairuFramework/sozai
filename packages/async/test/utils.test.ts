@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { raceSignal, toPromise } from '../src/utils.js'
 
@@ -72,5 +72,13 @@ describe('raceSignal()', () => {
     const promise = new Promise((_, reject) => setTimeout(() => reject('rejected'), 100))
     setTimeout(() => controller.abort(), 50)
     await expect(raceSignal(promise, controller.signal)).rejects.toThrow(DOMException)
+  })
+
+  test('removes the abort listener once the promise settles', async () => {
+    const controller = new AbortController()
+    const remove = vi.spyOn(controller.signal, 'removeEventListener')
+    await expect(raceSignal(Promise.resolve('OK'), controller.signal)).resolves.toBe('OK')
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(remove).toHaveBeenCalled()
   })
 })

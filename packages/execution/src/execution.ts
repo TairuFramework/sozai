@@ -5,6 +5,7 @@ import {
   defer,
   Interruption,
   lazy,
+  onAbort,
   ScheduledTimeout,
   TimeoutInterruption,
   toPromise,
@@ -39,7 +40,9 @@ export class Execution<V, E extends Error = Error>
   #chainTimeout?: ScheduledTimeout
   #executableTimeout?: ScheduledTimeout
   #previous?: Execution<unknown, Error>
+  #settled = false
   #signal: AbortSignal
+  #started = false
 
   constructor(executable: Executable<V, E>, executionContext: ExecutionContext = {}) {
     const chainSignals: Array<AbortSignal> = []
@@ -51,6 +54,7 @@ export class Execution<V, E extends Error = Error>
     const executableSignals = [controller.signal]
 
     const execute = (ctx: ExecuteContext<V, E>): Promise<Result<V, E | Interruption>> => {
+      this.#started = true
       if (executionContext.timeout) {
         this.#chainTimeout = ScheduledTimeout.in(executionContext.timeout, {
           message: 'Execution chain timed out',
@@ -88,34 +92,35 @@ export class Execution<V, E extends Error = Error>
       const signal = signalSources.length === 1 ? signalSources[0] : AbortSignal.any(signalSources)
       this.#signal = signal
 
-      if (signal.aborted) {
-        const result = Result.toError<V, E | Interruption>(
-          signal.reason,
-          () => new AbortInterruption({ cause: signal.reason }),
-        )
-        return Promise.resolve(result)
+      const deferred = defer<Result<V, E | Interruption>>()
+      let unsubscribeAbort: () => void = () => {}
+      const settle = (result: Result<V, E | Interruption>) => {
+        this.#settled = true
+        this.#cleanup?.()
+        unsubscribeAbort()
+        deferred.resolve(result)
       }
 
-      const deferred = defer<Result<V, E | Interruption>, never>()
-      toPromise(() => ctx.execute(signal))
-        .then(Result.from<V, E | Interruption>, (cause) => {
-          return Result.toError<V, E | Interruption>(
-            cause,
-            () => new Error('Execution failed', { cause }) as E,
-          )
-        })
-        .then(deferred.resolve)
-      signal.addEventListener(
-        'abort',
-        () => {
-          const result = Result.toError<V, E | Interruption>(
+      unsubscribeAbort = onAbort(signal, () => {
+        settle(
+          Result.toError<V, E | Interruption>(
             signal.reason,
             () => new AbortInterruption({ cause: signal.reason }),
-          )
-          deferred.resolve(result)
-        },
-        { once: true },
-      )
+          ),
+        )
+      })
+
+      // Already-aborted signals settled synchronously via onAbort above.
+      if (!signal.aborted) {
+        toPromise(() => ctx.execute(signal))
+          .then(Result.from<V, E | Interruption>, (cause) => {
+            return Result.toError<V, E | Interruption>(
+              cause,
+              () => new Error('Execution failed', { cause }) as E,
+            )
+          })
+          .then(settle)
+      }
       return deferred.promise
     }
 
@@ -129,6 +134,9 @@ export class Execution<V, E extends Error = Error>
 
   [Symbol.asyncDispose]() {
     this.abort(new DisposeInterruption())
+    if (!this.#started) {
+      return Promise.resolve()
+    }
     return this.then(noop, noop)
   }
 
@@ -192,6 +200,9 @@ export class Execution<V, E extends Error = Error>
   }
 
   abort(reason?: unknown) {
+    if (this.#settled) {
+      return
+    }
     this.#cleanup?.()
     this.#previous?.abort(reason)
     this.#controller.abort(reason ?? new AbortInterruption())
@@ -201,12 +212,32 @@ export class Execution<V, E extends Error = Error>
     this.abort(new CancelInterruption({ cause }))
   }
 
+  /**
+   * Chains a lazy step onto this Execution. Unlike the inherited `map`/`mapError`
+   * (which are eager and do not carry `abort`/`signal`), `next` is lazy and threads
+   * the chain signal through. Prefer `next`/`ifOK`/`ifError` when you need
+   * cancellation to propagate.
+   */
   next<OutV, OutE extends Error = Error>(
     fn: NextFn<V, OutV, E, OutE>,
   ): Execution<V | OutV, E | OutE> {
     const nextContext = lazy(async () => {
       const result = await this.execute()
-      const executable = fn(result)
+      let executable: Executable<V | OutV, E | OutE> | null
+      try {
+        executable = fn(result)
+      } catch (cause) {
+        const errored = Result.toError<V | OutV, E | OutE | Interruption>(
+          cause,
+          () => new Error('Execution failed', { cause }) as OutE,
+        )
+        return {
+          cleanup: () => this.#cleanup?.(),
+          execute: () => errored,
+          signal: this.#signal,
+        } as ExecuteContext<V | OutV, E | OutE>
+      }
+
       if (executable == null) {
         return {
           cleanup: () => this.#cleanup?.(),
@@ -246,6 +277,11 @@ export class Execution<V, E extends Error = Error>
     return this.then()
   }
 
+  /**
+   * Iterates the execution chain as an AsyncGenerator. The `<V, E>` type parameters
+   * re-annotate the erased chain element type for callers; they do not re-key the
+   * runtime behaviour.
+   */
   generate<V = unknown, E extends Error = Error>(): AsyncGenerator<Result<V, E | Interruption>> {
     return this[Symbol.asyncIterator]() as AsyncGenerator<Result<V, E | Interruption>>
   }

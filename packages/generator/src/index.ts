@@ -10,7 +10,7 @@
  * @module generator
  */
 
-import { type Deferred, defer } from '@sozai/async'
+import { AbortInterruption, type Deferred, defer, onAbort } from '@sozai/async'
 import type { EventEmitter } from '@sozai/event'
 
 export function consume<T, TReturn = unknown>(
@@ -20,10 +20,12 @@ export function consume<T, TReturn = unknown>(
 ): Promise<TReturn> {
   let closed = false
   const ended = defer<TReturn>()
+  let unsubscribeSignal: () => void = () => {}
 
   const close = () => {
     if (closed) return
     closed = true
+    unsubscribeSignal()
     // Run the source's cleanup (finally blocks). Swallow errors so cleanup
     // failures never mask the resolve/reject reason already settled below.
     Promise.resolve(iterator.return?.()).catch(() => {})
@@ -31,16 +33,18 @@ export function consume<T, TReturn = unknown>(
 
   const abort = () => {
     close()
-    ended.reject(signal?.reason)
+    const reason = signal?.reason
+    // When abort() is called without a reason, the browser automatically creates
+    // an AbortError DOMException. Convert it to AbortInterruption, preserving the
+    // original DOMException as the cause for debuggability.
+    if (reason instanceof DOMException && reason.name === 'AbortError') {
+      ended.reject(new AbortInterruption({ cause: reason }))
+    } else {
+      ended.reject(reason ?? new AbortInterruption())
+    }
   }
 
-  if (signal?.aborted) {
-    // Already aborted: settle immediately; the listener won't fire for
-    // signals that are aborted before addEventListener is called.
-    abort()
-  } else {
-    signal?.addEventListener('abort', abort)
-  }
+  unsubscribeSignal = onAbort(signal, abort)
 
   async function pull() {
     if (signal?.aborted) return
@@ -75,38 +79,33 @@ export function fromEmitter<
   options?: { filter?: (event: Events[EventName]) => boolean; signal?: AbortSignal },
 ): AsyncGenerator<Events[EventName], void, void> {
   let isDone = false
-  let pending: Deferred<IteratorResult<Events[EventName], void>> | null = null
+  const pending: Array<Deferred<IteratorResult<Events[EventName], void>>> = []
   const queue: Array<Events[EventName]> = []
 
   const unsubscribe = emitter.on(
     name,
     (event) => {
-      if (pending == null) {
+      const waiter = pending.shift()
+      if (waiter == null) {
         queue.push(event)
       } else {
-        pending.resolve({ value: event, done: false })
-        pending = null
+        waiter.resolve({ value: event, done: false })
       }
     },
     { filter: options?.filter },
   )
 
+  let unsubscribeSignal: () => void = () => {}
   const stop = () => {
     unsubscribe()
+    unsubscribeSignal()
     isDone = true
-    if (pending != null) {
-      pending.resolve({ done: true, value: undefined })
-      pending = null
+    while (pending.length > 0) {
+      const waiter = pending.shift() as Deferred<IteratorResult<Events[EventName], void>>
+      waiter.resolve({ done: true, value: undefined })
     }
   }
-
-  if (options?.signal?.aborted) {
-    stop()
-  } else {
-    options?.signal?.addEventListener('abort', () => {
-      stop()
-    })
-  }
+  unsubscribeSignal = onAbort(options?.signal, stop)
 
   return {
     [Symbol.asyncDispose]() {
@@ -123,8 +122,9 @@ export function fromEmitter<
       if (queue.length > 0) {
         return Promise.resolve({ value: queue.shift() as Events[EventName], done: false })
       }
-      pending = defer<IteratorResult<Events[EventName], void>>()
-      return pending.promise
+      const deferred = defer<IteratorResult<Events[EventName], void>>()
+      pending.push(deferred)
+      return deferred.promise
     },
     return: () => {
       stop()

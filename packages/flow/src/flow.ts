@@ -72,18 +72,14 @@ export function createGenerator<
   State extends Record<string, unknown>,
   Handlers extends HandlersRecord<State, Record<string, unknown>> = HandlersRecord<State>,
 >(params: CreateGeneratorParams<State, Handlers>): FlowGenerator<State, Handlers> {
-  const {
-    handlers,
-    signal: flowSignal,
-    state: initialState,
-    stateValidator,
-    action: defaultAction,
-  } = params
+  const { handlers, signal: flowSignal, state: initialState, stateValidator } = params
+  let defaultAction = params.action
 
   const events = new EventEmitter<HandlersEvents<State, Handlers>>()
   const emit = events.emit.bind(events)
 
   let value: GeneratorValue<State> = { status: 'state', state: initialState }
+  let running = false
 
   return {
     async [Symbol.asyncDispose]() {
@@ -93,94 +89,103 @@ export function createGenerator<
       return this
     },
     events,
-    getState: () => Object.freeze(value.state),
+    getState: () => Object.freeze({ ...value.state }),
     next: async (step?: GenerateNext<State, Handlers>) => {
-      // Check the flow is not already ended
-      if (isDoneValue(value)) {
-        return { value, done: true }
+      if (running) {
+        throw new Error('Flow.next() called concurrently')
       }
-
-      // Check the step is not aborted
-      if (step?.signal?.aborted) {
-        return { value, done: false }
-      }
-
-      // Validate the state
-      const state = step?.state ?? value.state
-      if (stateValidator != null) {
-        const validatedState = stateValidator(state)
-        if (validatedState instanceof ValidationError) {
-          value = { status: 'error', state, error: validatedState }
+      running = true
+      try {
+        // Check the flow is not already ended
+        if (isDoneValue(value)) {
           return { value, done: true }
         }
-      }
 
-      // Check the flow is not aborted
-      if (flowSignal?.aborted) {
-        value = { status: 'aborted', state, reason: flowSignal.reason }
-        return { value, done: true }
-      }
-
-      if (step?.state != null && step?.action == null) {
-        value = { status: 'state', state: step.state }
-        return { value, done: false }
-      }
-
-      const nextAction =
-        value?.status === 'action' ? { name: value.action, params: value.params } : null
-      const action = step?.action ?? nextAction ?? defaultAction
-      if (action == null) {
-        value = { status: 'end', state }
-        return { value, done: true }
-      }
-
-      const handler = handlers[action.name]
-      if (handler == null) {
-        value = {
-          status: 'error',
-          state,
-          error: new MissingHandlerError(action.name),
-        }
-        return { value, done: true }
-      }
-
-      try {
-        const nextValue = await handler({
-          state,
-          params: action.params,
-          signal: AbortSignal.any([flowSignal, step?.signal].filter((s) => s != null)),
-          emit,
-        })
-        // Don't update the state if the action is aborted
+        // Check the step is not aborted
         if (step?.signal?.aborted) {
           return { value, done: false }
         }
 
-        value = nextValue
+        // Validate the state
+        const state = step?.state ?? value.state
         if (stateValidator != null) {
-          const validatedOutputState = stateValidator(value.state)
-          if (validatedOutputState instanceof ValidationError) {
-            value = { status: 'error', state: value.state, error: validatedOutputState }
+          const validatedState = stateValidator(state)
+          if (validatedState instanceof ValidationError) {
+            value = { status: 'error', state, error: validatedState }
             return { value, done: true }
           }
         }
-      } catch (cause) {
-        // Don't update the state if the action is aborted
-        if (step?.signal?.aborted) {
+
+        // Check the flow is not aborted
+        if (flowSignal?.aborted) {
+          value = { status: 'aborted', state, reason: flowSignal.reason }
+          return { value, done: true }
+        }
+
+        if (step?.state != null && step?.action == null) {
+          value = { status: 'state', state: step.state }
           return { value, done: false }
         }
 
-        value = { status: 'error', state, error: toError(cause, 'Handler execution failed') }
-        return { value, done: true }
-      }
+        const nextAction =
+          value?.status === 'action' ? { name: value.action, params: value.params } : null
+        const action = step?.action ?? nextAction ?? defaultAction
+        defaultAction = undefined
+        if (action == null) {
+          value = { status: 'end', state }
+          return { value, done: true }
+        }
 
-      // Check the flow is not aborted
-      if (flowSignal?.aborted) {
-        value = { status: 'aborted', state: value.state, reason: flowSignal.reason }
-        return { value, done: true }
-      }
+        const handler = handlers[action.name]
+        if (handler == null) {
+          value = {
+            status: 'error',
+            state,
+            error: new MissingHandlerError(action.name),
+          }
+          return { value, done: true }
+        }
 
-      return isDoneValue(value) ? { value, done: true } : { value, done: false }
+        try {
+          const nextValue = await handler({
+            state,
+            params: action.params,
+            signal: AbortSignal.any([flowSignal, step?.signal].filter((s) => s != null)),
+            emit,
+          })
+          // Don't update the state if the action is aborted
+          if (step?.signal?.aborted) {
+            return { value, done: false }
+          }
+
+          value = nextValue
+          if (stateValidator != null) {
+            const validatedOutputState = stateValidator(value.state)
+            if (validatedOutputState instanceof ValidationError) {
+              value = { status: 'error', state: value.state, error: validatedOutputState }
+              return { value, done: true }
+            }
+          }
+        } catch (cause) {
+          // Don't update the state if the action is aborted
+          if (step?.signal?.aborted) {
+            return { value, done: false }
+          }
+
+          value = { status: 'error', state, error: toError(cause, 'Handler execution failed') }
+          return { value, done: true }
+        }
+
+        // Check the flow is not aborted
+        if (flowSignal?.aborted) {
+          value = { status: 'aborted', state: value.state, reason: flowSignal.reason }
+          return { value, done: true }
+        }
+
+        return isDoneValue(value) ? { value, done: true } : { value, done: false }
+      } finally {
+        running = false
+      }
     },
     return: async (
       returnValue?: GeneratorDoneValue<State> | PromiseLike<GeneratorDoneValue<State>>,

@@ -10,7 +10,7 @@
  * @module generator
  */
 
-import { type Deferred, defer } from '@sozai/async'
+import { type Deferred, defer, onAbort } from '@sozai/async'
 import type { EventEmitter } from '@sozai/event'
 
 export function consume<T, TReturn = unknown>(
@@ -75,38 +75,33 @@ export function fromEmitter<
   options?: { filter?: (event: Events[EventName]) => boolean; signal?: AbortSignal },
 ): AsyncGenerator<Events[EventName], void, void> {
   let isDone = false
-  let pending: Deferred<IteratorResult<Events[EventName], void>> | null = null
+  const pending: Array<Deferred<IteratorResult<Events[EventName], void>>> = []
   const queue: Array<Events[EventName]> = []
 
   const unsubscribe = emitter.on(
     name,
     (event) => {
-      if (pending == null) {
+      const waiter = pending.shift()
+      if (waiter == null) {
         queue.push(event)
       } else {
-        pending.resolve({ value: event, done: false })
-        pending = null
+        waiter.resolve({ value: event, done: false })
       }
     },
     { filter: options?.filter },
   )
 
+  let unsubscribeSignal: () => void = () => {}
   const stop = () => {
     unsubscribe()
+    unsubscribeSignal()
     isDone = true
-    if (pending != null) {
-      pending.resolve({ done: true, value: undefined })
-      pending = null
+    while (pending.length > 0) {
+      const waiter = pending.shift() as Deferred<IteratorResult<Events[EventName], void>>
+      waiter.resolve({ done: true, value: undefined })
     }
   }
-
-  if (options?.signal?.aborted) {
-    stop()
-  } else {
-    options?.signal?.addEventListener('abort', () => {
-      stop()
-    })
-  }
+  unsubscribeSignal = onAbort(options?.signal, stop)
 
   return {
     [Symbol.asyncDispose]() {
@@ -123,8 +118,9 @@ export function fromEmitter<
       if (queue.length > 0) {
         return Promise.resolve({ value: queue.shift() as Events[EventName], done: false })
       }
-      pending = defer<IteratorResult<Events[EventName], void>>()
-      return pending.promise
+      const deferred = defer<IteratorResult<Events[EventName], void>>()
+      pending.push(deferred)
+      return deferred.promise
     },
     return: () => {
       stop()

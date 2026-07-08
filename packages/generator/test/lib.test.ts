@@ -375,6 +375,20 @@ describe('fromEmitter()', () => {
     emitter.emit('test', undefined)
     expect(await raceTimeout(generator.next())).toEqual({ value: undefined, done: false })
   })
+
+  test('fromEmitter serves concurrent next() calls in FIFO order', async () => {
+    const emitter = new EventEmitter<{ tick: number }>()
+    const gen = fromEmitter(emitter, 'tick')
+
+    const first = gen.next()
+    const second = gen.next()
+
+    await emitter.emit('tick', 1)
+    await emitter.emit('tick', 2)
+
+    await expect(raceTimeout(first)).resolves.toEqual({ value: 1, done: false })
+    await expect(raceTimeout(second)).resolves.toEqual({ value: 2, done: false })
+  })
 })
 
 describe('fromStream()', () => {

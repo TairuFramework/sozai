@@ -1,3 +1,5 @@
+import { onAbort } from './on-abort.js'
+
 /**
  * Converts a function returning a value or promise to a Promise.
  */
@@ -9,18 +11,11 @@ export function raceSignal<T>(promise: PromiseLike<T>, signal: AbortSignal): Pro
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
-      function onAbort() {
-        reject(signal.reason)
-      }
-      if (signal.aborted) {
-        onAbort()
-      } else {
-        signal.addEventListener('abort', onAbort, { once: true })
-        function cleanup() {
-          signal.removeEventListener('abort', onAbort)
-        }
-        promise.then(cleanup, cleanup)
-      }
+      // Route through onAbort for uniformity: already-aborted fires synchronously
+      // (reject is in scope), otherwise the listener is removed once the promise
+      // settles so nothing stays attached to a long-lived signal.
+      const unsubscribe = onAbort(signal, () => reject(signal.reason))
+      promise.then(unsubscribe, unsubscribe)
     }),
   ])
 }

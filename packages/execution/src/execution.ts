@@ -195,6 +195,9 @@ export class Execution<V, E extends Error = Error>
   }
 
   abort(reason?: unknown) {
+    if (this.#settled) {
+      return
+    }
     this.#cleanup?.()
     this.#previous?.abort(reason)
     this.#controller.abort(reason ?? new AbortInterruption())

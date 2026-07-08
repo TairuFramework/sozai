@@ -319,6 +319,17 @@ describe('Execution', () => {
       expect(execution.isInterrupted).toBe(true)
       expect(execution.signal.reason).toBe(interruption)
     })
+
+    test('abort() after successful completion is a no-op', async () => {
+      const execution = new Execution(() => Promise.resolve('ok'))
+      const result = await execution
+      expect(result.isOK()).toBe(true)
+
+      execution.abort()
+      expect(execution.isAborted).toBe(false)
+      expect(execution.isCanceled).toBe(false)
+      expect(execution.isDisposed).toBe(false)
+    })
   })
 
   describe('cancel method', () => {

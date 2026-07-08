@@ -251,6 +251,25 @@ describe('createGenerator()', () => {
     })
   })
 
+  test('defaultAction applies once then the flow ends', async () => {
+    const handlers: HandlersRecord<State> = {
+      idle: ({ state }) => ({ status: 'state', state }),
+    }
+    const gen = createGenerator({
+      handlers,
+      state: { value: 0 },
+      action: { name: 'idle', params: { amount: 0 } },
+    })
+
+    const first = await gen.next()
+    expect(first.done).toBe(false)
+    expect(first.value.status).toBe('state')
+
+    const second = await gen.next()
+    expect(second.done).toBe(true)
+    expect(second.value.status).toBe('end')
+  })
+
   test('getState returns a frozen snapshot without freezing internal state', async () => {
     const handlers: HandlersRecord<State> = {
       bump: ({ state }) => {

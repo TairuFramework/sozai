@@ -72,13 +72,8 @@ export function createGenerator<
   State extends Record<string, unknown>,
   Handlers extends HandlersRecord<State, Record<string, unknown>> = HandlersRecord<State>,
 >(params: CreateGeneratorParams<State, Handlers>): FlowGenerator<State, Handlers> {
-  const {
-    handlers,
-    signal: flowSignal,
-    state: initialState,
-    stateValidator,
-    action: defaultAction,
-  } = params
+  const { handlers, signal: flowSignal, state: initialState, stateValidator } = params
+  let defaultAction = params.action
 
   const events = new EventEmitter<HandlersEvents<State, Handlers>>()
   const emit = events.emit.bind(events)
@@ -129,6 +124,7 @@ export function createGenerator<
       const nextAction =
         value?.status === 'action' ? { name: value.action, params: value.params } : null
       const action = step?.action ?? nextAction ?? defaultAction
+      defaultAction = undefined
       if (action == null) {
         value = { status: 'end', state }
         return { value, done: true }

@@ -42,6 +42,7 @@ export class Execution<V, E extends Error = Error>
   #previous?: Execution<unknown, Error>
   #settled = false
   #signal: AbortSignal
+  #started = false
 
   constructor(executable: Executable<V, E>, executionContext: ExecutionContext = {}) {
     const chainSignals: Array<AbortSignal> = []
@@ -53,6 +54,7 @@ export class Execution<V, E extends Error = Error>
     const executableSignals = [controller.signal]
 
     const execute = (ctx: ExecuteContext<V, E>): Promise<Result<V, E | Interruption>> => {
+      this.#started = true
       if (executionContext.timeout) {
         this.#chainTimeout = ScheduledTimeout.in(executionContext.timeout, {
           message: 'Execution chain timed out',
@@ -132,6 +134,9 @@ export class Execution<V, E extends Error = Error>
 
   [Symbol.asyncDispose]() {
     this.abort(new DisposeInterruption())
+    if (!this.#started) {
+      return Promise.resolve()
+    }
     return this.then(noop, noop)
   }
 

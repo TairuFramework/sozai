@@ -283,6 +283,14 @@ describe('Execution', () => {
       await disposePromise
       expect(execution.isDisposed).toBe(true)
     })
+
+    test('disposing a never-awaited Execution does not run the executable', async () => {
+      const execute = vi.fn(() => Promise.resolve('ok'))
+      const execution = new Execution(execute)
+      await execution[Symbol.asyncDispose]()
+      expect(execute).not.toHaveBeenCalled()
+      expect(execution.isDisposed).toBe(true)
+    })
   })
 
   describe('abort method', () => {

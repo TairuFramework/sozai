@@ -212,7 +212,21 @@ export class Execution<V, E extends Error = Error>
   ): Execution<V | OutV, E | OutE> {
     const nextContext = lazy(async () => {
       const result = await this.execute()
-      const executable = fn(result)
+      let executable: Executable<V | OutV, E | OutE> | null
+      try {
+        executable = fn(result)
+      } catch (cause) {
+        const errored = Result.toError<V | OutV, E | OutE | Interruption>(
+          cause,
+          () => new Error('Execution failed', { cause }) as OutE,
+        )
+        return {
+          cleanup: () => this.#cleanup?.(),
+          execute: () => errored,
+          signal: this.#signal,
+        } as ExecuteContext<V | OutV, E | OutE>
+      }
+
       if (executable == null) {
         return {
           cleanup: () => this.#cleanup?.(),

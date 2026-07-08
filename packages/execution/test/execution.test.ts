@@ -896,6 +896,15 @@ describe('Execution', () => {
       expect(result.error).toBe(chainError)
       expect(firstExecute).toHaveBeenCalledTimes(1)
     })
+
+    test('a throwing NextFn resolves to an error Result', async () => {
+      const execution = new Execution(() => Promise.resolve('ok')).next(() => {
+        throw new Error('boom')
+      })
+      const result = await execution
+      expect(result.isError()).toBe(true)
+      expect((result.error as Error).message).toBe('boom')
+    })
   })
 
   describe('ifError method', () => {

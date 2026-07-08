@@ -206,7 +206,11 @@ describe('consume()', () => {
     }
     const promise = consume(forever(), () => {}, controller.signal)
     controller.abort() // no reason
-    await expect(promise).rejects.toBeInstanceOf(AbortInterruption)
+    const error = await promise.catch((reason) => reason)
+    expect(error).toBeInstanceOf(AbortInterruption)
+    // The auto-filled AbortError DOMException is preserved as the cause.
+    expect(error.cause).toBeInstanceOf(DOMException)
+    expect((error.cause as DOMException).name).toBe('AbortError')
   })
 })
 

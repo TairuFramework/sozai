@@ -1,5 +1,6 @@
 import { defer } from './defer.js'
 import { DisposeInterruption } from './interruptions.js'
+import { onAbort } from './on-abort.js'
 
 export type DisposerParams = {
   dispose?: (reason?: unknown) => Promise<void>
@@ -12,6 +13,7 @@ export type DisposerParams = {
  */
 export class Disposer extends AbortController implements AsyncDisposable {
   #deferred = defer<void>()
+  #unsubscribeSignal: () => void = () => {}
 
   constructor(params: DisposerParams = {}) {
     super()
@@ -20,6 +22,7 @@ export class Disposer extends AbortController implements AsyncDisposable {
     this.signal.addEventListener(
       'abort',
       () => {
+        this.#unsubscribeSignal()
         if (!disposing) {
           disposing = true
           if (params.dispose == null) {
@@ -48,9 +51,7 @@ export class Disposer extends AbortController implements AsyncDisposable {
       },
       { once: true },
     )
-    params.signal?.addEventListener('abort', () => this.dispose(params.signal?.reason), {
-      once: true,
-    })
+    this.#unsubscribeSignal = onAbort(params.signal, () => this.dispose(params.signal?.reason))
   }
 
   get disposed(): Promise<void> {

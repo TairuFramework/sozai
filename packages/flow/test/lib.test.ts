@@ -261,13 +261,15 @@ describe('createGenerator()', () => {
       action: { name: 'idle', params: { amount: 0 } },
     })
 
-    const first = await gen.next()
-    expect(first.done).toBe(false)
-    expect(first.value.status).toBe('state')
+    await expect(gen.next()).resolves.toEqual({
+      value: { status: 'state', state: { value: 0 } },
+      done: false,
+    })
 
-    const second = await gen.next()
-    expect(second.done).toBe(true)
-    expect(second.value.status).toBe('end')
+    await expect(gen.next()).resolves.toEqual({
+      value: { status: 'end', state: { value: 0 } },
+      done: true,
+    })
   })
 
   test('getState returns a frozen snapshot without freezing internal state', async () => {
@@ -287,7 +289,10 @@ describe('createGenerator()', () => {
     expect(Object.isFrozen(snapshot)).toBe(true)
 
     const result = await gen.next() // handler mutates state in place; must not throw
-    expect(result.value.state.value).toBe(1)
+    expect(result).toEqual({
+      value: { status: 'state', state: { value: 1 } },
+      done: false,
+    })
   })
 
   test('handles return() with final value', async () => {

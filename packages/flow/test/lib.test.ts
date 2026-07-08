@@ -442,4 +442,22 @@ describe('events support', () => {
       { type: 'subtract:completed', data: { result: 0 } },
     ])
   })
+
+  test('next() throws when called concurrently', async () => {
+    const handlers: HandlersRecord<State> = {
+      slow: async ({ state }) => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return { status: 'state', state }
+      },
+    }
+    const gen = createGenerator({
+      handlers,
+      state: { value: 0 },
+      action: { name: 'slow', params: { amount: 0 } },
+    })
+
+    const first = gen.next()
+    await expect(gen.next()).rejects.toThrow(/concurrent/i)
+    await first
+  })
 })

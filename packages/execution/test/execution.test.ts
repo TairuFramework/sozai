@@ -87,6 +87,19 @@ describe('Execution', () => {
       expect(execution.isTimedOut).toBe(true)
     })
 
+    test('cancels the timeout timer on successful completion', async () => {
+      vi.useFakeTimers()
+      try {
+        const execution = new Execution(() => Promise.resolve('ok'), { timeout: 1000 })
+        const result = await execution
+        expect(result.isOK()).toBe(true)
+        // A leaked timer would still be pending; after settle none should remain.
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     test('creates Execution with both signal and timeout', async () => {
       const externalController = new AbortController()
       const execute = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve('test'), 100)))

@@ -5,6 +5,7 @@ import {
   defer,
   Interruption,
   lazy,
+  onAbort,
   ScheduledTimeout,
   TimeoutInterruption,
   toPromise,
@@ -39,6 +40,7 @@ export class Execution<V, E extends Error = Error>
   #chainTimeout?: ScheduledTimeout
   #executableTimeout?: ScheduledTimeout
   #previous?: Execution<unknown, Error>
+  #settled = false
   #signal: AbortSignal
 
   constructor(executable: Executable<V, E>, executionContext: ExecutionContext = {}) {
@@ -88,34 +90,35 @@ export class Execution<V, E extends Error = Error>
       const signal = signalSources.length === 1 ? signalSources[0] : AbortSignal.any(signalSources)
       this.#signal = signal
 
-      if (signal.aborted) {
-        const result = Result.toError<V, E | Interruption>(
-          signal.reason,
-          () => new AbortInterruption({ cause: signal.reason }),
-        )
-        return Promise.resolve(result)
+      const deferred = defer<Result<V, E | Interruption>>()
+      let unsubscribeAbort: () => void = () => {}
+      const settle = (result: Result<V, E | Interruption>) => {
+        this.#settled = true
+        this.#cleanup?.()
+        unsubscribeAbort()
+        deferred.resolve(result)
       }
 
-      const deferred = defer<Result<V, E | Interruption>>()
-      toPromise(() => ctx.execute(signal))
-        .then(Result.from<V, E | Interruption>, (cause) => {
-          return Result.toError<V, E | Interruption>(
-            cause,
-            () => new Error('Execution failed', { cause }) as E,
-          )
-        })
-        .then(deferred.resolve)
-      signal.addEventListener(
-        'abort',
-        () => {
-          const result = Result.toError<V, E | Interruption>(
+      unsubscribeAbort = onAbort(signal, () => {
+        settle(
+          Result.toError<V, E | Interruption>(
             signal.reason,
             () => new AbortInterruption({ cause: signal.reason }),
-          )
-          deferred.resolve(result)
-        },
-        { once: true },
-      )
+          ),
+        )
+      })
+
+      // Already-aborted signals settled synchronously via onAbort above.
+      if (!signal.aborted) {
+        toPromise(() => ctx.execute(signal))
+          .then(Result.from<V, E | Interruption>, (cause) => {
+            return Result.toError<V, E | Interruption>(
+              cause,
+              () => new Error('Execution failed', { cause }) as E,
+            )
+          })
+          .then(settle)
+      }
       return deferred.promise
     }
 

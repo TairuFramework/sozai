@@ -96,7 +96,7 @@ export class Execution<V, E extends Error = Error>
         return Promise.resolve(result)
       }
 
-      const deferred = defer<Result<V, E | Interruption>, never>()
+      const deferred = defer<Result<V, E | Interruption>>()
       toPromise(() => ctx.execute(signal))
         .then(Result.from<V, E | Interruption>, (cause) => {
           return Result.toError<V, E | Interruption>(

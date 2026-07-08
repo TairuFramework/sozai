@@ -10,7 +10,7 @@
  * @module generator
  */
 
-import { type Deferred, defer, onAbort } from '@sozai/async'
+import { AbortInterruption, type Deferred, defer, onAbort } from '@sozai/async'
 import type { EventEmitter } from '@sozai/event'
 
 export function consume<T, TReturn = unknown>(
@@ -20,10 +20,12 @@ export function consume<T, TReturn = unknown>(
 ): Promise<TReturn> {
   let closed = false
   const ended = defer<TReturn>()
+  let unsubscribeSignal: () => void = () => {}
 
   const close = () => {
     if (closed) return
     closed = true
+    unsubscribeSignal()
     // Run the source's cleanup (finally blocks). Swallow errors so cleanup
     // failures never mask the resolve/reject reason already settled below.
     Promise.resolve(iterator.return?.()).catch(() => {})
@@ -31,16 +33,17 @@ export function consume<T, TReturn = unknown>(
 
   const abort = () => {
     close()
-    ended.reject(signal?.reason)
+    const reason = signal?.reason
+    // When abort() is called without a reason, the browser automatically creates
+    // an AbortError DOMException. Convert it to AbortInterruption.
+    if (reason instanceof DOMException && reason.name === 'AbortError') {
+      ended.reject(new AbortInterruption())
+    } else {
+      ended.reject(reason ?? new AbortInterruption())
+    }
   }
 
-  if (signal?.aborted) {
-    // Already aborted: settle immediately; the listener won't fire for
-    // signals that are aborted before addEventListener is called.
-    abort()
-  } else {
-    signal?.addEventListener('abort', abort)
-  }
+  unsubscribeSignal = onAbort(signal, abort)
 
   async function pull() {
     if (signal?.aborted) return

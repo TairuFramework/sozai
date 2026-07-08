@@ -1,3 +1,4 @@
+import { AbortInterruption } from '@sozai/async'
 import { EventEmitter } from '@sozai/event'
 import { createPipe } from '@sozai/stream'
 import { describe, expect, test } from 'vitest'
@@ -193,6 +194,19 @@ describe('consume()', () => {
     await expect(consume(iterator, () => {}, controller.signal)).rejects.toThrow('stop')
     await new Promise((resolve) => setImmediate(resolve))
     expect(returnCalls).toBe(1)
+  })
+
+  test('consume rejects with an AbortInterruption when the signal has no reason', async () => {
+    const controller = new AbortController()
+    async function* forever() {
+      while (true) {
+        yield 1
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+    }
+    const promise = consume(forever(), () => {}, controller.signal)
+    controller.abort() // no reason
+    await expect(promise).rejects.toBeInstanceOf(AbortInterruption)
   })
 })
 

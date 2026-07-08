@@ -93,7 +93,7 @@ export function createGenerator<
       return this
     },
     events,
-    getState: () => Object.freeze(value.state),
+    getState: () => Object.freeze({ ...value.state }),
     next: async (step?: GenerateNext<State, Handlers>) => {
       // Check the flow is not already ended
       if (isDoneValue(value)) {

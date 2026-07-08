@@ -251,6 +251,26 @@ describe('createGenerator()', () => {
     })
   })
 
+  test('getState returns a frozen snapshot without freezing internal state', async () => {
+    const handlers: HandlersRecord<State> = {
+      bump: ({ state }) => {
+        state.value += 1 // in-place mutation of internal state
+        return { status: 'state', state }
+      },
+    }
+    const gen = createGenerator({
+      handlers,
+      state: { value: 0 },
+      action: { name: 'bump', params: { amount: 1 } },
+    })
+
+    const snapshot = gen.getState()
+    expect(Object.isFrozen(snapshot)).toBe(true)
+
+    const result = await gen.next() // handler mutates state in place; must not throw
+    expect(result.value.state.value).toBe(1)
+  })
+
   test('handles return() with final value', async () => {
     const generator = createGenerator({ handlers, stateValidator, state: { value: 1 } })
     const value = { status: 'end' as const, state: { value: 42 } }

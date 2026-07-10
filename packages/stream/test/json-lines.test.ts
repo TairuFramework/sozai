@@ -366,8 +366,16 @@ describe('fromJSONLines()', () => {
     const [sink, result] = createArraySink<Message>()
 
     const decode = (value: string): Message => JSON.parse(value) as Message
-    source.pipeThrough(fromJSONLines({ decode })).pipeTo(sink)
+    const stream = fromJSONLines({ decode })
 
+    // Compile-time discriminator: the transform's output element is inferred as Message,
+    // not unknown. Extracted via `infer` to avoid the streams' bivariant method checks —
+    // a plain `pipeTo(sink)` would accept `unknown` silently and prove nothing.
+    type Output = typeof stream extends TransformStream<unknown, infer O> ? O : never
+    const _inferred: Message = null as unknown as Output
+    void _inferred
+
+    source.pipeThrough(stream).pipeTo(sink)
     controller.enqueue('{"kind":"ping"}\n')
     controller.close()
 

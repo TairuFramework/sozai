@@ -119,6 +119,12 @@ bug disappears with the branch that caused it. `toJSONLines` never produces such
 `JSON.stringify` escapes newlines — so only malformed peers are affected, and they should be
 told rather than have content fabricated on their behalf.
 
+#### Truncated messages at flush
+
+For consistency with the above, a message left open at end of input — still inside a string,
+or at a nesting depth above zero — reports to `onInvalidJSON` rather than being dropped in
+silence as it is today. A truncated message is corruption, and the framer says so.
+
 #### Keep whitespace in `output`
 
 `output` today holds the message with whitespace stripped, so `onInvalidJSON` receives a

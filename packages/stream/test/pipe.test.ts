@@ -70,4 +70,25 @@ describe('createPipe()', () => {
     expect(count).toBe(3)
     expect(values).toHaveLength(0)
   })
+
+  test('drain then writer.close() resolves', async () => {
+    const pipe = createPipe<string>()
+
+    const received: Array<string> = []
+    const pipePromise = pipe.readable.pipeTo(
+      new WritableStream({
+        write(chunk) {
+          received.push(chunk)
+        },
+      }),
+    )
+
+    const writer = pipe.writable.getWriter()
+    await writer.write('one')
+    await pipe.drain(pipePromise)
+
+    // drain() already closed the controller; the writer must not reject on close
+    await expect(writer.close()).resolves.toBeUndefined()
+    expect(received).toEqual(['one'])
+  })
 })

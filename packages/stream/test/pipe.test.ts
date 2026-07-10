@@ -2,6 +2,17 @@ import { describe, expect, test } from 'vitest'
 
 import { createPipe } from '../src/index.js'
 
+/**
+ * Give every already-queued microtask a chance to run. A write parked on backpressure is
+ * released only by a real read (or teardown), neither of which this schedules, so after the
+ * flush a still-pending write has provably parked — without leaning on a wall-clock timeout.
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve()
+  }
+}
+
 describe('createPipe()', () => {
   test('reads after writes', async () => {
     const { readable, writable } = createPipe<string>()
@@ -124,6 +135,27 @@ describe('createPipe()', () => {
     await expect(writer.close()).rejects.toBe(reason)
   })
 
+  test('cancel with no reason rejects the next write with undefined', async () => {
+    const { readable, writable } = createPipe<string>()
+
+    // No argument: `failure` holds `{ reason: undefined }`, so the peer write must reject with
+    // `undefined` verbatim. A `failure ??= reason` simplification would regress this to a hang.
+    await readable.cancel()
+
+    const writer = writable.getWriter()
+    let rejected = false
+    let reason: unknown = 'unset'
+    await writer.write('one').then(
+      () => {},
+      (error) => {
+        rejected = true
+        reason = error
+      },
+    )
+    expect(rejected).toBe(true)
+    expect(reason).toBeUndefined()
+  })
+
   test('without highWaterMark, writes settle with no reader attached', async () => {
     const { writable } = createPipe<string>()
     const writer = writable.getWriter()
@@ -146,7 +178,7 @@ describe('createPipe()', () => {
     })
 
     // Give the parked write every chance to settle on its own
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await flushMicrotasks()
     expect(settled).toBe(false)
 
     const reader = readable.getReader()

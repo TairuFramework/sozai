@@ -34,6 +34,8 @@ describe('fromJSONLines()', () => {
       '{"foo": "bar',
       expect.any(TransformStreamDefaultController),
     )
+    // Two framed lines each report once: '{"foo": "bar' then the 'baz"}' remnant.
+    expect(onInvalidJSON).toHaveBeenCalledTimes(2)
   })
 
   test('rejects a raw newline after a trailing backslash in a string', async () => {
@@ -51,6 +53,7 @@ describe('fromJSONLines()', () => {
       '{"foo": "bar\\',
       expect.any(TransformStreamDefaultController),
     )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(2)
   })
 
   test('parses formatted JSON', async () => {
@@ -110,6 +113,7 @@ describe('fromJSONLines()', () => {
       '{"invalid": json}',
       expect.any(TransformStreamDefaultController),
     )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
   })
 
   test('rejects messages exceeding maxMessageSize', async () => {
@@ -340,6 +344,7 @@ describe('fromJSONLines()', () => {
       '{"a":1}}{"b":2}',
       expect.any(TransformStreamDefaultController),
     )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
   })
 
   test('recovers from a stray closing bracket inside a multi-line message', async () => {
@@ -358,6 +363,7 @@ describe('fromJSONLines()', () => {
       '{"a":1}}',
       expect.any(TransformStreamDefaultController),
     )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
   })
 
   test('infers the message type from a custom decode', async () => {

@@ -2,6 +2,13 @@ import { describe, expect, test } from 'vitest'
 
 import { createConnection } from '../src/connection.js'
 
+/** See pipe.test.ts: drains queued microtasks so a still-pending write has provably parked. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve()
+  }
+}
+
 describe('createConnection()', () => {
   test('reads and writes', async () => {
     const [client, server] = createConnection<string>()
@@ -73,11 +80,33 @@ describe('createConnection()', () => {
       settled = true
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await flushMicrotasks()
     expect(settled).toBe(false)
 
     const serverReader = server.readable.getReader()
     await expect(serverReader.read()).resolves.toEqual({ done: false, value: 'one' })
+    await parked
+    expect(settled).toBe(true)
+  })
+
+  test('highWaterMark parks the server-to-client direction too', async () => {
+    // The reverse channel reuses the same createChannel, but assert it symmetrically so a
+    // regression that wired backpressure to only one direction is caught.
+    const [client, server] = createConnection<string>({ highWaterMark: 1 })
+
+    const serverWriter = server.writable.getWriter()
+    await serverWriter.write('one')
+
+    let settled = false
+    const parked = serverWriter.write('two').then(() => {
+      settled = true
+    })
+
+    await flushMicrotasks()
+    expect(settled).toBe(false)
+
+    const clientReader = client.readable.getReader()
+    await expect(clientReader.read()).resolves.toEqual({ done: false, value: 'one' })
     await parked
     expect(settled).toBe(true)
   })

@@ -123,4 +123,62 @@ describe('createPipe()', () => {
     const writer = writable.getWriter()
     await expect(writer.close()).rejects.toBe(reason)
   })
+
+  test('without highWaterMark, writes settle with no reader attached', async () => {
+    const { writable } = createPipe<string>()
+    const writer = writable.getWriter()
+
+    await expect(
+      Promise.all([writer.write('one'), writer.write('two'), writer.write('three')]),
+    ).resolves.toHaveLength(3)
+  })
+
+  test('with highWaterMark, the write past capacity parks until a read drains one', async () => {
+    const { readable, writable } = createPipe<string>({ highWaterMark: 2 })
+    const writer = writable.getWriter()
+
+    await writer.write('one')
+    await writer.write('two')
+
+    let settled = false
+    const third = writer.write('three').then(() => {
+      settled = true
+    })
+
+    // Give the parked write every chance to settle on its own
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
+
+    const reader = readable.getReader()
+    await expect(reader.read()).resolves.toEqual({ done: false, value: 'one' })
+
+    await third
+    expect(settled).toBe(true)
+  })
+
+  test('aborting while a write is parked rejects that write', async () => {
+    const { writable } = createPipe<string>({ highWaterMark: 1 })
+    const reason = new Error('gone')
+    const writer = writable.getWriter()
+
+    await writer.write('one')
+    const parked = writer.write('two')
+
+    await writer.abort(reason)
+
+    await expect(parked).rejects.toBe(reason)
+  })
+
+  test('cancelling while a write is parked rejects that write', async () => {
+    const { readable, writable } = createPipe<string>({ highWaterMark: 1 })
+    const reason = new Error('receiver left')
+    const writer = writable.getWriter()
+
+    await writer.write('one')
+    const parked = writer.write('two')
+
+    await readable.cancel(reason)
+
+    await expect(parked).rejects.toBe(reason)
+  })
 })

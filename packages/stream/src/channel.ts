@@ -1,3 +1,5 @@
+import { type Deferred, defer, onAbort } from '@sozai/async'
+
 /**
  * Internal half-duplex channel: a `ReadableStream` and the `WritableStream` that feeds it.
  *
@@ -32,6 +34,18 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
   // without its writer lock, so the reason crosses to the writable through this slot and
   // is thrown by the sink callbacks.
   let failure: { reason: unknown } | undefined
+  // Resolved by `pull` when the readable's queue has room again.
+  let capacity: Deferred<void> | undefined
+
+  function releaseCapacity(): void {
+    capacity?.resolve()
+    capacity = undefined
+  }
+
+  function rejectCapacity(reason: unknown): void {
+    capacity?.reject(reason)
+    capacity = undefined
+  }
 
   const strategy = highWaterMark == null ? undefined : new CountQueuingStrategy({ highWaterMark })
   const readable = new ReadableStream<T>(
@@ -39,9 +53,13 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
       start(ctrl) {
         controller = ctrl
       },
+      pull() {
+        releaseCapacity()
+      },
       cancel(reason) {
         closed = true
         failure ??= { reason }
+        rejectCapacity(reason)
       },
     },
     strategy,
@@ -59,10 +77,38 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
     }
   }
 
-  const writable = new WritableStream<T>({
-    write(msg) {
+  /**
+   * Wait until the readable's queue has room.
+   *
+   * Races the `pull` signal against the writable's abort signal: the streams spec defers a
+   * WritableStream's `abort` callback until any in-flight write settles, so a write parked
+   * here can only be released by the signal, never by the sink's `abort`.
+   */
+  async function waitForCapacity(signal: AbortSignal): Promise<void> {
+    while ((controller.desiredSize ?? 0) <= 0) {
+      signal.throwIfAborted()
+      capacity = defer<void>()
+      const unsubscribe = onAbort(signal, () => {
+        rejectCapacity(signal.reason)
+      })
+      try {
+        await capacity.promise
+      } finally {
+        unsubscribe()
+      }
       if (failure != null) {
         throw failure.reason
+      }
+    }
+  }
+
+  const writable = new WritableStream<T>({
+    async write(msg, ctrl) {
+      if (failure != null) {
+        throw failure.reason
+      }
+      if (highWaterMark != null) {
+        await waitForCapacity(ctrl.signal)
       }
       controller.enqueue(msg)
     },

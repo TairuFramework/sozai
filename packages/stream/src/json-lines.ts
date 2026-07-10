@@ -21,7 +21,11 @@ export type FramingLimits = {
 }
 
 export type FromJSONLinesOptions<T = unknown> = FramingLimits & {
-  decode?: DecodeJSON<unknown>
+  /**
+   * Decode one framed message. A custom implementation asserts the result is `T`; the framer
+   * performs no validation of its own.
+   */
+  decode?: DecodeJSON<T>
   onInvalidJSON?: (value: string, controller: TransformStreamDefaultController<T>) => void
 }
 

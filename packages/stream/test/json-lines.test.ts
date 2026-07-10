@@ -359,6 +359,20 @@ describe('fromJSONLines()', () => {
       expect.any(TransformStreamDefaultController),
     )
   })
+
+  test('infers the message type from a custom decode', async () => {
+    type Message = { kind: string }
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink<Message>()
+
+    const decode = (value: string): Message => JSON.parse(value) as Message
+    source.pipeThrough(fromJSONLines({ decode })).pipeTo(sink)
+
+    controller.enqueue('{"kind":"ping"}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ kind: 'ping' }])
+  })
 })
 
 test('toJSONLines() encodes values to JSON lines', async () => {

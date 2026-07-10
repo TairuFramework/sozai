@@ -18,15 +18,39 @@ describe('fromJSONLines()', () => {
     await expect(result).resolves.toEqual([{ foo: 'bar' }, { test: 'other' }])
   })
 
-  test('allows newlines in strings', async () => {
+  test('rejects a raw newline inside a string', async () => {
+    const onInvalidJSON = vi.fn()
     const [source, controller] = createReadable()
     const [sink, result] = createArraySink()
-    source.pipeThrough(fromJSONLines()).pipeTo(sink)
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
 
-    controller.enqueue('{"foo": "bar\nbaz"}')
+    controller.enqueue('{"foo": "bar\nbaz"}\n')
+    controller.enqueue('{"ok":true}\n')
     controller.close()
 
-    await expect(result).resolves.toEqual([{ foo: 'bar\nbaz' }])
+    // A raw newline in a string literal is invalid JSON: report it, do not repair it
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"foo": "bar',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
+
+  test('rejects a raw newline after a trailing backslash in a string', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"foo": "bar\\\nbaz"}\n')
+    controller.enqueue('{"ok":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"foo": "bar\\',
+      expect.any(TransformStreamDefaultController),
+    )
   })
 
   test('parses formatted JSON', async () => {

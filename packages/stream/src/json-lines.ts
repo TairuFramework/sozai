@@ -170,12 +170,13 @@ export function fromJSONLines<T = unknown>(
           input = input.slice(newLineIndex + SEPARATOR.length)
           if (feedLine(line, controller)) {
             checkBufferSize()
-            if (nestingDepth === 0 && !isInString && hasContent) {
+            if (isInString) {
+              // A raw newline inside a string literal is invalid JSON. Report it rather than
+              // fabricating escape content that never arrived on the wire.
+              invalidate(controller)
+            } else if (nestingDepth === 0 && hasContent) {
               checkOutputSize()
               emit(controller)
-            } else if (isInString) {
-              // Retained for now; Task 7 replaces this with rejection
-              output.push('\\n')
             } else if (nestingDepth === 0) {
               // Whitespace-only line: clear it so it cannot carry into the next message
               resetFramer()
@@ -195,7 +196,12 @@ export function fromJSONLines<T = unknown>(
       // transform callback, and flush only appends the decoder's pending
       // multibyte remainder (bounded) before emitting the final buffered value.
       input += decoder.decode()
-      if (feedLine(input, controller) && nestingDepth === 0 && !isInString && hasContent) {
+      if (!feedLine(input, controller)) {
+        return
+      }
+      if (isInString || nestingDepth > 0) {
+        invalidate(controller)
+      } else if (hasContent) {
         checkOutputSize()
         emit(controller)
       }

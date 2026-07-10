@@ -46,6 +46,17 @@ export function fromJSONLines<T = unknown>(
   let nestingDepth = 0
   let isInString = false
   let isEscapingChar = false
+  // Whether `output` holds any non-whitespace character. Replaces `output.length > 0` as the
+  // emit condition now that whitespace is retained, so blank lines stay silently ignored.
+  let hasContent = false
+
+  function resetFramer(): void {
+    output = []
+    nestingDepth = 0
+    isInString = false
+    isEscapingChar = false
+    hasContent = false
+  }
 
   function processChar(char: string): void {
     if (isInString) {
@@ -58,28 +69,42 @@ export function fromJSONLines<T = unknown>(
         isEscapingChar = false
       }
       output.push(char)
-    } else {
-      switch (char) {
-        case '"':
-          isInString = true
-          output.push(char)
-          break
-        case '{':
-        case '[':
-          nestingDepth++
-          output.push(char)
-          break
-        case '}':
-        case ']':
-          nestingDepth--
-          output.push(char)
-          break
-        default:
-          // Ignore whitespace using charCode comparison instead of regex
-          if (char.charCodeAt(0) > 32) {
-            output.push(char)
-          }
-      }
+      return
+    }
+    switch (char) {
+      case '"':
+        isInString = true
+        hasContent = true
+        output.push(char)
+        break
+      case '{':
+      case '[':
+        nestingDepth++
+        hasContent = true
+        output.push(char)
+        break
+      case '}':
+      case ']':
+        nestingDepth--
+        output.push(char)
+        break
+      default:
+        output.push(char)
+        // Whitespace is retained but does not make a message worth emitting.
+        // charCode comparison instead of a regex.
+        if (char.charCodeAt(0) > 32) {
+          hasContent = true
+        }
+    }
+  }
+
+  function emit(controller: TransformStreamDefaultController<T>): void {
+    const value = output.join('')
+    resetFramer()
+    try {
+      controller.enqueue(decode(value))
+    } catch {
+      onInvalidJSON(value, controller)
     }
   }
 
@@ -106,23 +131,19 @@ export function fromJSONLines<T = unknown>(
         checkBufferSize()
         let newLineIndex = input.indexOf(SEPARATOR)
         while (newLineIndex !== -1) {
-          for (const char of input.slice(0, newLineIndex)) {
+          const line = input.slice(0, newLineIndex)
+          input = input.slice(newLineIndex + SEPARATOR.length)
+          for (const char of line) {
             processChar(char)
           }
           checkBufferSize()
-          if (nestingDepth === 0 && !isInString && output.length > 0) {
+          if (nestingDepth === 0 && !isInString && hasContent) {
             checkOutputSize()
-            try {
-              controller.enqueue(decode(output.join('')))
-            } catch {
-              onInvalidJSON(output.join(''), controller)
-            }
-            output = []
+            emit(controller)
           } else if (isInString) {
-            // If we're in a string, we need to keep the newline in the output
+            // Retained for now; Task 7 replaces this with rejection
             output.push('\\n')
           }
-          input = input.slice(newLineIndex + SEPARATOR.length)
           newLineIndex = input.indexOf(SEPARATOR)
         }
       } catch (cause) {
@@ -140,13 +161,9 @@ export function fromJSONLines<T = unknown>(
       for (const char of input) {
         processChar(char)
       }
-      if (nestingDepth === 0 && !isInString && output.length > 0) {
+      if (nestingDepth === 0 && !isInString && hasContent) {
         checkOutputSize()
-        try {
-          controller.enqueue(decode(output.join('')))
-        } catch {
-          onInvalidJSON(output.join(''), controller)
-        }
+        emit(controller)
       }
     },
   )

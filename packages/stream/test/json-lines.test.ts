@@ -83,7 +83,7 @@ describe('fromJSONLines()', () => {
 
     await expect(result).resolves.toEqual([])
     expect(onInvalidJSON).toHaveBeenCalledWith(
-      '{"invalid":json}',
+      '{"invalid": json}',
       expect.any(TransformStreamDefaultController),
     )
   })
@@ -236,6 +236,21 @@ describe('fromJSONLines()', () => {
 
     await expect(resultA).resolves.toEqual([{ a: 'é' }])
     await expect(resultB).resolves.toEqual([{ b: 'ü' }])
+  })
+
+  test('ignores blank and whitespace-only lines', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('\n')
+    controller.enqueue('   \n')
+    controller.enqueue('{"foo":"bar"}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ foo: 'bar' }])
+    expect(onInvalidJSON).not.toHaveBeenCalled()
   })
 })
 

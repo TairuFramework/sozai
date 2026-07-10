@@ -1398,7 +1398,7 @@ cd packages/stream && pnpm exec vitest run test/json-lines.test.ts
 
 Expected: PASS, 20 tests.
 
-`rejects a raw newline inside a string` produces two `onInvalidJSON` calls, not one: the first for `{"foo": "bar` at the newline, the second at flush for the orphaned `baz"}` tail (which opens a string at its `"` and never closes it). `toHaveBeenCalledWith` asserts *some* call matched, so the test passes as written. Do not tighten it to `toHaveBeenCalledTimes(1)`.
+`rejects a raw newline inside a string` produces two `onInvalidJSON` calls, not one. The input holds two newlines, so the `transform` loop frames two lines and invalidates both: `{"foo": "bar`, which ends inside a string, and then `baz"}`, whose `"` opens a string that never closes. Both calls happen in `transform` — `flush` sees an empty `input` and does nothing. `toHaveBeenCalledWith` asserts *some* call matched, so the test passes as written. Do not tighten it to `toHaveBeenCalledTimes(1)`.
 
 - [ ] **Step 6: Verify nothing else regressed**
 

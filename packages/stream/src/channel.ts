@@ -70,6 +70,10 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
       return
     }
     closed = true
+    // Settle any write parked on backpressure. It cannot be enqueued after close, so reject
+    // it rather than leave its promise dangling. (cancel/abort already settle the parked write;
+    // close is the third teardown path and must too.)
+    rejectCapacity(new Error('Stream closed'))
     try {
       controller.close()
     } catch {

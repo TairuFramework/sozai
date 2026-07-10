@@ -181,4 +181,16 @@ describe('createPipe()', () => {
 
     await expect(parked).rejects.toBe(reason)
   })
+
+  test('drain settles a write parked on backpressure instead of hanging', async () => {
+    const pipe = createPipe<string>({ highWaterMark: 1 })
+    const writer = pipe.writable.getWriter()
+
+    await writer.write('a') // fills the single slot
+    const parked = writer.write('b') // parks on backpressure
+
+    // drain closes the readable underneath the parked write; it must settle, not dangle
+    await pipe.drain(Promise.resolve())
+    await expect(parked).rejects.toThrow()
+  })
 })

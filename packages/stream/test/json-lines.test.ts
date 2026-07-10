@@ -283,6 +283,58 @@ describe('fromJSONLines()', () => {
     // `{}` is 2 characters; the 3 spaces on the prior line must not count against the cap
     await expect(result).resolves.toEqual([{}])
   })
+
+  test('recovers from a stray closing bracket', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"first":1}\n')
+    controller.enqueue(']\n')
+    controller.enqueue('{"second":2}\n')
+    controller.close()
+
+    // The stray bracket costs exactly one message; the framer keeps going
+    await expect(result).resolves.toEqual([{ first: 1 }, { second: 2 }])
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
+    expect(onInvalidJSON).toHaveBeenCalledWith(']', expect.any(TransformStreamDefaultController))
+  })
+
+  test('reports the whole offending line when a bracket unbalances mid-line', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"a":1}}{"b":2}\n')
+    controller.enqueue('{"ok":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"a":1}}{"b":2}',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
+
+  test('recovers from a stray closing bracket inside a multi-line message', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{\n')
+    controller.enqueue('"a":1}}\n')
+    controller.enqueue('{"next":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ next: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"a":1}}',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
 })
 
 test('toJSONLines() encodes values to JSON lines', async () => {

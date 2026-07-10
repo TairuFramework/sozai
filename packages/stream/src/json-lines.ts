@@ -58,7 +58,8 @@ export function fromJSONLines<T = unknown>(
     hasContent = false
   }
 
-  function processChar(char: string): void {
+  /** Returns false when the character unbalances the framer beyond recovery. */
+  function processChar(char: string): boolean {
     if (isInString) {
       if (char === '\\') {
         isEscapingChar = !isEscapingChar
@@ -69,25 +70,29 @@ export function fromJSONLines<T = unknown>(
         isEscapingChar = false
       }
       output.push(char)
-      return
+      return true
     }
     switch (char) {
       case '"':
         isInString = true
         hasContent = true
         output.push(char)
-        break
+        return true
       case '{':
       case '[':
         nestingDepth++
         hasContent = true
         output.push(char)
-        break
+        return true
       case '}':
       case ']':
-        nestingDepth--
         output.push(char)
-        break
+        if (nestingDepth === 0) {
+          // A closing bracket with nothing open. Everything accumulated is garbage.
+          return false
+        }
+        nestingDepth--
+        return true
       default:
         output.push(char)
         // Whitespace is retained but does not make a message worth emitting.
@@ -95,6 +100,7 @@ export function fromJSONLines<T = unknown>(
         if (char.charCodeAt(0) > 32) {
           hasContent = true
         }
+        return true
     }
   }
 
@@ -106,6 +112,35 @@ export function fromJSONLines<T = unknown>(
     } catch {
       onInvalidJSON(value, controller)
     }
+  }
+
+  function invalidate(controller: TransformStreamDefaultController<T>): void {
+    const value = output.join('')
+    resetFramer()
+    onInvalidJSON(value, controller)
+  }
+
+  /**
+   * Feed one framed line through the state machine.
+   *
+   * Returns false when the line corrupted the framer, in which case the accumulated message
+   * has already been reported to `onInvalidJSON` and the state reset. The remainder of a
+   * corrupt line is captured verbatim so the report shows what actually arrived.
+   */
+  function feedLine(line: string, controller: TransformStreamDefaultController<T>): boolean {
+    let corrupt = false
+    for (const char of line) {
+      if (corrupt) {
+        output.push(char)
+      } else if (!processChar(char)) {
+        corrupt = true
+      }
+    }
+    if (corrupt) {
+      invalidate(controller)
+      return false
+    }
+    return true
   }
 
   function checkOutputSize(): void {
@@ -133,20 +168,18 @@ export function fromJSONLines<T = unknown>(
         while (newLineIndex !== -1) {
           const line = input.slice(0, newLineIndex)
           input = input.slice(newLineIndex + SEPARATOR.length)
-          for (const char of line) {
-            processChar(char)
-          }
-          checkBufferSize()
-          if (nestingDepth === 0 && !isInString && hasContent) {
-            checkOutputSize()
-            emit(controller)
-          } else if (isInString) {
-            // Retained for now; Task 7 replaces this with rejection
-            output.push('\\n')
-          } else if (nestingDepth === 0) {
-            // A whitespace-only line: nothing to emit, but its characters must not carry
-            // into the next message. `emit` is the only other path that clears `output`.
-            resetFramer()
+          if (feedLine(line, controller)) {
+            checkBufferSize()
+            if (nestingDepth === 0 && !isInString && hasContent) {
+              checkOutputSize()
+              emit(controller)
+            } else if (isInString) {
+              // Retained for now; Task 7 replaces this with rejection
+              output.push('\\n')
+            } else if (nestingDepth === 0) {
+              // Whitespace-only line: clear it so it cannot carry into the next message
+              resetFramer()
+            }
           }
           newLineIndex = input.indexOf(SEPARATOR)
         }
@@ -162,10 +195,7 @@ export function fromJSONLines<T = unknown>(
       // transform callback, and flush only appends the decoder's pending
       // multibyte remainder (bounded) before emitting the final buffered value.
       input += decoder.decode()
-      for (const char of input) {
-        processChar(char)
-      }
-      if (nestingDepth === 0 && !isInString && hasContent) {
+      if (feedLine(input, controller) && nestingDepth === 0 && !isInString && hasContent) {
         checkOutputSize()
         emit(controller)
       }

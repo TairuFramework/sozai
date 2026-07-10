@@ -91,4 +91,36 @@ describe('createPipe()', () => {
     await expect(writer.close()).resolves.toBeUndefined()
     expect(received).toEqual(['one'])
   })
+
+  test('abort errors the readable with the same reason', async () => {
+    const { readable, writable } = createPipe<string>()
+    const reason = new Error('gone')
+
+    const reader = readable.getReader()
+    const read = reader.read()
+
+    await writable.abort(reason)
+
+    await expect(read).rejects.toBe(reason)
+  })
+
+  test('cancel rejects the next write with the cancel reason', async () => {
+    const { readable, writable } = createPipe<string>()
+    const reason = new Error('receiver left')
+
+    await readable.cancel(reason)
+
+    const writer = writable.getWriter()
+    await expect(writer.write('one')).rejects.toBe(reason)
+  })
+
+  test('cancel rejects a subsequent close with the cancel reason', async () => {
+    const { readable, writable } = createPipe<string>()
+    const reason = new Error('receiver left')
+
+    await readable.cancel(reason)
+
+    const writer = writable.getWriter()
+    await expect(writer.close()).rejects.toBe(reason)
+  })
 })

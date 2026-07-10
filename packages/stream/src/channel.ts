@@ -28,12 +28,20 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
 
   let controller: ReadableStreamDefaultController<T>
   let closed = false
+  // Set when the readable is cancelled. A WritableStream cannot be errored from outside
+  // without its writer lock, so the reason crosses to the writable through this slot and
+  // is thrown by the sink callbacks.
+  let failure: { reason: unknown } | undefined
 
   const strategy = highWaterMark == null ? undefined : new CountQueuingStrategy({ highWaterMark })
   const readable = new ReadableStream<T>(
     {
       start(ctrl) {
         controller = ctrl
+      },
+      cancel(reason) {
+        closed = true
+        failure ??= { reason }
       },
     },
     strategy,
@@ -53,10 +61,23 @@ export function createChannel<T>(options: ChannelOptions = {}): Channel<T> {
 
   const writable = new WritableStream<T>({
     write(msg) {
+      if (failure != null) {
+        throw failure.reason
+      }
       controller.enqueue(msg)
     },
     close() {
+      if (failure != null) {
+        throw failure.reason
+      }
       close()
+    },
+    abort(reason) {
+      if (closed) {
+        return
+      }
+      closed = true
+      controller.error(reason)
     },
   })
 

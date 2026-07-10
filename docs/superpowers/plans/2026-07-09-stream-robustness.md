@@ -1436,7 +1436,11 @@ report as invalid too, rather than being dropped in silence."
 
 - [ ] **Step 1: Write the failing test**
 
-A caller passing a custom `decode` should get `T` inferred from it, with no cast at the call site. Append inside `describe('fromJSONLines()')`:
+A caller passing a custom `decode` should get `T` inferred from it, with no cast at the call site.
+
+The obvious way to assert this — pipe into a `Message`-typed sink and let `pipeTo` reject a mismatch — does **not** work, and it is worth knowing why before writing the test. The WHATWG streams interfaces declare `read`/`write` with method syntax, so TypeScript checks their parameters *bivariantly*. A `TransformStream<…, unknown>` therefore assigns cleanly to a `WritableStream<Message>` sink, and even a direct `const t: TransformStream<…, Message> = fromJSONLines({ decode })` annotation is accepted when `T` has silently defaulted to `unknown`. Both forms pass identically against the buggy `DecodeJSON<unknown>` and the fixed `DecodeJSON<T>`, so neither discriminates.
+
+The one form that does discriminate extracts the transform's output element type with a conditional `infer` and assigns it to `Message` — ordinary covariant assignability, no method in the path. On the buggy type `Output` is `unknown`, and `unknown` is not assignable to `Message`; on the fixed type `Output` is `Message`. Append inside `describe('fromJSONLines()')`:
 
 ```ts
   test('infers the message type from a custom decode', async () => {
@@ -1445,8 +1449,16 @@ A caller passing a custom `decode` should get `T` inferred from it, with no cast
     const [sink, result] = createArraySink<Message>()
 
     const decode = (value: string): Message => JSON.parse(value) as Message
-    source.pipeThrough(fromJSONLines({ decode })).pipeTo(sink)
+    const stream = fromJSONLines({ decode })
 
+    // Compile-time discriminator: the transform's output element is inferred as Message,
+    // not unknown. Extracted via `infer` to avoid the streams' bivariant method checks —
+    // a plain `pipeTo(sink)` would accept `unknown` silently and prove nothing.
+    type Output = typeof stream extends TransformStream<unknown, infer O> ? O : never
+    const _inferred: Message = null as unknown as Output
+    void _inferred
+
+    source.pipeThrough(stream).pipeTo(sink)
     controller.enqueue('{"kind":"ping"}\n')
     controller.close()
 
@@ -1460,7 +1472,7 @@ A caller passing a custom `decode` should get `T` inferred from it, with no cast
 cd packages/stream && pnpm exec tsc --noEmit -p tsconfig.test.json
 ```
 
-Expected: FAIL. `decode` is declared `DecodeJSON<unknown>`, so `T` cannot be inferred from it and defaults to `unknown`; `pipeTo(sink)` then errors with `Type 'ReadableStream<unknown>' is not assignable to ... ReadableStream<Message>`.
+Expected: FAIL with `error TS2322: Type 'unknown' is not assignable to type 'Message'` at the `const _inferred: Message` line. `decode` is declared `DecodeJSON<unknown>`, so `T` cannot be inferred from it and defaults to `unknown`, making `Output` resolve to `unknown`. This is the assertion the whole task turns on — confirm you see this exact error before changing the type, because the vitest run stays green either way (it strips types).
 
 - [ ] **Step 3: Change the type**
 

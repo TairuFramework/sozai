@@ -94,10 +94,25 @@ itself rather than the implementations:
   did), so `drain()` racing a parked write hung it forever and lost its message. Fixed to reject the
   parked write — resolving would re-park it against a closed controller whose `desiredSize` is `0`.
 
-Landed on branch `stream-robustness`, 16 commits above `main`. Final state: 48 tests passing across
+Landed on branch `stream-robustness`, 19 commits above `main`. Final state: 50 tests passing across
 5 files, `tsc` and `biome` clean.
 
 ## Follow-on
 
-Minor test-hardening items, none merge-blocking, captured in
-[stream-test-hardening](../backlog/2026-07-09-stream-test-hardening.md).
+A round of test-hardening followed the core work and is complete — all test-only, no shipped
+behaviour changed:
+
+- **`readable.cancel()` with no argument is pinned.** Cancelling with no reason sets the internal
+  `failure` slot to `{ reason: undefined }`, so the peer's next write rejects with `undefined`
+  verbatim. A test now guards this against a `failure ??= reason` simplification that would regress
+  it to a hang.
+- **Timing-based non-settlement assertions removed.** The backpressure/park tests proved a promise
+  had *not* settled by awaiting a real 10ms `setTimeout` (a latent flake); they now use a
+  deterministic `flushMicrotasks()` helper — a parked write is released only by a real read, so
+  after the flush a still-pending write has provably parked.
+- **`createConnection` backpressure asserted in both directions.** The reverse (server→client)
+  channel reuses the same `createChannel`, but a symmetric assertion now closes the gap.
+- **Call counts asserted on the json-lines corrupt-line tests.** The two raw-newline cases fire
+  `onInvalidJSON` twice (offending line plus the trailing remnant framed as a second line); the
+  mid-line-unbalance, multi-line stray-bracket, and single-line invalid cases fire once. Counts
+  confirmed empirically.

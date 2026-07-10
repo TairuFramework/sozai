@@ -832,7 +832,40 @@ This is the one behavior the `hasContent` flag exists to preserve. Append inside
     await expect(result).resolves.toEqual([{ foo: 'bar' }])
     expect(onInvalidJSON).not.toHaveBeenCalled()
   })
+
+  test('a discarded whitespace-only line does not leak into the next message', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('bad json\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([])
+    // The reported text is the offending line, not the prior line's whitespace spliced on
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      'bad json',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
+
+  test('a discarded whitespace-only line does not consume maxMessageSize', async () => {
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ maxMessageSize: 4 })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('{}\n')
+    controller.close()
+
+    // `{}` is 2 characters; the 3 spaces on the prior line must not count against the cap
+    await expect(result).resolves.toEqual([{}])
+  })
 ```
+
+The `ignores blank and whitespace-only lines` test above passes even with `output` never cleared, because `JSON.parse` tolerates leading whitespace. The two tests that follow it are the ones that actually pin the reset: without it, the first reports `'   bad json'` and the second throws `Message size 5 exceeds maximum message size of 4`.
 
 - [ ] **Step 3: Run tests to verify they fail**
 
@@ -944,6 +977,10 @@ Then rewrite the `transform` and `flush` callbacks (currently lines 102-152) to 
           } else if (isInString) {
             // Retained for now; Task 7 replaces this with rejection
             output.push('\\n')
+          } else if (nestingDepth === 0) {
+            // A whitespace-only line: nothing to emit, but its characters must not carry
+            // into the next message. `emit` is the only other path that clears `output`.
+            resetFramer()
           }
           newLineIndex = input.indexOf(SEPARATOR)
         }
@@ -1185,6 +1222,9 @@ Rewrite the `transform` and `flush` callbacks to route through `feedLine`:
             } else if (isInString) {
               // Retained for now; Task 7 replaces this with rejection
               output.push('\\n')
+            } else if (nestingDepth === 0) {
+              // Whitespace-only line: clear it so it cannot carry into the next message
+              resetFramer()
             }
           }
           newLineIndex = input.indexOf(SEPARATOR)
@@ -1321,6 +1361,9 @@ In `packages/stream/src/json-lines.ts`, delete the `else if (isInString)` branch
             } else if (nestingDepth === 0 && hasContent) {
               checkOutputSize()
               emit(controller)
+            } else if (nestingDepth === 0) {
+              // Whitespace-only line: clear it so it cannot carry into the next message
+              resetFramer()
             }
           }
           newLineIndex = input.indexOf(SEPARATOR)

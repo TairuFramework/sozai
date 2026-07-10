@@ -252,6 +252,37 @@ describe('fromJSONLines()', () => {
     await expect(result).resolves.toEqual([{ foo: 'bar' }])
     expect(onInvalidJSON).not.toHaveBeenCalled()
   })
+
+  test('a discarded whitespace-only line does not leak into the next message', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('bad json\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([])
+    // The reported text is the offending line, not the prior line's whitespace spliced on
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      'bad json',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
+
+  test('a discarded whitespace-only line does not consume maxMessageSize', async () => {
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ maxMessageSize: 4 })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('{}\n')
+    controller.close()
+
+    // `{}` is 2 characters; the 3 spaces on the prior line must not count against the cap
+    await expect(result).resolves.toEqual([{}])
+  })
 })
 
 test('toJSONLines() encodes values to JSON lines', async () => {

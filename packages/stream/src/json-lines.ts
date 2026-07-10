@@ -143,6 +143,10 @@ export function fromJSONLines<T = unknown>(
           } else if (isInString) {
             // Retained for now; Task 7 replaces this with rejection
             output.push('\\n')
+          } else if (nestingDepth === 0) {
+            // A whitespace-only line: nothing to emit, but its characters must not carry
+            // into the next message. `emit` is the only other path that clears `output`.
+            resetFramer()
           }
           newLineIndex = input.indexOf(SEPARATOR)
         }

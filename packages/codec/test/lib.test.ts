@@ -335,4 +335,12 @@ describe('fromB64()', () => {
   test('accepts an empty string', () => {
     expect(() => fromB64('')).not.toThrow()
   })
+
+  test('rejects whitespace-only input', () => {
+    // Distinct from the empty string: trimming must not turn a non-empty, meaningless input
+    // into a silently accepted empty result.
+    expect(() => fromB64('   ')).toThrow('Invalid base64')
+    expect(() => fromB64('\n')).toThrow('Invalid base64')
+    expect(() => fromB64('\t')).toThrow('Invalid base64')
+  })
 })

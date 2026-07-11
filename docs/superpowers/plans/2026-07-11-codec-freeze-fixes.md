@@ -438,7 +438,7 @@ All four codec functions now feature-detect with `typeof ... === 'function'`; th
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run`
-Expected: PASS — 56 tests.
+Expected: PASS — 57 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -567,7 +567,7 @@ Expected: PASS — 5 tests. These characterise behaviour that Tasks 1 and 4 alre
 - [ ] **Step 4: Run the full suite**
 
 Run: `npx vitest run`
-Expected: PASS — 61 tests.
+Expected: PASS — 62 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -623,7 +623,7 @@ If `packages/codec/README.md` documents padded base64url output anywhere, fix it
 - [ ] **Step 3: Run the package's full verification**
 
 Run: `cd packages/codec && npx tsc --noEmit -p tsconfig.test.json && npx vitest run && npx biome check src test`
-Expected: typecheck exits 0 with no output; 61 tests pass; biome reports no errors.
+Expected: typecheck exits 0 with no output; 62 tests pass; biome reports no errors.
 
 - [ ] **Step 4: Confirm nothing else in the repo regressed**
 
@@ -648,5 +648,5 @@ git commit -m "chore(codec): changeset for the freeze-blocker fixes"
 - `fromB64U` still decodes padded input, so pre-existing tokens verify.
 - `toUTF`, `canonicalStringify`, and `fromB64` all throw on bad input rather than returning a degraded value.
 - All four codec functions feature-detect with `typeof ... === 'function'`.
-- 61 tests pass; typecheck and biome are clean.
+- 62 tests pass; typecheck and biome are clean.
 - A `minor` changeset exists for `@sozai/codec`.

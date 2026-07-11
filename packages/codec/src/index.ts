@@ -48,11 +48,13 @@ const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
  *
  * Surrounding whitespace is tolerated — base64 commonly arrives from files, environment
  * variables, and CLI flags with a trailing newline. Embedded whitespace and any character
- * outside the standard alphabet throw `Error('Invalid base64 encoding')`.
+ * outside the standard alphabet throw `Error('Invalid base64 encoding')`. A whitespace-only
+ * string is rejected too: it is distinct from the empty string, which is accepted and decodes
+ * to an empty `Uint8Array`.
  */
 export function fromB64(base64: string): Uint8Array {
   const trimmed = base64.trim()
-  if (!B64_RE.test(trimmed)) {
+  if ((base64.length > 0 && trimmed.length === 0) || !B64_RE.test(trimmed)) {
     throw new Error('Invalid base64 encoding')
   }
   return typeof Uint8Array.fromBase64 === 'function'

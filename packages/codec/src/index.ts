@@ -41,7 +41,19 @@ export function fromB64atob(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (m) => m.codePointAt(0) as number)
 }
 
+const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
+
+/**
+ * Convert a base64-encoded string to a Uint8Array.
+ *
+ * Throws if the input is not well-formed base64. The guard is what keeps the native and
+ * `atob` paths in agreement: `atob` follows forgiving-base64 and would strip embedded
+ * whitespace that the native decoder rejects.
+ */
 export function fromB64(base64: string): Uint8Array {
+  if (!B64_RE.test(base64)) {
+    throw new Error('Invalid base64 encoding')
+  }
   return typeof Uint8Array.fromBase64 === 'function'
     ? Uint8Array.fromBase64(base64, { alphabet: 'base64' })
     : fromB64atob(base64)
@@ -69,7 +81,7 @@ export function fromB64U(base64url: string): Uint8Array {
  * Convert a Uint8Array to a base64-encoded string.
  */
 export function toB64(bytes: Uint8Array): string {
-  if ('toBase64' in bytes) {
+  if (typeof Uint8Array.prototype.toBase64 === 'function') {
     return bytes.toBase64({ alphabet: 'base64' })
   }
   return btoa(Array.from(bytes, (byte: number) => String.fromCodePoint(byte)).join(''))

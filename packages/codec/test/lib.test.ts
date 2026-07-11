@@ -286,3 +286,40 @@ describe('canonicalStringify() non-serializable values', () => {
     expect(canonicalStringify({ a: undefined, b: 1 })).toBe('{"b":1}')
   })
 })
+
+describe('fromB64()', () => {
+  test('rejects input containing whitespace', () => {
+    // The native path rejects this; the atob fallback would silently strip the space.
+    // The guard is what makes both runtimes agree.
+    expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
+  })
+
+  test('rejects input containing base64url characters', () => {
+    expect(() => fromB64('aGVs-bG8')).toThrow('Invalid base64')
+    expect(() => fromB64('aGVs_bG8')).toThrow('Invalid base64')
+  })
+
+  test('rejects input containing invalid characters', () => {
+    expect(() => fromB64('aGVs!bG8')).toThrow('Invalid base64')
+    expect(() => fromB64('aGVs@bG8#')).toThrow('Invalid base64')
+  })
+
+  test('rejects input with padding in an invalid position', () => {
+    expect(() => fromB64('aGVs=bG8')).toThrow('Invalid base64')
+    expect(() => fromB64('aGVsbG8===')).toThrow('Invalid base64')
+  })
+
+  test('accepts padded standard base64', () => {
+    expect(equals(fromB64('AQID'), new Uint8Array([1, 2, 3]))).toBe(true)
+    expect(equals(fromB64('aGk='), new Uint8Array([104, 105]))).toBe(true)
+    expect(equals(fromB64('YQ=='), new Uint8Array([97]))).toBe(true)
+  })
+
+  test('accepts the standard alphabet', () => {
+    expect(equals(fromB64('+/8='), new Uint8Array([0xfb, 0xff]))).toBe(true)
+  })
+
+  test('accepts an empty string', () => {
+    expect(() => fromB64('')).not.toThrow()
+  })
+})

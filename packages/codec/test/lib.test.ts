@@ -434,8 +434,12 @@ describe('atob fallback path', () => {
       expect(typeof Uint8Array.fromBase64).not.toBe('function')
 
       const bytes = new Uint8Array([104, 101, 108, 108, 111])
-      // Proves the *trimmed* string reaches the fallback decoder, not the untrimmed original.
+      // atob() strips ASCII whitespace itself, so this alone doesn't prove trimming is
+      // load-bearing — fromB64atob(trimmed) and fromB64atob(base64) are indistinguishable here.
       expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
+      // NBSP is stripped by trim() but rejected by atob() — this only passes if the trimmed
+      // string is what reaches the fallback decoder.
+      expect(equals(fromB64(' aGVsbG8= '), bytes)).toBe(true)
       expect(equals(fromB64U('aGVsbG8='), bytes)).toBe(true)
       expect(equals(fromB64U('aGVsbG8'), bytes)).toBe(true)
 

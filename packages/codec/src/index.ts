@@ -157,6 +157,11 @@ export function fromUTF(value: string): Uint8Array {
  * Throws a `TypeError` if the bytes are not valid UTF-8. Decoding is deliberately strict:
  * this codec sits under signature verification, where silently substituting U+FFFD would let
  * corrupted bytes decode to a plausible string.
+ *
+ * A leading BOM (U+FEFF) is preserved rather than stripped, so `toUTF(fromUTF(x)) === x` holds
+ * even when `x` starts with one. Consequently {@link b64uToJSON} on a payload whose decoded
+ * bytes begin with the UTF-8 BOM (`EF BB BF`) will have that BOM reach `JSON.parse`, which
+ * rejects it and throws a `SyntaxError` — this codec does not strip it on the caller's behalf.
  */
 export function toUTF(bytes: Uint8Array): string {
   return decoder.decode(bytes)

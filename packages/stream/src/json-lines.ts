@@ -21,7 +21,11 @@ export type FramingLimits = {
 }
 
 export type FromJSONLinesOptions<T = unknown> = FramingLimits & {
-  decode?: DecodeJSON<unknown>
+  /**
+   * Decode one framed message. A custom implementation asserts the result is `T`; the framer
+   * performs no validation of its own.
+   */
+  decode?: DecodeJSON<T>
   onInvalidJSON?: (value: string, controller: TransformStreamDefaultController<T>) => void
 }
 
@@ -46,8 +50,20 @@ export function fromJSONLines<T = unknown>(
   let nestingDepth = 0
   let isInString = false
   let isEscapingChar = false
+  // Whether `output` holds any non-whitespace character. Replaces `output.length > 0` as the
+  // emit condition now that whitespace is retained, so blank lines stay silently ignored.
+  let hasContent = false
 
-  function processChar(char: string): void {
+  function resetFramer(): void {
+    output = []
+    nestingDepth = 0
+    isInString = false
+    isEscapingChar = false
+    hasContent = false
+  }
+
+  /** Returns false when the character unbalances the framer beyond recovery. */
+  function processChar(char: string): boolean {
     if (isInString) {
       if (char === '\\') {
         isEscapingChar = !isEscapingChar
@@ -58,29 +74,77 @@ export function fromJSONLines<T = unknown>(
         isEscapingChar = false
       }
       output.push(char)
-    } else {
-      switch (char) {
-        case '"':
-          isInString = true
-          output.push(char)
-          break
-        case '{':
-        case '[':
-          nestingDepth++
-          output.push(char)
-          break
-        case '}':
-        case ']':
-          nestingDepth--
-          output.push(char)
-          break
-        default:
-          // Ignore whitespace using charCode comparison instead of regex
-          if (char.charCodeAt(0) > 32) {
-            output.push(char)
-          }
+      return true
+    }
+    switch (char) {
+      case '"':
+        isInString = true
+        hasContent = true
+        output.push(char)
+        return true
+      case '{':
+      case '[':
+        nestingDepth++
+        hasContent = true
+        output.push(char)
+        return true
+      case '}':
+      case ']':
+        output.push(char)
+        if (nestingDepth === 0) {
+          // A closing bracket with nothing open. Everything accumulated is garbage.
+          return false
+        }
+        nestingDepth--
+        return true
+      default:
+        output.push(char)
+        // Whitespace is retained but does not make a message worth emitting.
+        // charCode comparison instead of a regex.
+        if (char.charCodeAt(0) > 32) {
+          hasContent = true
+        }
+        return true
+    }
+  }
+
+  function emit(controller: TransformStreamDefaultController<T>): void {
+    const value = output.join('')
+    resetFramer()
+    try {
+      controller.enqueue(decode(value))
+    } catch {
+      onInvalidJSON(value, controller)
+    }
+  }
+
+  function invalidate(controller: TransformStreamDefaultController<T>): void {
+    const value = output.join('')
+    resetFramer()
+    onInvalidJSON(value, controller)
+  }
+
+  /**
+   * Feed one framed line through the state machine.
+   *
+   * Returns false when the line corrupted the framer, in which case the accumulated message
+   * has already been reported to `onInvalidJSON` and the state reset. The remainder of a
+   * corrupt line is captured verbatim so the report shows what actually arrived.
+   */
+  function feedLine(line: string, controller: TransformStreamDefaultController<T>): boolean {
+    let corrupt = false
+    for (const char of line) {
+      if (corrupt) {
+        output.push(char)
+      } else if (!processChar(char)) {
+        corrupt = true
       }
     }
+    if (corrupt) {
+      invalidate(controller)
+      return false
+    }
+    return true
   }
 
   function checkOutputSize(): void {
@@ -106,23 +170,22 @@ export function fromJSONLines<T = unknown>(
         checkBufferSize()
         let newLineIndex = input.indexOf(SEPARATOR)
         while (newLineIndex !== -1) {
-          for (const char of input.slice(0, newLineIndex)) {
-            processChar(char)
-          }
-          checkBufferSize()
-          if (nestingDepth === 0 && !isInString && output.length > 0) {
-            checkOutputSize()
-            try {
-              controller.enqueue(decode(output.join('')))
-            } catch {
-              onInvalidJSON(output.join(''), controller)
-            }
-            output = []
-          } else if (isInString) {
-            // If we're in a string, we need to keep the newline in the output
-            output.push('\\n')
-          }
+          const line = input.slice(0, newLineIndex)
           input = input.slice(newLineIndex + SEPARATOR.length)
+          if (feedLine(line, controller)) {
+            checkBufferSize()
+            if (isInString) {
+              // A raw newline inside a string literal is invalid JSON. Report it rather than
+              // fabricating escape content that never arrived on the wire.
+              invalidate(controller)
+            } else if (nestingDepth === 0 && hasContent) {
+              checkOutputSize()
+              emit(controller)
+            } else if (nestingDepth === 0) {
+              // Whitespace-only line: clear it so it cannot carry into the next message
+              resetFramer()
+            }
+          }
           newLineIndex = input.indexOf(SEPARATOR)
         }
       } catch (cause) {
@@ -137,16 +200,14 @@ export function fromJSONLines<T = unknown>(
       // transform callback, and flush only appends the decoder's pending
       // multibyte remainder (bounded) before emitting the final buffered value.
       input += decoder.decode()
-      for (const char of input) {
-        processChar(char)
+      if (!feedLine(input, controller)) {
+        return
       }
-      if (nestingDepth === 0 && !isInString && output.length > 0) {
+      if (isInString || nestingDepth > 0) {
+        invalidate(controller)
+      } else if (hasContent) {
         checkOutputSize()
-        try {
-          controller.enqueue(decode(output.join('')))
-        } catch {
-          onInvalidJSON(output.join(''), controller)
-        }
+        emit(controller)
       }
     },
   )

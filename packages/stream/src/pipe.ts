@@ -1,5 +1,4 @@
-import { createReadable } from './readable.js'
-import { writeTo } from './writable.js'
+import { type ChannelOptions, createChannel } from './channel.js'
 
 export type Pipe<T> = ReadableWritablePair<T, T> & {
   drain: (pipePromise: Promise<void>) => Promise<void>
@@ -12,24 +11,11 @@ export type Pipe<T> = ReadableWritablePair<T, T> & {
  * writable's writer lock) and waits for the given `pipePromise` to flush all
  * buffered values.
  */
-export function createPipe<T>(): Pipe<T> {
-  const [readable, controller] = createReadable<T>()
-
-  const writable = writeTo<T>(
-    (msg) => {
-      controller.enqueue(msg)
-    },
-    () => {
-      controller.close()
-    },
-  )
+export function createPipe<T>(options: ChannelOptions = {}): Pipe<T> {
+  const { readable, writable, close } = createChannel<T>(options)
 
   async function drain(pipePromise: Promise<void>): Promise<void> {
-    try {
-      controller.close()
-    } catch {
-      // Controller may already be closed
-    }
+    close()
     try {
       await pipePromise
     } catch {

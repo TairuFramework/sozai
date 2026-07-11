@@ -18,15 +18,42 @@ describe('fromJSONLines()', () => {
     await expect(result).resolves.toEqual([{ foo: 'bar' }, { test: 'other' }])
   })
 
-  test('allows newlines in strings', async () => {
+  test('rejects a raw newline inside a string', async () => {
+    const onInvalidJSON = vi.fn()
     const [source, controller] = createReadable()
     const [sink, result] = createArraySink()
-    source.pipeThrough(fromJSONLines()).pipeTo(sink)
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
 
-    controller.enqueue('{"foo": "bar\nbaz"}')
+    controller.enqueue('{"foo": "bar\nbaz"}\n')
+    controller.enqueue('{"ok":true}\n')
     controller.close()
 
-    await expect(result).resolves.toEqual([{ foo: 'bar\nbaz' }])
+    // A raw newline in a string literal is invalid JSON: report it, do not repair it
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"foo": "bar',
+      expect.any(TransformStreamDefaultController),
+    )
+    // Two framed lines each report once: '{"foo": "bar' then the 'baz"}' remnant.
+    expect(onInvalidJSON).toHaveBeenCalledTimes(2)
+  })
+
+  test('rejects a raw newline after a trailing backslash in a string', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"foo": "bar\\\nbaz"}\n')
+    controller.enqueue('{"ok":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"foo": "bar\\',
+      expect.any(TransformStreamDefaultController),
+    )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(2)
   })
 
   test('parses formatted JSON', async () => {
@@ -83,9 +110,10 @@ describe('fromJSONLines()', () => {
 
     await expect(result).resolves.toEqual([])
     expect(onInvalidJSON).toHaveBeenCalledWith(
-      '{"invalid":json}',
+      '{"invalid": json}',
       expect.any(TransformStreamDefaultController),
     )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
   })
 
   test('rejects messages exceeding maxMessageSize', async () => {
@@ -236,6 +264,128 @@ describe('fromJSONLines()', () => {
 
     await expect(resultA).resolves.toEqual([{ a: 'é' }])
     await expect(resultB).resolves.toEqual([{ b: 'ü' }])
+  })
+
+  test('ignores blank and whitespace-only lines', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('\n')
+    controller.enqueue('   \n')
+    controller.enqueue('{"foo":"bar"}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ foo: 'bar' }])
+    expect(onInvalidJSON).not.toHaveBeenCalled()
+  })
+
+  test('a discarded whitespace-only line does not leak into the next message', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('bad json\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([])
+    // The reported text is the offending line, not the prior line's whitespace spliced on
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      'bad json',
+      expect.any(TransformStreamDefaultController),
+    )
+  })
+
+  test('a discarded whitespace-only line does not consume maxMessageSize', async () => {
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ maxMessageSize: 4 })).pipeTo(sink)
+
+    controller.enqueue('   \n')
+    controller.enqueue('{}\n')
+    controller.close()
+
+    // `{}` is 2 characters; the 3 spaces on the prior line must not count against the cap
+    await expect(result).resolves.toEqual([{}])
+  })
+
+  test('recovers from a stray closing bracket', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"first":1}\n')
+    controller.enqueue(']\n')
+    controller.enqueue('{"second":2}\n')
+    controller.close()
+
+    // The stray bracket costs exactly one message; the framer keeps going
+    await expect(result).resolves.toEqual([{ first: 1 }, { second: 2 }])
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
+    expect(onInvalidJSON).toHaveBeenCalledWith(']', expect.any(TransformStreamDefaultController))
+  })
+
+  test('reports the whole offending line when a bracket unbalances mid-line', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{"a":1}}{"b":2}\n')
+    controller.enqueue('{"ok":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ ok: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"a":1}}{"b":2}',
+      expect.any(TransformStreamDefaultController),
+    )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
+  })
+
+  test('recovers from a stray closing bracket inside a multi-line message', async () => {
+    const onInvalidJSON = vi.fn()
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink()
+    source.pipeThrough(fromJSONLines({ onInvalidJSON })).pipeTo(sink)
+
+    controller.enqueue('{\n')
+    controller.enqueue('"a":1}}\n')
+    controller.enqueue('{"next":true}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ next: true }])
+    expect(onInvalidJSON).toHaveBeenCalledWith(
+      '{"a":1}}',
+      expect.any(TransformStreamDefaultController),
+    )
+    expect(onInvalidJSON).toHaveBeenCalledTimes(1)
+  })
+
+  test('infers the message type from a custom decode', async () => {
+    type Message = { kind: string }
+    const [source, controller] = createReadable()
+    const [sink, result] = createArraySink<Message>()
+
+    const decode = (value: string): Message => JSON.parse(value) as Message
+    const stream = fromJSONLines({ decode })
+
+    // Compile-time discriminator: the transform's output element is inferred as Message,
+    // not unknown. Extracted via `infer` to avoid the streams' bivariant method checks —
+    // a plain `pipeTo(sink)` would accept `unknown` silently and prove nothing.
+    type Output = typeof stream extends TransformStream<unknown, infer O> ? O : never
+    const _inferred: Message = null as unknown as Output
+    void _inferred
+
+    source.pipeThrough(stream).pipeTo(sink)
+    controller.enqueue('{"kind":"ping"}\n')
+    controller.close()
+
+    await expect(result).resolves.toEqual([{ kind: 'ping' }])
   })
 })
 

@@ -1,35 +1,20 @@
-import { createReadable } from './readable.js'
+import { type ChannelOptions, createChannel } from './channel.js'
 
 /**
  * Create a tuple of `ReadableWritablePair` streams connected to each other.
+ *
+ * Each direction is an independent channel: aborting or cancelling one leaves the other
+ * usable. The `highWaterMark` option, if given, applies to both directions.
  */
-export function createConnection<AtoB, BtoA = AtoB>(): [
-  ReadableWritablePair<BtoA, AtoB>,
-  ReadableWritablePair<AtoB, BtoA>,
-] {
-  const [toA, controllerA] = createReadable<BtoA>()
-  const [toB, controllerB] = createReadable<AtoB>()
-
-  const fromA = new WritableStream<AtoB>({
-    write(msg) {
-      controllerB.enqueue(msg)
-    },
-    close() {
-      controllerB.close()
-    },
-  })
-
-  const fromB = new WritableStream<BtoA>({
-    write(msg) {
-      controllerA.enqueue(msg)
-    },
-    close() {
-      controllerA.close()
-    },
-  })
+export function createConnection<AtoB, BtoA = AtoB>(
+  options: ChannelOptions = {},
+): [ReadableWritablePair<BtoA, AtoB>, ReadableWritablePair<AtoB, BtoA>] {
+  // `toA` carries messages B writes and A reads; `toB` the reverse.
+  const toA = createChannel<BtoA>(options)
+  const toB = createChannel<AtoB>(options)
 
   return [
-    { readable: toA, writable: fromA },
-    { readable: toB, writable: fromB },
+    { readable: toA.readable, writable: toB.writable },
+    { readable: toB.readable, writable: toA.writable },
   ]
 }

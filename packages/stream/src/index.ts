@@ -10,6 +10,9 @@
  * @module stream
  */
 
+// `createChannel` stays internal — `createPipe` and `createConnection` are the supported
+// arrangements of it. Its options type is public because it appears in both their signatures.
+export type { ChannelOptions } from './channel.js'
 export * from './connection.js'
 export * from './json-lines.js'
 export * from './pipe.js'

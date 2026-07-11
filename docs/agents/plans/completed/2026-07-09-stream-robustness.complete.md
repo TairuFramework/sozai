@@ -26,6 +26,9 @@ and close-guard semantics in one place. `createPipe` became one channel plus `dr
   on. Honouring `desiredSize` unconditionally would have deadlocked those call sites.
 - `drain()` followed by `writer.close()` resolves instead of rejecting (the controller close is
   now idempotent).
+- `ChannelOptions` is exported by name. `createChannel` itself stays internal, but its options type
+  appears in both public factory signatures, so a consumer wrapping either can name it rather than
+  resorting to `Parameters<typeof createPipe>[0]`.
 
 **json-lines framer** (`src/json-lines.ts`):
 
@@ -54,6 +57,12 @@ and close-guard semantics in one place. `createPipe` became one channel plus `dr
 - **Framing corruption is not a stream error.** It routes to `onInvalidJSON` and the stream stays
   live. A transport that dies on one malformed peer message is worse than one that drops it.
   `JSONLinesError` remains confined to size-limit violations and encode failures.
+- **`createChannel` stays internal, deliberately.** It is the real primitive — the two factories are
+  thin arrangements of it — but this package is designed to ossify, and adding an export later is
+  non-breaking while removing one is not. No consumer needs a bare half-duplex channel today, and
+  the only capability it holds that an identity `TransformStream` cannot express is closing the
+  readable without taking the writer lock. If it ever goes public it wants a shape pass first
+  (`ReadableWritablePair<T, T> & { close(): void }`, to compose with the rest of the package).
 - **`maxMessageSize` now measures the message as transmitted** (whitespace included), an accepted
   consequence of retaining whitespace. `enkaku` forwards no custom size limits, so no consumer is
   affected.

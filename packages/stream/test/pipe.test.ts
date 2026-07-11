@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { createPipe } from '../src/index.js'
+import { type ChannelOptions, createPipe } from '../src/index.js'
 
 /**
  * Give every already-queued microtask a chance to run. A write parked on backpressure is
@@ -14,6 +14,17 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('createPipe()', () => {
+  test('ChannelOptions is nameable from the package entry point', () => {
+    // `createChannel` stays internal, but its options type surfaces in the public signatures of
+    // createPipe and createConnection, so a consumer wrapping either must be able to name it.
+    // Passing the literal works structurally either way — only the named type import above
+    // discriminates, and it fails typecheck if the export is dropped.
+    const options: ChannelOptions = { highWaterMark: 2 }
+    const { readable } = createPipe<string>(options)
+
+    expect(readable).toBeInstanceOf(ReadableStream)
+  })
+
   test('reads after writes', async () => {
     const { readable, writable } = createPipe<string>()
 

@@ -375,6 +375,14 @@ describe('fromB64()', () => {
   })
 })
 
+// Node 24 ships no `Uint8Array` base64 methods, so the codec runs the `atob` fallback there for
+// real — every other test in this file exercises that path end to end on Node 24, and the native
+// path on Node 26. The two tests below instead *delete* the natives to force the fallback on a
+// runtime that has them; there is nothing to delete on Node 24, so they are skipped there rather
+// than failing (or, worse, silently no-opping into a test that asserts nothing).
+const HAS_NATIVE_BASE64 =
+  typeof Uint8Array.prototype.toBase64 === 'function' && typeof Uint8Array.fromBase64 === 'function'
+
 describe('atob fallback path', () => {
   test('fromB64atob decodes padded standard base64', () => {
     expect(equals(fromB64atob('AQID'), new Uint8Array([1, 2, 3]))).toBe(true)
@@ -394,60 +402,66 @@ describe('atob fallback path', () => {
     expect(equals(fromB64Uatob('-_8'), new Uint8Array([0xfb, 0xff]))).toBe(true)
   })
 
-  test('the encode fallback produces the same unpadded output as the native path', () => {
-    const cases = [
-      new Uint8Array([1, 2, 3]),
-      new Uint8Array([104, 105]),
-      new Uint8Array([97]),
-      new Uint8Array([0xfb, 0xff]),
-    ]
-    const native = cases.map((bytes) => toB64U(bytes))
+  test.skipIf(!HAS_NATIVE_BASE64)(
+    'the encode fallback produces the same unpadded output as the native path',
+    () => {
+      const cases = [
+        new Uint8Array([1, 2, 3]),
+        new Uint8Array([104, 105]),
+        new Uint8Array([97]),
+        new Uint8Array([0xfb, 0xff]),
+      ]
+      const native = cases.map((bytes) => toB64U(bytes))
 
-    const descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
-    if (descriptor == null) {
-      throw new Error('expected a native toBase64 to remove')
-    }
-    Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
-    try {
-      expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
-      expect(cases.map((bytes) => toB64U(bytes))).toEqual(native)
-      expect(native).toEqual(['AQID', 'aGk', 'YQ', '-_8'])
-    } finally {
-      Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
-    }
-  })
+      const descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
+      if (descriptor == null) {
+        throw new Error('expected a native toBase64 to remove')
+      }
+      Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
+      try {
+        expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
+        expect(cases.map((bytes) => toB64U(bytes))).toEqual(native)
+        expect(native).toEqual(['AQID', 'aGk', 'YQ', '-_8'])
+      } finally {
+        Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
+      }
+    },
+  )
 
-  test('the decode fallback (fromB64atob / fromB64Uatob) actually runs and is correct', () => {
-    // The test above only ever deletes the encode *method* (Uint8Array.prototype.toBase64).
-    // It never deletes the decode *static* (Uint8Array.fromBase64), so fromB64/fromB64U always
-    // took the native branch and src/index.ts's fromB64atob(trimmed)/fromB64Uatob(...) lines
-    // never executed. Deleting both natives here forces the fallback decode path to run.
-    const toBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
-    const fromBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array, 'fromBase64')
-    if (toBase64Descriptor == null || fromBase64Descriptor == null) {
-      throw new Error('expected native toBase64/fromBase64 to remove')
-    }
-    Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
-    Reflect.deleteProperty(Uint8Array, 'fromBase64')
-    try {
-      expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
-      expect(typeof Uint8Array.fromBase64).not.toBe('function')
+  test.skipIf(!HAS_NATIVE_BASE64)(
+    'the decode fallback (fromB64atob / fromB64Uatob) actually runs and is correct',
+    () => {
+      // The test above only ever deletes the encode *method* (Uint8Array.prototype.toBase64).
+      // It never deletes the decode *static* (Uint8Array.fromBase64), so fromB64/fromB64U always
+      // took the native branch and src/index.ts's fromB64atob(trimmed)/fromB64Uatob(...) lines
+      // never executed. Deleting both natives here forces the fallback decode path to run.
+      const toBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
+      const fromBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array, 'fromBase64')
+      if (toBase64Descriptor == null || fromBase64Descriptor == null) {
+        throw new Error('expected native toBase64/fromBase64 to remove')
+      }
+      Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
+      Reflect.deleteProperty(Uint8Array, 'fromBase64')
+      try {
+        expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
+        expect(typeof Uint8Array.fromBase64).not.toBe('function')
 
-      const bytes = new Uint8Array([104, 101, 108, 108, 111])
-      // atob() strips ASCII whitespace itself, so this alone doesn't prove trimming is
-      // load-bearing — fromB64atob(trimmed) and fromB64atob(base64) are indistinguishable here.
-      expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
-      // NBSP is stripped by trim() but rejected by atob() — this only passes if the trimmed
-      // string is what reaches the fallback decoder.
-      expect(equals(fromB64(' aGVsbG8= '), bytes)).toBe(true)
-      expect(equals(fromB64U('aGVsbG8='), bytes)).toBe(true)
-      expect(equals(fromB64U('aGVsbG8'), bytes)).toBe(true)
+        const bytes = new Uint8Array([104, 101, 108, 108, 111])
+        // atob() strips ASCII whitespace itself, so this alone doesn't prove trimming is
+        // load-bearing — fromB64atob(trimmed) and fromB64atob(base64) are indistinguishable here.
+        expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
+        // NBSP is stripped by trim() but rejected by atob() — this only passes if the trimmed
+        // string is what reaches the fallback decoder.
+        expect(equals(fromB64(' aGVsbG8= '), bytes)).toBe(true)
+        expect(equals(fromB64U('aGVsbG8='), bytes)).toBe(true)
+        expect(equals(fromB64U('aGVsbG8'), bytes)).toBe(true)
 
-      expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
-      expect(() => fromB64U('aGVs bG8')).toThrow('Invalid base64url')
-    } finally {
-      Object.defineProperty(Uint8Array.prototype, 'toBase64', toBase64Descriptor)
-      Object.defineProperty(Uint8Array, 'fromBase64', fromBase64Descriptor)
-    }
-  })
+        expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
+        expect(() => fromB64U('aGVs bG8')).toThrow('Invalid base64url')
+      } finally {
+        Object.defineProperty(Uint8Array.prototype, 'toBase64', toBase64Descriptor)
+        Object.defineProperty(Uint8Array, 'fromBase64', fromBase64Descriptor)
+      }
+    },
+  )
 })

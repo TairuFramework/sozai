@@ -2,7 +2,7 @@
 
 **Status:** open · backlog · blocked on upstream · no freeze dependency
 **Tracks:** [erdtman/canonicalize#22](https://github.com/erdtman/canonicalize/pull/22)
-**Found during:** [2026-07-11 codec freeze fixes](../../../superpowers/specs/2026-07-11-codec-freeze-fixes-design.md)
+**Found during:** [2026-07-11 codec freeze fixes](../completed/2026-07-11-codec-freeze-fixes.complete.md)
 
 `canonicalize` 3.0.0 (catalog-pinned, `pnpm-workspace.yaml:27`) serializes a nested
 function to invalid JSON rather than dropping the key — a bare `undefined` token in

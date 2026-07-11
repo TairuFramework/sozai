@@ -76,18 +76,25 @@ export function toB64U(bytes: Uint8Array): string {
     .replace(/[+/]/g, (m) => (m === '+' ? '-' : '_'))
 }
 
+const encoder = new TextEncoder()
+const decoder = new TextDecoder('utf-8', { fatal: true })
+
 /**
  * Convert a UTF string to a Uint8Array.
  */
 export function fromUTF(value: string): Uint8Array {
-  return new TextEncoder().encode(value)
+  return encoder.encode(value)
 }
 
 /**
  * Convert a Uint8Array to a UTF string.
+ *
+ * Throws a `TypeError` if the bytes are not valid UTF-8. Decoding is deliberately strict:
+ * this codec sits under signature verification, where silently substituting U+FFFD would let
+ * corrupted bytes decode to a plausible string.
  */
 export function toUTF(bytes: Uint8Array): string {
-  return new TextDecoder().decode(bytes)
+  return decoder.decode(bytes)
 }
 
 /**

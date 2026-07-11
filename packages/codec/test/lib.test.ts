@@ -245,3 +245,22 @@ describe('b64uFromJSON() canonicalize parameter', () => {
     expect(decoded).toBe('{"a":2,"z":1}')
   })
 })
+
+describe('toUTF() strictness', () => {
+  test('throws on a lone invalid byte', () => {
+    expect(() => toUTF(new Uint8Array([0xff]))).toThrow(TypeError)
+  })
+
+  test('throws on a truncated multibyte sequence rather than substituting U+FFFD', () => {
+    expect(() => toUTF(new Uint8Array([0xc3, 0x28]))).toThrow(TypeError)
+  })
+
+  test('invalid UTF-8 propagates through b64uToUTF', () => {
+    // '_w' is toB64U(new Uint8Array([0xff]))
+    expect(() => b64uToUTF('_w')).toThrow(TypeError)
+  })
+
+  test('invalid UTF-8 propagates through b64uToJSON', () => {
+    expect(() => b64uToJSON('_w')).toThrow(TypeError)
+  })
+})

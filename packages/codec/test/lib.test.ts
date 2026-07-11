@@ -8,7 +8,9 @@ import {
   b64uToUTF,
   canonicalStringify,
   fromB64,
+  fromB64atob,
   fromB64U,
+  fromB64Uatob,
   fromUTF,
   toB64,
   toB64U,
@@ -342,5 +344,48 @@ describe('fromB64()', () => {
     expect(() => fromB64('   ')).toThrow('Invalid base64')
     expect(() => fromB64('\n')).toThrow('Invalid base64')
     expect(() => fromB64('\t')).toThrow('Invalid base64')
+  })
+})
+
+describe('atob fallback path', () => {
+  test('fromB64atob decodes padded standard base64', () => {
+    expect(equals(fromB64atob('AQID'), new Uint8Array([1, 2, 3]))).toBe(true)
+    expect(equals(fromB64atob('YQ=='), new Uint8Array([97]))).toBe(true)
+  })
+
+  test('fromB64Uatob decodes unpadded base64url', () => {
+    expect(equals(fromB64Uatob('YQ'), new Uint8Array([97]))).toBe(true)
+    expect(equals(fromB64Uatob('aGk'), new Uint8Array([104, 105]))).toBe(true)
+  })
+
+  test('fromB64Uatob still decodes padded base64url', () => {
+    expect(equals(fromB64Uatob('YQ=='), new Uint8Array([97]))).toBe(true)
+  })
+
+  test('fromB64Uatob maps the URL-safe alphabet', () => {
+    expect(equals(fromB64Uatob('-_8'), new Uint8Array([0xfb, 0xff]))).toBe(true)
+  })
+
+  test('the encode fallback produces the same unpadded output as the native path', () => {
+    const cases = [
+      new Uint8Array([1, 2, 3]),
+      new Uint8Array([104, 105]),
+      new Uint8Array([97]),
+      new Uint8Array([0xfb, 0xff]),
+    ]
+    const native = cases.map((bytes) => toB64U(bytes))
+
+    const descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
+    if (descriptor == null) {
+      throw new Error('expected a native toBase64 to remove')
+    }
+    Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
+    try {
+      expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
+      expect(cases.map((bytes) => toB64U(bytes))).toEqual(native)
+      expect(native).toEqual(['AQID', 'aGk', 'YQ', '-_8'])
+    } finally {
+      Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
+    }
   })
 })

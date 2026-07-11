@@ -12,10 +12,23 @@
 
 import serialize from 'canonicalize'
 
-/** @internal */
+/**
+ * Serialize a value to canonical JSON, with deterministic key ordering.
+ *
+ * Throws a `TypeError` if the value has no JSON representation at all — `undefined`, a
+ * function or a symbol. Returning a non-string here would silently encode to `""` downstream
+ * in {@link b64uFromJSON}.
+ *
+ * Known upstream limitation: a *nested* function or symbol serializes to the literal token
+ * `undefined`, producing invalid JSON, rather than having its key dropped. Tracked by
+ * https://github.com/erdtman/canonicalize/pull/22
+ */
 export function canonicalStringify(value: unknown): string {
-  // @ts-expect-error TS definition
-  return serialize(value)
+  const serialized = serialize(value)
+  if (serialized === undefined) {
+    throw new TypeError('Value has no canonical JSON representation')
+  }
+  return serialized
 }
 
 // Adapted from https://developer.mozilla.org/en-US/docs/Glossary/Base64#the_unicode_problem

@@ -264,3 +264,25 @@ describe('toUTF() strictness', () => {
     expect(() => b64uToJSON('_w')).toThrow(TypeError)
   })
 })
+
+describe('canonicalStringify() non-serializable values', () => {
+  test('throws on undefined', () => {
+    expect(() => canonicalStringify(undefined)).toThrow(TypeError)
+  })
+
+  test('throws on a function', () => {
+    expect(() => canonicalStringify(() => {})).toThrow(TypeError)
+  })
+
+  test('throws on a symbol', () => {
+    expect(() => canonicalStringify(Symbol('nope'))).toThrow(TypeError)
+  })
+
+  test('b64uFromJSON throws rather than encoding an empty string', () => {
+    expect(() => b64uFromJSON(undefined as unknown as Record<string, unknown>)).toThrow(TypeError)
+  })
+
+  test('still drops object keys whose value is undefined', () => {
+    expect(canonicalStringify({ a: undefined, b: 1 })).toBe('{"b":1}')
+  })
+})

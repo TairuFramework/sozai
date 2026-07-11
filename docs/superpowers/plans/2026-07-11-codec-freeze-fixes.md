@@ -321,7 +321,7 @@ Also un-marks @internal: @kokuin/token already imports this."
 
 ### Task 4: `fromB64` validation guard
 
-Without a guard, `fromB64` silently accepts malformed input — embedded whitespace, base64url characters — on both the native and `atob` paths, decoding it as if nothing were wrong. This is a strictness fix, not an alignment fix: it makes `fromB64` fail loudly on malformed input, matching the strictness `fromB64U` already has via `B64U_RE`.
+Without a guard, `fromB64` silently accepts malformed input — embedded whitespace, base64url characters — on both the native and `atob` paths, decoding it as if nothing were wrong. This is a strictness fix, not an alignment fix: it makes `fromB64` fail loudly on malformed input, matching the strictness `fromB64U` already has via `B64U_RE`. `fromB64` is what `kubun` and `kokuin` use to load private keys from environment variables, CLI flags, and files — those sources routinely carry a trailing newline, so surrounding whitespace is trimmed before validation rather than rejected. Embedded whitespace still throws; that is the corruption signal worth keeping. `fromB64U` stays fully strict, since its input is JWT segments off the wire, where whitespace is always corruption.
 
 **Files:**
 - Modify: `packages/codec/src/index.ts:30-34` (`fromB64`), `src/index.ts:54-62` (`toB64` — feature-detection style only)
@@ -329,7 +329,7 @@ Without a guard, `fromB64` silently accepts malformed input — embedded whitesp
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `fromB64(base64: string): Uint8Array` — unchanged signature, now throws `Error('Invalid base64 encoding')` on malformed input. `toB64` is behaviourally unchanged.
+- Produces: `fromB64(base64: string): Uint8Array` — unchanged signature, now trims surrounding whitespace and throws `Error('Invalid base64 encoding')` on malformed input (including embedded whitespace). `toB64` is behaviourally unchanged.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -337,10 +337,23 @@ Append to `test/lib.test.ts`:
 
 ```ts
 describe('fromB64()', () => {
-  test('rejects input containing whitespace', () => {
+  test('rejects input containing embedded whitespace', () => {
     // Both the native and atob paths silently strip this space and decode anyway.
-    // The guard is what makes fromB64 reject it at all.
+    // Embedded whitespace is a corruption signal, unlike surrounding whitespace, which is
+    // trimmed before validation.
     expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
+  })
+
+  test('tolerates surrounding whitespace', () => {
+    // Real-world shapes: a trailing newline from a file/env var, and leading+trailing spaces.
+    const bytes = new Uint8Array([104, 101, 108, 108, 111])
+    expect(equals(fromB64('aGVsbG8=\n'), bytes)).toBe(true)
+    expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
+  })
+
+  test('rejects input containing an embedded newline', () => {
+    // Line-wrapped/PEM-style base64. Rejecting it is intentional.
+    expect(() => fromB64('aGVs\nbG8=')).toThrow('Invalid base64')
   })
 
   test('rejects input containing base64url characters', () => {
@@ -377,7 +390,7 @@ describe('fromB64()', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run -t 'fromB64()'`
-Expected: FAIL — the four rejection tests fail with "expected function to throw an error, but it didn't" (Node has the native method, which throws a *different* message, so `.toThrow('Invalid base64')` does not match). The acceptance tests already pass.
+Expected: FAIL — the rejection and tolerance tests fail (Node has the native method, which throws a *different* message on the whitespace cases, so `.toThrow('Invalid base64')` does not match, and the surrounding-whitespace cases either throw or don't decode as expected). The other acceptance tests already pass.
 
 Note: `-t 'fromB64()'` also matches the existing `fromB64U()` block. That is fine — those must stay green.
 
@@ -391,18 +404,18 @@ const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
 /**
  * Convert a base64-encoded string to a Uint8Array.
  *
- * Throws if the input is not well-formed base64. Without this guard, both the native and
- * `atob` paths silently accept and decode malformed input — embedded whitespace,
- * base64url characters — as if nothing were wrong. This makes `fromB64` fail loudly on
- * malformed input instead, matching the strictness `fromB64U` already has via `B64U_RE`.
+ * Surrounding whitespace is tolerated — base64 commonly arrives from files, environment
+ * variables, and CLI flags with a trailing newline. Embedded whitespace and any character
+ * outside the standard alphabet throw `Error('Invalid base64 encoding')`.
  */
 export function fromB64(base64: string): Uint8Array {
-  if (!B64_RE.test(base64)) {
+  const trimmed = base64.trim()
+  if (!B64_RE.test(trimmed)) {
     throw new Error('Invalid base64 encoding')
   }
   return typeof Uint8Array.fromBase64 === 'function'
-    ? Uint8Array.fromBase64(base64, { alphabet: 'base64' })
-    : fromB64atob(base64)
+    ? Uint8Array.fromBase64(trimmed, { alphabet: 'base64' })
+    : fromB64atob(trimmed)
 }
 ```
 
@@ -425,7 +438,7 @@ All four codec functions now feature-detect with `typeof ... === 'function'`; th
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run`
-Expected: PASS — 54 tests.
+Expected: PASS — 56 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -554,7 +567,7 @@ Expected: PASS — 5 tests. These characterise behaviour that Tasks 1 and 4 alre
 - [ ] **Step 4: Run the full suite**
 
 Run: `npx vitest run`
-Expected: PASS — 59 tests.
+Expected: PASS — 61 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -595,7 +608,7 @@ Fix the freeze-blocking correctness bugs found in the 2026-07-02 audit. All four
 - **`toB64U` now emits unpadded base64url.** RFC 7515 (JWS) and RFC 4648 §5 forbid `=` padding; an Ed25519 signature is 64 bytes and `64 % 3 === 1`, so every JWS signature produced through this codec previously ended in `==`. `toB64` remains padded, per RFC 4648 §4. `fromB64U` still accepts padded input — decode stays lenient, so tokens issued before this release keep verifying.
 - **`toUTF` now uses a fatal `TextDecoder`.** Invalid UTF-8 throws a `TypeError` instead of decoding to a U+FFFD-mangled string, and the throw propagates through `b64uToUTF` and `b64uToJSON`. This codec sits under signature verification, where silent substitution let corrupted bytes decode to a plausible string.
 - **`canonicalStringify` now throws on values with no JSON representation** (`undefined`, functions, symbols) instead of returning `undefined` typed as `string`, which made `b64uFromJSON` silently encode `""`. It is also no longer marked `@internal` — it is imported outside this package.
-- **`fromB64` now validates its input.** It previously accepted malformed input — embedded whitespace, base64url characters — and silently decoded it anyway; it now throws, matching the strictness `fromB64U` already had.
+- **`fromB64` now validates its input.** It previously accepted malformed input — embedded whitespace, base64url characters — and silently decoded it anyway; it now trims surrounding whitespace and throws on anything else malformed, including embedded whitespace. `fromB64` loads private keys from env vars, CLI flags, and files, where a trailing newline is routine; `fromB64U` stays fully strict, since its input is JWT segments off the wire.
 ```
 
 - [ ] **Step 2: Verify the docs already match**
@@ -610,7 +623,7 @@ If `packages/codec/README.md` documents padded base64url output anywhere, fix it
 - [ ] **Step 3: Run the package's full verification**
 
 Run: `cd packages/codec && npx tsc --noEmit -p tsconfig.test.json && npx vitest run && npx biome check src test`
-Expected: typecheck exits 0 with no output; 59 tests pass; biome reports no errors.
+Expected: typecheck exits 0 with no output; 61 tests pass; biome reports no errors.
 
 - [ ] **Step 4: Confirm nothing else in the repo regressed**
 
@@ -635,5 +648,5 @@ git commit -m "chore(codec): changeset for the freeze-blocker fixes"
 - `fromB64U` still decodes padded input, so pre-existing tokens verify.
 - `toUTF`, `canonicalStringify`, and `fromB64` all throw on bad input rather than returning a degraded value.
 - All four codec functions feature-detect with `typeof ... === 'function'`.
-- 59 tests pass; typecheck and biome are clean.
+- 61 tests pass; typecheck and biome are clean.
 - A `minor` changeset exists for `@sozai/codec`.

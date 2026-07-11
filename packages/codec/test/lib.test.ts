@@ -288,10 +288,23 @@ describe('canonicalStringify() non-serializable values', () => {
 })
 
 describe('fromB64()', () => {
-  test('rejects input containing whitespace', () => {
+  test('rejects input containing embedded whitespace', () => {
     // Both paths silently strip the space and decode anyway without the guard.
-    // The guard is what makes fromB64 reject it at all.
+    // Embedded whitespace is a corruption signal, unlike surrounding whitespace, which is
+    // trimmed before validation.
     expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
+  })
+
+  test('tolerates surrounding whitespace', () => {
+    // Real-world shapes: a trailing newline from a file/env var, and leading+trailing spaces.
+    const bytes = new Uint8Array([104, 101, 108, 108, 111])
+    expect(equals(fromB64('aGVsbG8=\n'), bytes)).toBe(true)
+    expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
+  })
+
+  test('rejects input containing an embedded newline', () => {
+    // Line-wrapped/PEM-style base64. Rejecting it is intentional.
+    expect(() => fromB64('aGVs\nbG8=')).toThrow('Invalid base64')
   })
 
   test('rejects input containing base64url characters', () => {

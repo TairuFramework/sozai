@@ -83,6 +83,19 @@ whitespace, base64url characters — on both the native and `atob` paths, decodi
 nothing were wrong. The guard is a strictness fix: it makes `fromB64` fail loudly on malformed
 input, matching the strictness `fromB64U` already has via `B64U_RE`.
 
+`fromB64` trims *surrounding* whitespace before validating, rather than rejecting it outright.
+`fromB64` is what `kubun` and `kokuin` use to load private keys from environment variables, CLI
+flags, and files — e.g. `kubun/apps/hub-server/src/index.ts` does
+`createSigningIdentity(fromB64(requiredEnv('PRIVATE_KEY')))`, and `kokuin/packages/token/src/signer.ts`
+re-exports it publicly as `decodePrivateKey`. Those sources routinely carry a trailing newline
+(a `.env` file, a mounted secret, a copy-paste). Rejecting that outright would fail those
+services at boot. Embedded whitespace still throws — that is the corruption signal worth
+keeping — and the trimmed contract is still much stricter than the pre-guard behaviour, which
+silently stripped *all* whitespace, including embedded.
+
+`fromB64U` is deliberately **not** given the same leniency: it stays fully strict. Its input is
+JWT segments off the wire, where whitespace is always corruption, not incidental formatting.
+
 ### 5. Feature detection — one style
 
 Today the code mixes a static `typeof Uint8Array.fromBase64 === 'function'` check with an
@@ -117,7 +130,9 @@ New coverage:
   0, 1, and 2)
 - `fromB64U` still accepts padded input — the existing tests at lines 93-98 stay, but now
   guard the lenient-decode contract rather than describe our own output
-- `fromB64` rejects whitespace, base64url characters (`-`, `_`), and invalid characters
+- `fromB64` rejects embedded whitespace, base64url characters (`-`, `_`), and invalid
+  characters, but tolerates surrounding whitespace — a trailing newline and leading/trailing
+  spaces both decode correctly; an embedded newline (line-wrapped/PEM-style input) still throws
 - `toUTF` throws on invalid UTF-8 (`new Uint8Array([0xff])`), and the throw reaches
   `b64uToJSON`
 - `canonicalStringify` throws on `undefined`, a function, and a symbol — so `b64uFromJSON`

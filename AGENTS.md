@@ -6,10 +6,10 @@
 
 ## What this repo is
 
-The frozen foundation. Packages here ossify; consumers (`@kokuin`, `@enkaku`,
-`@kumiai`) depend on published `^` ranges, never `workspace:`. `runtime-expo` is the
-one independent package — it tracks the Expo SDK and may major without dragging the
-fixed group.
+The stable foundation. Packages here ossify; consumers (`@kokuin`, `@enkaku`,
+`@kumiai`) depend on published `^` ranges, never `workspace:`. Versions move
+per-package via changesets — there is no `fixed` lock, so versions diverge as each
+package bumps. `runtime-expo` tracks the Expo SDK but is not otherwise special.
 
 ## Conventions
 

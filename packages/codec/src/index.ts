@@ -19,8 +19,9 @@ import serialize from 'canonicalize'
  * function or a symbol. Returning a non-string here would silently encode to `""` downstream
  * in {@link b64uFromJSON}.
  *
- * Known upstream limitation: a *nested* function or symbol serializes to the literal token
- * `undefined`, producing invalid JSON, rather than having its key dropped. Tracked by
+ * Known upstream limitation: a *nested* function produces invalid JSON — a bare `undefined`
+ * token in objects, an elided element in arrays — rather than having its key dropped. Nested
+ * symbols and `undefined` values are handled correctly. Tracked by
  * https://github.com/erdtman/canonicalize/pull/22
  */
 export function canonicalStringify(value: unknown): string {

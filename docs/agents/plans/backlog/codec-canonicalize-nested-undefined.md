@@ -5,7 +5,9 @@
 **Found during:** [2026-07-11 codec freeze fixes](../../../superpowers/specs/2026-07-11-codec-freeze-fixes-design.md)
 
 `canonicalize` 3.0.0 (catalog-pinned, `pnpm-workspace.yaml:27`) serializes a nested
-function or symbol to the literal token `undefined` rather than dropping the key:
+function to invalid JSON rather than dropping the key — a bare `undefined` token in
+objects, an elided element in arrays. Nested symbols and `undefined` values are handled
+correctly and match `JSON.stringify`:
 
 ```js
 canonicalize({ a: () => {} })  // '{"a":undefined}'  — not valid JSON

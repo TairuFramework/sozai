@@ -140,7 +140,7 @@ const encoded = toB64(data)   // "aGVsbG8="
 const decoded = fromB64(encoded) // Uint8Array([104, 101, 108, 108, 111])
 
 // URL-safe Base64 encoding (no padding, URL-safe chars)
-const urlEncoded = toB64U(data)  // "aGVsbG8" (no padding)
+const urlEncoded = toB64U(data)  // "aGVsbG8" (no padding — RFC 7515/RFC 4648 §5)
 const urlDecoded = fromB64U(urlEncoded)
 
 // UTF-8 string to bytes and back
@@ -156,11 +156,22 @@ const original = b64uToUTF(b64str)   // "Hello!"
 **Use case**: Binary data in JSON/URLs, URL-safe encoding, byte/string conversion
 
 **Key points**:
-- `toB64/fromB64` for standard Base64 with padding
-- `toB64U/fromB64U` for URL-safe Base64 (RFC 4648 §5)
-- `fromUTF/toUTF` for UTF-8 ↔ `Uint8Array` conversion
+- `toB64/fromB64` for standard Base64 with padding; `toB64U/fromB64U` for URL-safe Base64
+  (RFC 4648 §5), unpadded on encode
+- `fromB64` validates its input: it trims surrounding whitespace (files/env vars/CLI flags
+  routinely add a trailing newline) but throws `Error('Invalid base64 encoding')` on embedded
+  whitespace, out-of-alphabet characters, or a padding count that doesn't match the data
+  length. `fromB64U` mirrors this but does **not** trim — its input is JWT segments off the
+  wire, where whitespace is always corruption — and accepts padded input for lenient decoding
+  of older tokens. It throws `Error('Invalid base64url encoding')`.
+- `fromUTF/toUTF` for UTF-8 ↔ `Uint8Array` conversion. `toUTF` uses a **fatal** `TextDecoder`
+  and throws a `TypeError` on invalid UTF-8 (propagates through `b64uToUTF`/`b64uToJSON`)
+  rather than silently substituting U+FFFD — this codec sits under signature verification,
+  where that substitution would let corrupted bytes decode to a plausible string. `fromUTF`
+  has no equivalent guard on encode: lone surrogates are replaced with U+FFFD per the
+  `TextEncoder` contract, so two distinct strings can encode to identical bytes.
 - `b64uFromUTF/b64uToUTF` for direct string ↔ Base64URL
-- Handles Unicode correctly via `TextEncoder`/`TextDecoder`
+- A leading BOM (U+FEFF) round-trips intact through `fromUTF`/`toUTF` — it is not stripped.
 
 ### Pattern 5: JSON Canonicalization and Encoding
 
@@ -205,6 +216,13 @@ canonicalStringify(a) === canonicalStringify(b) // true
 - `b64uFromJSON(obj, false)` is faster when order does not matter
 - `b64uToJSON<T>()` decodes and parses in one step with generic type parameter
 - `canonicalStringify()` exposes canonical serialization for use outside Base64 contexts
+- `canonicalStringify()` throws — not just on `undefined`/functions/symbols, but also
+  `Error('NaN is not allowed')`, `Error('Infinity is not allowed')`,
+  `Error('Circular reference detected')`, and `TypeError('Do not know how to serialize a
+  BigInt')`. Plain `JSON.stringify` (used when `canonicalize: false`) instead silently turns
+  `NaN`/`Infinity` into `null`, so `b64uFromJSON({a: NaN})` throws while
+  `b64uFromJSON({a: NaN}, false)` succeeds with `{"a":null}` — the two modes differ on more
+  than key order.
 
 ## When to Use What
 

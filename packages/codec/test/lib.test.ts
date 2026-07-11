@@ -138,6 +138,11 @@ describe('fromB64U()', () => {
   test('accepts empty string', () => {
     expect(() => fromB64U('')).not.toThrow()
   })
+
+  test('rejects a padding count that does not match dataLength % 4', () => {
+    expect(() => fromB64U('YQ=')).toThrow('Invalid base64url')
+    expect(() => fromB64U('A')).toThrow('Invalid base64url')
+  })
 })
 
 describe('b64uToJSON()', () => {
@@ -224,6 +229,18 @@ describe('fromUTF() / toUTF()', () => {
   test('toUTF returns string', () => {
     expect(typeof toUTF(new Uint8Array([116, 101, 115, 116]))).toBe('string')
     expect(toUTF(new Uint8Array([116, 101, 115, 116]))).toBe('test')
+  })
+
+  test('round-trips a leading BOM instead of silently stripping it', () => {
+    expect(toUTF(fromUTF('﻿hello'))).toBe('﻿hello')
+  })
+
+  test('round-trips a string that is only a BOM', () => {
+    expect(toUTF(fromUTF('﻿'))).toBe('﻿')
+  })
+
+  test('base64url round-trip preserves a leading BOM', () => {
+    expect(b64uToUTF(b64uFromUTF('﻿x'))).toBe('﻿x')
   })
 })
 
@@ -345,6 +362,17 @@ describe('fromB64()', () => {
     expect(() => fromB64('\n')).toThrow('Invalid base64')
     expect(() => fromB64('\t')).toThrow('Invalid base64')
   })
+
+  test('rejects a padding count that does not match dataLength % 4', () => {
+    // The old regex checked alphabet and padding *shape* but not that the padding count
+    // matched the data length, so these leaked past the guard and threw the decoder's own
+    // error (SyntaxError / DOMException) instead of the documented Error.
+    expect(() => fromB64('AB=')).toThrow('Invalid base64')
+    expect(() => fromB64('A')).toThrow('Invalid base64')
+    expect(() => fromB64('A==')).toThrow('Invalid base64')
+    expect(() => fromB64('=')).toThrow('Invalid base64')
+    expect(() => fromB64('AAAAA')).toThrow('Invalid base64')
+  })
 })
 
 describe('atob fallback path', () => {
@@ -386,6 +414,36 @@ describe('atob fallback path', () => {
       expect(native).toEqual(['AQID', 'aGk', 'YQ', '-_8'])
     } finally {
       Object.defineProperty(Uint8Array.prototype, 'toBase64', descriptor)
+    }
+  })
+
+  test('the decode fallback (fromB64atob / fromB64Uatob) actually runs and is correct', () => {
+    // The test above only ever deletes the encode *method* (Uint8Array.prototype.toBase64).
+    // It never deletes the decode *static* (Uint8Array.fromBase64), so fromB64/fromB64U always
+    // took the native branch and src/index.ts's fromB64atob(trimmed)/fromB64Uatob(...) lines
+    // never executed. Deleting both natives here forces the fallback decode path to run.
+    const toBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
+    const fromBase64Descriptor = Object.getOwnPropertyDescriptor(Uint8Array, 'fromBase64')
+    if (toBase64Descriptor == null || fromBase64Descriptor == null) {
+      throw new Error('expected native toBase64/fromBase64 to remove')
+    }
+    Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
+    Reflect.deleteProperty(Uint8Array, 'fromBase64')
+    try {
+      expect(typeof Uint8Array.prototype.toBase64).not.toBe('function')
+      expect(typeof Uint8Array.fromBase64).not.toBe('function')
+
+      const bytes = new Uint8Array([104, 101, 108, 108, 111])
+      // Proves the *trimmed* string reaches the fallback decoder, not the untrimmed original.
+      expect(equals(fromB64('  aGVsbG8=  '), bytes)).toBe(true)
+      expect(equals(fromB64U('aGVsbG8='), bytes)).toBe(true)
+      expect(equals(fromB64U('aGVsbG8'), bytes)).toBe(true)
+
+      expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
+      expect(() => fromB64U('aGVs bG8')).toThrow('Invalid base64url')
+    } finally {
+      Object.defineProperty(Uint8Array.prototype, 'toBase64', toBase64Descriptor)
+      Object.defineProperty(Uint8Array, 'fromBase64', fromBase64Descriptor)
     }
   })
 })

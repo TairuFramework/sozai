@@ -321,7 +321,7 @@ Also un-marks @internal: @kokuin/token already imports this."
 
 ### Task 4: `fromB64` validation guard
 
-Without a guard, `fromB64`'s two paths **disagree by runtime**: native `Uint8Array.fromBase64` rejects embedded whitespace, while the `atob` fallback follows forgiving-base64 and strips it. Same input, different result depending on where the code runs.
+Without a guard, `fromB64` silently accepts malformed input — embedded whitespace, base64url characters — on both the native and `atob` paths, decoding it as if nothing were wrong. This is a strictness fix, not an alignment fix: it makes `fromB64` fail loudly on malformed input, matching the strictness `fromB64U` already has via `B64U_RE`.
 
 **Files:**
 - Modify: `packages/codec/src/index.ts:30-34` (`fromB64`), `src/index.ts:54-62` (`toB64` — feature-detection style only)
@@ -391,9 +391,10 @@ const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
 /**
  * Convert a base64-encoded string to a Uint8Array.
  *
- * Throws if the input is not well-formed base64. The guard is what keeps the native and
- * `atob` paths in agreement: `atob` follows forgiving-base64 and would strip embedded
- * whitespace that the native decoder rejects.
+ * Throws if the input is not well-formed base64. Without this guard, both the native and
+ * `atob` paths silently accept and decode malformed input — embedded whitespace,
+ * base64url characters — as if nothing were wrong. This makes `fromB64` fail loudly on
+ * malformed input instead, matching the strictness `fromB64U` already has via `B64U_RE`.
  */
 export function fromB64(base64: string): Uint8Array {
   if (!B64_RE.test(base64)) {
@@ -594,7 +595,7 @@ Fix the freeze-blocking correctness bugs found in the 2026-07-02 audit. All four
 - **`toB64U` now emits unpadded base64url.** RFC 7515 (JWS) and RFC 4648 §5 forbid `=` padding; an Ed25519 signature is 64 bytes and `64 % 3 === 1`, so every JWS signature produced through this codec previously ended in `==`. `toB64` remains padded, per RFC 4648 §4. `fromB64U` still accepts padded input — decode stays lenient, so tokens issued before this release keep verifying.
 - **`toUTF` now uses a fatal `TextDecoder`.** Invalid UTF-8 throws a `TypeError` instead of decoding to a U+FFFD-mangled string, and the throw propagates through `b64uToUTF` and `b64uToJSON`. This codec sits under signature verification, where silent substitution let corrupted bytes decode to a plausible string.
 - **`canonicalStringify` now throws on values with no JSON representation** (`undefined`, functions, symbols) instead of returning `undefined` typed as `string`, which made `b64uFromJSON` silently encode `""`. It is also no longer marked `@internal` — it is imported outside this package.
-- **`fromB64` now validates its input.** Without a guard its two paths disagreed by runtime: the native decoder rejects embedded whitespace while the `atob` fallback strips it.
+- **`fromB64` now validates its input.** It previously accepted malformed input — embedded whitespace, base64url characters — and silently decoded it anyway; it now throws, matching the strictness `fromB64U` already had.
 ```
 
 - [ ] **Step 2: Verify the docs already match**

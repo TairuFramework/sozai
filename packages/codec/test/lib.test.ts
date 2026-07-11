@@ -289,8 +289,8 @@ describe('canonicalStringify() non-serializable values', () => {
 
 describe('fromB64()', () => {
   test('rejects input containing whitespace', () => {
-    // The native path rejects this; the atob fallback would silently strip the space.
-    // The guard is what makes both runtimes agree.
+    // Both paths silently strip the space and decode anyway without the guard.
+    // The guard is what makes fromB64 reject it at all.
     expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
   })
 

@@ -46,9 +46,10 @@ const B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
 /**
  * Convert a base64-encoded string to a Uint8Array.
  *
- * Throws if the input is not well-formed base64. The guard is what keeps the native and
- * `atob` paths in agreement: `atob` follows forgiving-base64 and would strip embedded
- * whitespace that the native decoder rejects.
+ * Throws if the input is not well-formed base64. Without this guard, both the native and
+ * `atob` paths silently accept and decode malformed input — embedded whitespace,
+ * base64url characters — as if nothing were wrong. This makes `fromB64` fail loudly on
+ * malformed input instead, matching the strictness `fromB64U` already has via `B64U_RE`.
  */
 export function fromB64(base64: string): Uint8Array {
   if (!B64_RE.test(base64)) {

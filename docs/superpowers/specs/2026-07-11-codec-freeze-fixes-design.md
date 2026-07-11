@@ -78,10 +78,10 @@ it is public in practice and is about to be frozen that way.
 Add `B64_RE = /^[A-Za-z0-9+/]*={0,2}$/`, mirroring `B64U_RE`, throwing
 `Error('Invalid base64 encoding')`.
 
-This is not cosmetic. Without a guard, `fromB64`'s two paths **disagree by runtime**: native
-`Uint8Array.fromBase64` rejects embedded whitespace, while the `atob` fallback follows
-forgiving-base64 and strips it. Same input, different result depending on where the code runs.
-The guard makes both paths agree, and makes the two decoders symmetric.
+This is not cosmetic. Without a guard, `fromB64` silently accepts malformed input — embedded
+whitespace, base64url characters — on both the native and `atob` paths, decoding it as if
+nothing were wrong. The guard is a strictness fix: it makes `fromB64` fail loudly on malformed
+input, matching the strictness `fromB64U` already has via `B64U_RE`.
 
 ### 5. Feature detection — one style
 

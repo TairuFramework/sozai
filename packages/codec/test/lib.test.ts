@@ -50,24 +50,39 @@ test('bytes to base64url encoding and decoding', () => {
   expect(equals(decoded, bytes)).toBe(true)
 })
 
-describe('toB64U() padding', () => {
-  test('emits no padding when byte length is multiple of 3', () => {
+describe('toB64U() output', () => {
+  test('emits no padding when byte length is a multiple of 3', () => {
     expect(toB64U(new Uint8Array([1, 2, 3]))).toBe('AQID')
   })
 
-  test('emits single = when byte length mod 3 === 2', () => {
-    expect(toB64U(new Uint8Array([104, 105]))).toBe('aGk=')
+  test('emits no padding when byte length mod 3 === 2', () => {
+    expect(toB64U(new Uint8Array([104, 105]))).toBe('aGk')
   })
 
-  test('emits double == when byte length mod 3 === 1', () => {
-    expect(toB64U(new Uint8Array([97]))).toBe('YQ==')
+  test('emits no padding when byte length mod 3 === 1', () => {
+    expect(toB64U(new Uint8Array([97]))).toBe('YQ')
   })
 
-  test('output matches strict base64url regex', () => {
-    const re = /^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}==|[A-Za-z0-9_-]{3}=)?$/
+  test('uses the URL-safe alphabet', () => {
+    expect(toB64U(new Uint8Array([0xfb, 0xff]))).toBe('-_8')
+  })
+
+  test('output matches the strict unpadded base64url regex', () => {
+    const re = /^[A-Za-z0-9_-]*$/
     expect(re.test(toB64U(new Uint8Array([1, 2, 3])))).toBe(true)
     expect(re.test(toB64U(new Uint8Array([104, 105])))).toBe(true)
     expect(re.test(toB64U(new Uint8Array([97])))).toBe(true)
+    expect(re.test(toB64U(new Uint8Array([0xfb, 0xff])))).toBe(true)
+  })
+
+  test('round-trips through fromB64U at every residue length', () => {
+    for (const bytes of [
+      new Uint8Array([1, 2, 3]),
+      new Uint8Array([104, 105]),
+      new Uint8Array([97]),
+    ]) {
+      expect(equals(fromB64U(toB64U(bytes)), bytes)).toBe(true)
+    }
   })
 })
 

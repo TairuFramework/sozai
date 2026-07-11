@@ -62,13 +62,18 @@ export function toB64(bytes: Uint8Array): string {
 }
 
 /**
- * Convert a Uint8Array to a base64url-encoded string.
+ * Convert a Uint8Array to an unpadded base64url-encoded string.
+ *
+ * Output carries no `=` padding, as required by RFC 7515 (JWS) and RFC 4648 §5. Note that
+ * `toB64` (standard base64) *is* padded, per RFC 4648 §4.
  */
-export function toB64U(bytes: Uint8Array) {
-  if ('toBase64' in bytes) {
-    return bytes.toBase64({ alphabet: 'base64url' })
+export function toB64U(bytes: Uint8Array): string {
+  if (typeof Uint8Array.prototype.toBase64 === 'function') {
+    return bytes.toBase64({ alphabet: 'base64url', omitPadding: true })
   }
-  return toB64(bytes).replace(/[+/]/g, (m) => (m === '+' ? '-' : '_'))
+  return toB64(bytes)
+    .replace(/=+$/, '')
+    .replace(/[+/]/g, (m) => (m === '+' ? '-' : '_'))
 }
 
 /**

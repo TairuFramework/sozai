@@ -338,8 +338,8 @@ Append to `test/lib.test.ts`:
 ```ts
 describe('fromB64()', () => {
   test('rejects input containing whitespace', () => {
-    // The native path rejects this; the atob fallback would silently strip the space.
-    // The guard is what makes both runtimes agree.
+    // Both the native and atob paths silently strip this space and decode anyway.
+    // The guard is what makes fromB64 reject it at all.
     expect(() => fromB64('aGVs bG8=')).toThrow('Invalid base64')
   })
 
@@ -433,9 +433,9 @@ Expected: PASS — 54 tests.
 git add packages/codec/src/index.ts packages/codec/test/lib.test.ts
 git commit -m "fix(codec)!: validate fromB64 input, unify feature detection
 
-fromB64 had no guard, so its two paths disagreed by runtime: the native
-decoder rejects embedded whitespace, the atob fallback strips it. B64_RE
-mirrors B64U_RE and makes both agree.
+fromB64 had no guard, so it silently accepted malformed input — embedded
+whitespace, base64url characters — on both the native and atob paths and
+decoded it anyway. B64_RE mirrors B64U_RE and makes it fail loudly.
 
 Also switches toB64's \"'toBase64' in bytes\" check to the typeof style the
 other three functions use."

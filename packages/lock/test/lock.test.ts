@@ -9,6 +9,21 @@ import { TimeoutInterruption as LockTimeoutInterruption } from '../src/index.js'
 import { acquireFileLock, withFileLock } from '../src/lock.js'
 import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
 
+/**
+ * A same-host holder is aged MONOTONICALLY, from `os.uptime()` — so a test that fabricates a
+ * 61-second-old holder needs a host that has been up for at least 61 seconds. CI runs on
+ * freshly-booted VMs, where it has not been. Left to the real uptime, every reap test below
+ * silently becomes its own opposite: the fabricated `uptimeAt` bottoms out, the holder's monotonic
+ * age collapses to the host's own uptime, nothing is stale, and the reap never happens.
+ *
+ * Pin the uptime instead. The ages these tests claim are then the ages they have.
+ */
+const { HOST_UPTIME_SECONDS } = vi.hoisted(() => ({ HOST_UPTIME_SECONDS: 60 * 60 }))
+vi.mock('node:os', async () => {
+  const actual = await vi.importActual<typeof import('node:os')>('node:os')
+  return { ...actual, uptime: () => HOST_UPTIME_SECONDS }
+})
+
 let dir: string
 let lockPath: string
 
@@ -30,12 +45,21 @@ afterEach(() => {
  */
 function unprovableHolder(startedAt: number): LockRecord {
   const age = Date.now() - startedAt
+  const uptimeAt = getUptimeAt() - age
+  if (uptimeAt < 0) {
+    // Never clamp: a record older than the host's uptime cannot be written, and clamping it to 0
+    // would quietly hand back a holder younger than the test asked for — turning a reap test into
+    // a no-op that passes for the wrong reason, or hangs for the wrong reason.
+    throw new Error(
+      `unprovableHolder: a holder aged ${age}ms cannot exist on a host up for ${getUptimeAt()}ms. Raise HOST_UPTIME_SECONDS.`,
+    )
+  }
   return {
     pid: 999_999,
     hostname: hostname(),
     bootAt: getBootAt() - 10 * 60 * 60 * 1000,
     startedAt,
-    uptimeAt: Math.max(0, getUptimeAt() - age),
+    uptimeAt,
   }
 }
 

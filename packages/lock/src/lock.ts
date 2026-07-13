@@ -64,9 +64,11 @@ function trackHeldLock(entry: { path: string; inode: number }): void {
     exitHookInstalled = true
     process.on('exit', () => {
       for (const held of heldLocks) {
-        // Inode-guarded, like every other unlink here: it will not remove a lock that has already
-        // been replaced by another holder's. (Guarded, not atomic — `reapLockFile` explains the
-        // residual window this cannot close.)
+        // Inode-guarded, like `release()`: it will not remove a lock that has already been replaced
+        // by another holder's. (Guarded, not atomic — `reapLockFile` explains the residual window
+        // this cannot close. The temp-file `rmSync` in `claimLockFile` and the sweeper are NOT
+        // inode-guarded, and need not be: they only ever touch our own temp name, or orphans too
+        // old for any live claim to still be linking.)
         reapLockFile(held.path, held.inode)
       }
     })

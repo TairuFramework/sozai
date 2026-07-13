@@ -91,16 +91,31 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   unprovable holder by the monotonic delta `getUptimeAt() - record.uptimeAt` instead of by wall
   clock — no NTP correction, VM resume, laptop wake, or bad RTC can step `os.uptime()`, so that age
   can no longer be inflated by a clock jump. A *negative* age (this host's uptime is now below the
-  record's) means the host rebooted since the record was written and is treated as stale at once,
-  which is a strictly stronger reboot signal than the `bootAt` comparison. The residual limit is
-  real and is now documented rather than glossed over: a **foreign-host** record still has no
-  uptime we can read, so it is still aged by wall clock against `startedAt` (or the file's mtime for
-  a corrupt record) — a clock step on either machine can still expire it early. This is on top of,
-  not instead of, "cross-host locking is unsupported."
+  record's) signals that the host rebooted since the record was written, and is stale at once when
+  the wall clock corroborates it (`now - startedAt > staleTimeout`, added in the final pass:
+  `os.uptime()` is **not** portably monotonic — darwin's `uv_uptime` is `time(NULL) - kern.boottime`
+  and the kernel adjusts `kern.boottime` on clock and sleep events, so a forward bump can hand a
+  *live* holder a boot mismatch and a negative age together. A reboot always leaves real downtime,
+  so requiring corroboration costs a real reboot nothing).
+- **Not "a strictly stronger reboot signal than `bootAt`" — that earlier claim was false, and is
+  retracted here.** The `uptimeAt` rule is a *trade*: a holder that claimed the lock 3s into a boot,
+  followed by a reboot, leaves a record whose `uptimeAt` sits *below* the new boot's current uptime →
+  a small positive age → not stale → respected for the full `staleTimeout`. The wall-clock rule it
+  replaced reaped that record immediately. It is bounded by the TTL, so it is reap **latency**, not
+  an exclusion hole, and the trade is inherent: from the wall clock alone a reboot and a forward
+  clock step are indistinguishable, which is precisely why the wall clock had to go.
+- The residual limit is real and is documented rather than glossed over: a **foreign-host** record
+  still has no uptime we can read, so it is still aged by wall clock against `startedAt` (or the
+  file's mtime for a corrupt record) — a clock step on either machine can still expire it early.
+  This is on top of, not instead of, "cross-host locking is unsupported."
 - **`timeout: 0` is a documented try-lock, not merely "a short timeout."** One attempt, no waiting:
-  the queue turn is raced against an already-resolved sentinel so contention is decided in
-  microtasks (no timer can intervene), and the retry/backoff branch throws immediately instead of
-  sleeping. It still reaps a stale holder and re-claims at once — reaping is not waiting — and it
+  the queue reports whether the path is free **synchronously**, from a count of un-released slots
+  taken at entry, and the retry/backoff branch throws immediately instead of sleeping. (The first
+  implementation raced the queue turn against an already-resolved sentinel; the final pass found
+  that broken — a chain link resolved with a thenable stays pending two extra microtask hops, so a
+  free slot read as busy and a try-lock on a lock nobody held threw. Fixed in the final pass; the
+  verdict is now exact and depends on no microtask timing at all.) It rejects — `acquireFileLock` is
+  `async` — in the same tick, before any timer can fire; it does not throw synchronously. It still reaps a stale holder and re-claims at once — reaping is not waiting — and it
   skips the pre-reap jitter below, accepting the (crash-only, already-rare) TOCTOU odds rather than
   spending time it was told not to spend.
 - **Reap and release are both inode-guarded, but the guard is not a proof.** An unguarded unlink

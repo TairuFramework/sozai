@@ -147,8 +147,10 @@ acquisition only, however: once the lock is held, the critical section runs to c
 regardless of `timeout`, so a caller that needs to bound the section itself must do so.
 `TimeoutInterruption` is re-exported from `@sozai/lock` itself, so a caller can catch it without
 depending on `@sozai/async` directly. `timeout: 0` is a deterministic try-lock instead: one
-attempt, no waiting, no backoff, no queueing behind a same-process caller — live contention throws
-`TimeoutInterruption` synchronously.
+attempt, no waiting, no backoff, no queueing behind a same-process caller — live contention rejects
+with `TimeoutInterruption` in the same tick, before any timer can fire. (`acquireFileLock` is
+`async`, so it rejects after microtasks rather than throwing synchronously; the guarantee is that it
+never sleeps and never waits on a timer.)
 
 Acquiring the lock creates `lockPath`'s parent directory tree if missing
 (`mkdirSync(..., { recursive: true, mode: 0o700 })`).
@@ -156,11 +158,19 @@ Acquiring the lock creates `lockPath`'s parent directory tree if missing
 A holder that is provably alive (same host, same boot, live pid) is never reaped, however long it
 holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unprovable. How the age
 is measured then depends on the holder's host: a same-host holder is aged monotonically from
-`uptimeAt` (`os.uptime()`), so a forward wall-clock step cannot reap it — a *negative* age means the
-host rebooted since the record was written, so it is stale at once. A foreign-host holder (or a
-record too corrupt to identify one) is still aged by wall clock against `startedAt`, or the file's
-mtime — unavoidable, since another host's uptime can't be read, and the reason cross-host locking
-is unsupported. A clock step can still expire a foreign-host record early.
+`uptimeAt` (`os.uptime()`), so a forward wall-clock step cannot reap it. A *negative* age signals a
+reboot, and is stale at once when the wall clock corroborates it (`now - startedAt > staleTimeout`)
+— corroboration is required because `os.uptime()` is not portably monotonic (darwin adjusts
+`kern.boottime` on clock and sleep events, so it can run backwards under a live holder), and a real
+reboot always leaves real downtime. This is a trade, not a strictly stronger reboot signal than the
+wall clock it replaced: a holder that claimed the lock seconds into a boot, then a reboot, leaves a
+record whose `uptimeAt` sits *below* the new boot's uptime — a small positive age, so it is
+respected for the full TTL rather than reaped immediately. Reap latency bounded by the TTL, never an
+exclusion hole, and inherent: from the wall clock alone, a reboot and a forward clock step are
+indistinguishable. A foreign-host holder (or a record too corrupt to identify one) is still aged by
+wall clock against `startedAt`, or the file's mtime — unavoidable, since another host's uptime can't
+be read, and the reason cross-host locking is unsupported. A clock step can still expire a
+foreign-host record early.
 
 Reaping a stale lock is inode-guarded, not provably atomic: the guard is `statSync` then `rmSync`,
 two syscalls, so a residual window remains where two waiters classifying the same stale lock in
@@ -175,8 +185,9 @@ there. Benign: the process is gone, so the next waiter's liveness probe reports 
 immediately, no TTL wait.
 
 Acquisition can reject with a real filesystem error (`EACCES`, `EISDIR`, ...) instead of timing out,
-when `lockPath` is misconfigured (a directory at the path, an unreadable file). A caller should not
-assume every rejection is `TimeoutInterruption`.
+when `lockPath` is unusable: a directory sitting at the path, or a lockfile unreadable to us — a
+`0600` lockfile owned by another user, on a shared path, throws `EACCES` on the first read rather
+than being waited out. A caller should not assume every rejection is `TimeoutInterruption`.
 
 `retryDelay` is a backoff ceiling, not the realized first delay: the first wait is uniform in
 `[retryDelay / 2, retryDelay)` (`[5, 10)` at the default).

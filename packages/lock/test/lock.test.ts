@@ -207,6 +207,47 @@ describe('acquireFileLock()', () => {
     })
   })
 
+  // A backoff timer that outlives the rejection keeps the event loop open for up to
+  // `maxRetryDelay` — a public option — so an aborted acquire could hold a process up for the
+  // 30s the caller configured, long after it gave up.
+  test('leaves no timer running once the acquisition has rejected', async () => {
+    claimLockFile(lockPath, unprovableHolder(Date.now()))
+
+    const realSetTimeout = globalThis.setTimeout
+    const realClearTimeout = globalThis.clearTimeout
+    // Only long timers are tracked: short ones belong to the test runner, not to us.
+    const pending = new Map<unknown, number>()
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      delay?: number,
+    ): NodeJS.Timeout => {
+      const handle = realSetTimeout(fn, delay)
+      if ((delay ?? 0) >= 1_000) {
+        pending.set(handle, delay as number)
+      }
+      return handle
+    }) as typeof globalThis.setTimeout)
+    vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((handle: NodeJS.Timeout): void => {
+      pending.delete(handle)
+      realClearTimeout(handle)
+    }) as typeof globalThis.clearTimeout)
+
+    const controller = new AbortController()
+    const acquiring = acquireFileLock(lockPath, {
+      timeout: 30_000,
+      staleTimeout: 60_000,
+      retryDelay: 20_000,
+      maxRetryDelay: 20_000,
+      signal: controller.signal,
+    })
+    await new Promise((resolve) => realSetTimeout(resolve, 20))
+    controller.abort(new Error('gave up'))
+    await expect(acquiring).rejects.toThrow('gave up')
+
+    // Both the 30s deadline and the 10-20s backoff sleep must be gone.
+    expect([...pending.values()]).toEqual([])
+  })
+
   test('an abandoned waiter does not strand the next caller in this process', async () => {
     const held = await acquireFileLock(lockPath)
     const controller = new AbortController()

@@ -1,4 +1,4 @@
-import { onAbort, raceSignal, ScheduledTimeout, sleep, TimeoutInterruption } from '@sozai/async'
+import { onAbort, raceSignal, ScheduledTimeout, TimeoutInterruption } from '@sozai/async'
 
 import { claimLockFile, reapLockFile } from './file.js'
 import { isStale } from './liveness.js'
@@ -72,6 +72,26 @@ function backoffDelay(attempt: number, retryDelay: number, maxRetryDelay: number
 
 /** Loses any race against an already-settled promise, and only against one. See the try-lock. */
 const BUSY = Symbol('busy')
+
+/**
+ * Sleep, CANCELLABLY. `sleep()` from `@sozai/async` is a bare `setTimeout` with no cancellation,
+ * and `raceSignal` only wins the race — it never clears the loser's timer. Racing the two would
+ * therefore leave a live timer holding the event loop open for up to `maxRetryDelay` after this
+ * acquisition has already rejected, and `maxRetryDelay` is a public option: a caller passing
+ * 30_000 would keep their process alive for 30s past an abort. Rejecting here clears the timer.
+ */
+function sleepFor(delay: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe()
+      resolve()
+    }, delay)
+    const unsubscribe = onAbort(signal, () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    })
+  })
+}
 
 /**
  * Acquire an exclusive cross-process lock on `lockPath`, waiting for the current holder to
@@ -164,7 +184,7 @@ export async function acquireFileLock(
       if (tryLock) {
         throw new TimeoutInterruption({ message: timeoutMessage })
       }
-      await raceSignal(sleep(backoffDelay(attempt++, retryDelay, maxRetryDelay)), controller.signal)
+      await sleepFor(backoffDelay(attempt++, retryDelay, maxRetryDelay), controller.signal)
     }
   } catch (err) {
     slot.release()

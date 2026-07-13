@@ -86,6 +86,50 @@ describe('enterQueue()', () => {
     next.release()
   })
 
+  // The try-lock's whole contract rests on this: "is this path free?" must be answerable at entry,
+  // with no await at all. Deciding it by racing `turn` against a resolved promise cannot work — a
+  // chain resolved with a thenable stays pending for two more microtask hops after the predecessor
+  // has fully released, so a free slot reads as busy for as long as the caller's microtask depth
+  // says it does.
+  test('reports the slot free at entry when nobody holds the path', () => {
+    const slot = enterQueue('/tmp/sozai-queue-i.lock')
+    expect(slot.free).toBe(true)
+    slot.release()
+  })
+
+  test('reports the slot busy at entry while a predecessor holds it', async () => {
+    const path = '/tmp/sozai-queue-j.lock'
+    const held = enterQueue(path)
+    await held.turn
+
+    expect(enterQueue(path).free).toBe(false)
+    // The probe itself queued: release it, and the holder, so the path is clean.
+    held.release()
+  })
+
+  test('reports the slot free again in the SAME tick the holder releases', async () => {
+    const path = '/tmp/sozai-queue-k.lock'
+    const held = enterQueue(path)
+    await held.turn
+    held.release()
+
+    // No await between the release and the probe: not one microtask hop.
+    const next = enterQueue(path)
+    expect(next.free).toBe(true)
+    await expect(next.turn).resolves.toBeUndefined()
+    next.release()
+  })
+
+  test('the try-lock loop: each iteration sees the path free again', async () => {
+    const path = '/tmp/sozai-queue-l.lock'
+    for (let index = 0; index < 3; index++) {
+      const slot = enterQueue(path)
+      expect(slot.free).toBe(true)
+      await slot.turn
+      slot.release()
+    }
+  })
+
   test('drops its map entry once the last caller releases', async () => {
     const before = getQueueSize()
     const slot = enterQueue('/tmp/sozai-queue-h.lock')

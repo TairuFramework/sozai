@@ -79,9 +79,6 @@ function backoffDelay(attempt: number, retryDelay: number, maxRetryDelay: number
   return ceiling / 2 + Math.random() * (ceiling / 2)
 }
 
-/** Loses any race against an already-settled promise, and only against one. See the try-lock. */
-const BUSY = Symbol('busy')
-
 /**
  * Sleep, CANCELLABLY. `sleep()` from `@sozai/async` is a bare `setTimeout` with no cancellation,
  * and `raceSignal` only wins the race — it never clears the loser's timer. Racing the two would
@@ -145,12 +142,14 @@ export async function acquireFileLock(
   try {
     if (tryLock) {
       // A try-lock does not queue behind a same-process predecessor either: that is contention
-      // like any other. Racing the turn against an already-resolved sentinel asks exactly "is the
-      // slot free RIGHT NOW" — a settled turn wins the race, a pending one loses, both decided in
-      // microtasks so no timer can intervene.
-      if ((await Promise.race([slot.turn, Promise.resolve(BUSY)])) === BUSY) {
+      // like any other. `slot.free` answers "does anyone in this process hold the path right now"
+      // synchronously, from a count taken at entry — exact, and free of the microtask timing that
+      // a promise race would have made the verdict depend on. The turn is then already destined to
+      // resolve; awaiting it only lets the chain hand the path over in order.
+      if (!slot.free) {
         throw new TimeoutInterruption({ message: timeoutMessage })
       }
+      await slot.turn
     } else {
       await raceSignal(slot.turn, controller.signal)
     }

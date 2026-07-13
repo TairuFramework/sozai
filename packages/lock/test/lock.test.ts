@@ -243,6 +243,29 @@ describe('acquireFileLock()', () => {
       held.release()
     })
 
+    // The predecessor is GONE — the lockfile is not on disk — so this must acquire. Deciding
+    // availability by racing the queue turn against a resolved sentinel made this throw: a chain
+    // resolved with a thenable stays pending for two more microtask hops after the release, so the
+    // verdict depended on how many hops the caller happened to sit behind.
+    test('acquires a lock its in-process predecessor has already released', async () => {
+      const held = await acquireFileLock(lockPath)
+      held.release()
+      expect(readLockEntry(lockPath).record).toBeNull()
+
+      const lock = await acquireFileLock(lockPath, { timeout: 0 })
+      expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+      lock.release()
+    })
+
+    // The natural try-lock loop — try, work, release, try again — must not fail on iteration two.
+    test('a try-lock loop acquires on every iteration', async () => {
+      for (let index = 0; index < 3; index++) {
+        const lock = await acquireFileLock(lockPath, { timeout: 0 })
+        expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+        lock.release()
+      }
+    })
+
     test('releases its queue slot when it throws, so the next caller is not stranded', async () => {
       const held = await acquireFileLock(lockPath)
       await expect(acquireFileLock(lockPath, { timeout: 0 })).rejects.toBeInstanceOf(

@@ -5,6 +5,7 @@ import { TimeoutInterruption } from '@sozai/async'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { claimLockFile, readLockEntry } from '../src/file.js'
+import { TimeoutInterruption as LockTimeoutInterruption } from '../src/index.js'
 import { acquireFileLock, withFileLock } from '../src/lock.js'
 import { getBootAt, type LockRecord } from '../src/record.js'
 
@@ -114,6 +115,15 @@ describe('acquireFileLock()', () => {
 
     // The holder's lock is untouched.
     expect(readLockEntry(lockPath).record).toEqual(holder)
+  })
+
+  // Consumers must be able to catch this without adding @sozai/async as their own dependency.
+  test('rejects with a TimeoutInterruption importable from the package entrypoint', async () => {
+    claimLockFile(lockPath, unprovableHolder(Date.now()))
+
+    await expect(
+      acquireFileLock(lockPath, { timeout: 100, staleTimeout: 60_000 }),
+    ).rejects.toBeInstanceOf(LockTimeoutInterruption)
   })
 
   test('rejects with the caller reason when the signal aborts mid-wait', async () => {

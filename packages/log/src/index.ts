@@ -1,5 +1,5 @@
 import type { Config, ConsoleSinkOptions, Logger, LogLevel } from '@logtape/logtape'
-import { configureSync, getConsoleSink, getLogger as logtape } from '@logtape/logtape'
+import { configureSync, getConsoleSink, getLogger as logtape, resetSync } from '@logtape/logtape'
 
 export type { Config, ConsoleSinkOptions, Logger, LogLevel }
 export { getConsoleSink }
@@ -28,4 +28,14 @@ export function getDefaultConfig(options?: ConsoleSinkOptions): Config<'console'
 
 export function setup(maybeConfig?: Config<string, string>) {
   configureSync(maybeConfig ?? getDefaultConfig())
+}
+
+/**
+ * Clear the logging configuration, so `setup()` can configure it again.
+ *
+ * Both an escape hatch for intentional reconfiguration and the way test suites
+ * clear logtape's process-global state between cases.
+ */
+export function reset(): void {
+  resetSync()
 }

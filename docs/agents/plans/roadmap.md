@@ -39,10 +39,8 @@ folded in next to the otel work. Each is a self-contained unit (target: one PR).
 
 ## New packages (not audit-derived)
 
-- [lock — cross-process file mutex](next/lock-package.md) — new Node-only `@sozai/lock`,
-  requested by kokuin (unconditional-upsert keystores race across processes and silently lose
-  keys). No freeze dependency on the existing packages, but it blocks kokuin's keystore
-  contract, and `@tejika/process` rebases onto it afterwards.
+- ✅ **Done** — [lock — cross-process file mutex](completed/2026-07-13-lock-package.complete.md).
+  New Node-only `@sozai/lock`, requested by kokuin. Follow-up: rebase `@tejika/process` onto it.
 
 ## Deferred (no freeze dependency)
 

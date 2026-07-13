@@ -1,4 +1,5 @@
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -9,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { claimLockFile, readLockEntry, reapLockFile, sweepTempRecords } from '../src/file.js'
 import { createLockRecord, type LockRecord } from '../src/record.js'
@@ -23,6 +24,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.doUnmock('node:fs')
+  vi.resetModules()
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -76,6 +79,32 @@ describe('claimLockFile()', () => {
       conflict: { record: null, inode: expect.any(Number), mtimeMs: expect.any(Number) },
     })
   })
+
+  // Only reachable when the claimer is suspended past the sweep cutoff between writing its temp
+  // file and linking it (laptop sleep, SIGSTOP) — its own temp file is then swept out from under
+  // it. Retryable, not fatal: the caller re-reads and claims again.
+  test('reports a conflict when its temp file vanished before the link (ENOENT)', async () => {
+    vi.resetModules()
+    vi.doMock('node:fs', async () => {
+      const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+      return {
+        ...actual,
+        default: actual,
+        linkSync: () => {
+          const err: NodeJS.ErrnoException = new Error('ENOENT: no such file or directory, link')
+          err.code = 'ENOENT'
+          throw err
+        },
+      }
+    })
+    const { claimLockFile: claimWithVanishedTemp } = await import('../src/file.js')
+
+    const result = claimWithVanishedTemp(lockPath, foreignRecord())
+
+    expect(result).toEqual({ conflict: { record: null, inode: null, mtimeMs: null } })
+    // And it still cleaned up after itself.
+    expect(readdirSyncSafe(join(dir, 'nested')).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  })
 })
 
 describe('readLockEntry()', () => {
@@ -102,6 +131,16 @@ describe('readLockEntry()', () => {
     const entry = readLockEntry(lockPath)
     expect(entry.record).toBeNull()
     expect(entry.inode).toBe(statSync(lockPath).ino)
+  })
+
+  // Collapsing EVERY I/O error to an all-null entry made a misconfigured path — a directory, an
+  // unreadable file — indistinguishable from a held lock: no inode, so no reap, so the caller
+  // waited out its whole timeout and was told "someone else holds the lock". The most misleading
+  // diagnosis this package can emit. Only ENOENT means "absent".
+  test('throws, rather than reporting an absent lock, when a directory sits at the path', () => {
+    mkdirSync(lockPath, { recursive: true })
+
+    expect(() => readLockEntry(lockPath)).toThrow(/EISDIR|EPERM|EACCES/)
   })
 })
 
@@ -136,9 +175,9 @@ describe('reapLockFile()', () => {
 describe('sweepTempRecords()', () => {
   test('removes orphaned temp siblings older than the cutoff, and only those', () => {
     claimLockFile(lockPath, createLockRecord())
-    const old = `${lockPath}.111.aaaaaa.tmp`
-    const fresh = `${lockPath}.222.bbbbbb.tmp`
-    const unrelated = join(dir, 'nested', 'other.lock.333.cccccc.tmp')
+    const old = `${lockPath}.111.aaaaaabbbbbb.tmp`
+    const fresh = `${lockPath}.222.bbbbbbcccccc.tmp`
+    const unrelated = join(dir, 'nested', 'other.lock.333.ccccccdddddd.tmp')
     for (const path of [old, fresh, unrelated]) {
       writeFileSync(path, '{}')
     }
@@ -153,6 +192,46 @@ describe('sweepTempRecords()', () => {
     expect(existsSyncSafe(fresh)).toBe(true)
     // Not ours to remove: a different lock path in the same directory.
     expect(existsSyncSafe(unrelated)).toBe(true)
+  })
+
+  // `startsWith(basename + '.') && endsWith('.tmp')` also matched the LOCKFILE of a lock named
+  // `<basename>.tmp` — an unlink of a live lock. The sweep matches only the shape the writer
+  // produces: `<basename>.<pid>.<12 hex>.tmp`.
+  test('never removes a neighbouring lockfile that merely looks like a temp file', () => {
+    const neighbour = `${lockPath}.tmp`
+    claimLockFile(neighbour, createLockRecord())
+    const longAgo = new Date(Date.now() - 60_000)
+    utimesSync(neighbour, longAgo, longAgo)
+    // As is the temp file of THAT lock, which is not ours to sweep either.
+    const neighbourTemp = `${neighbour}.444.ddddddeeeeee.tmp`
+    writeFileSync(neighbourTemp, '{}')
+    utimesSync(neighbourTemp, longAgo, longAgo)
+
+    sweepTempRecords(lockPath)
+
+    expect(existsSyncSafe(neighbour)).toBe(true)
+    expect(existsSyncSafe(neighbourTemp)).toBe(true)
+  })
+
+  test('ignores names that do not carry a pid and a hex suffix', () => {
+    claimLockFile(lockPath, createLockRecord())
+    const longAgo = new Date(Date.now() - 60_000)
+    const strays = [
+      `${lockPath}.tmp.tmp`,
+      `${lockPath}.notapid.aaaaaabbbbbb.tmp`,
+      `${lockPath}.111.nothex123456.tmp`,
+      `${lockPath}.111.aaaaaa.tmp`,
+    ]
+    for (const path of strays) {
+      writeFileSync(path, '{}')
+      utimesSync(path, longAgo, longAgo)
+    }
+
+    sweepTempRecords(lockPath)
+
+    for (const path of strays) {
+      expect(existsSyncSafe(path)).toBe(true)
+    }
   })
 })
 

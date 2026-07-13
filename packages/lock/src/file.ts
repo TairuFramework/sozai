@@ -32,13 +32,22 @@ const TEMP_RECORD_MAX_AGE_MS = 10_000
  * cannot straddle a replacement of the file. Callers that reap after an await depend on that:
  * the inode is what tells them the file they classified is still the file they are about to
  * unlink. The mtime dates a record too corrupt to date itself.
+ *
+ * ENOENT — and ONLY ENOENT — is an absent lock, reported as the all-null entry. Every other I/O
+ * error is thrown. Collapsing them all into "absent" made a misconfigured path (a directory at
+ * `lockPath`, an unreadable file) look exactly like a lock held by someone else: no inode, so no
+ * reap, so the acquiring loop backed off until it timed out and told the caller the lock was
+ * contended. The most misleading diagnosis this package can emit; the real error is better.
  */
 export function readLockEntry(lockPath: string): LockEntry {
   let fd: number
   try {
     fd = openSync(lockPath, 'r')
-  } catch {
-    return { record: null, inode: null, mtimeMs: null }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { record: null, inode: null, mtimeMs: null }
+    }
+    throw err
   }
   try {
     const stats = fstatSync(fd)
@@ -47,8 +56,6 @@ export function readLockEntry(lockPath: string): LockEntry {
       inode: stats.ino,
       mtimeMs: stats.mtimeMs,
     }
-  } catch {
-    return { record: null, inode: null, mtimeMs: null }
   } finally {
     closeSync(fd)
   }
@@ -66,6 +73,13 @@ function writeTempRecord(lockPath: string, record: LockRecord): { tmpPath: strin
 }
 
 /**
+ * What `writeTempRecord` produces, and nothing else: `.<pid>.<12 hex>.tmp`. A looser match — any
+ * sibling starting with `<basename>.` and ending in `.tmp` — also matches the LOCKFILE of a lock
+ * named `<basename>.tmp`, and would unlink a live lock once it aged past the cutoff.
+ */
+const TEMP_RECORD_SUFFIX = /^\.\d+\.[0-9a-f]{12}\.tmp$/
+
+/**
  * Remove orphaned `.tmp` siblings. The claim is only atomic because the content exists under a
  * throwaway name first — but a SIGKILL landing in that window leaves the throwaway behind
  * forever, and a crash-looping process quietly accumulates them. Only files old enough that no
@@ -74,11 +88,11 @@ function writeTempRecord(lockPath: string, record: LockRecord): { tmpPath: strin
  * tidying up did.
  */
 export function sweepTempRecords(lockPath: string): void {
-  const prefix = `${basename(lockPath)}.`
+  const lockName = basename(lockPath)
   const cutoff = Date.now() - TEMP_RECORD_MAX_AGE_MS
   try {
     for (const name of readdirSync(dirname(lockPath))) {
-      if (!name.startsWith(prefix) || !name.endsWith('.tmp')) {
+      if (!name.startsWith(lockName) || !TEMP_RECORD_SUFFIX.test(name.slice(lockName.length))) {
         continue
       }
       const tmpPath = join(dirname(lockPath), name)
@@ -113,7 +127,12 @@ export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult
   try {
     linkSync(tmpPath, lockPath)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+    const code = (err as NodeJS.ErrnoException).code
+    // EEXIST: the name is taken, someone else holds the lock.
+    // ENOENT: OUR temp file is gone — only possible if this process was suspended past the sweep
+    // cutoff between writing it and linking it (laptop sleep, SIGSTOP), so a sweeper collected it
+    // as an orphan. Retryable, not fatal: report a conflict and let the caller claim again.
+    if (code !== 'EEXIST' && code !== 'ENOENT') {
       throw err
     }
     return { conflict: readLockEntry(lockPath) }

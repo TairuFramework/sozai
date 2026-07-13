@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { TimeoutInterruption } from '@sozai/async'
@@ -121,6 +121,16 @@ describe('acquireFileLock()', () => {
 
     // The holder's lock is untouched.
     expect(readLockEntry(lockPath).record).toEqual(holder)
+  })
+
+  // "Someone else holds the lock" is the most misleading diagnosis this package can emit about a
+  // path that is simply not a lockfile. The real error, at once.
+  test('reports a misconfigured path immediately, not as a held lock', async () => {
+    mkdirSync(lockPath, { recursive: true })
+
+    const acquiring = acquireFileLock(lockPath, { timeout: 5_000 })
+    await expect(acquiring).rejects.toThrow(/EISDIR|EPERM|EACCES/)
+    await expect(acquiring).rejects.not.toBeInstanceOf(TimeoutInterruption)
   })
 
   // Consumers must be able to catch this without adding @sozai/async as their own dependency.

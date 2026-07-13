@@ -28,14 +28,13 @@ export type ClaimResult = { inode: number } | { conflict: LockEntry }
 const TEMP_RECORD_MAX_AGE_MS = 10_000
 
 /**
- * Read the record, its inode and its mtime through a SINGLE open descriptor, so the three cannot
- * straddle a replacement of the file. Callers that reap after an await depend on that: the inode
- * is what tells them the file they classified is still the file they are about to unlink.
+ * Read the record, its inode, and its mtime through a SINGLE open descriptor so the
+ * three cannot straddle a replacement of the file — the inode is what a later reap
+ * depends on still matching.
  *
- * ENOENT — and ONLY ENOENT — is an absent lock, reported as the all-null entry. Every other I/O
- * error is thrown: collapsing them would make a misconfigured path (a directory at `lockPath`, an
- * unreadable file) look identical to a lock held by someone else, backing the acquiring loop off
- * until it times out and reports contention instead of the real error.
+ * ENOENT alone is an absent lock. Every other I/O error is thrown: collapsing them would
+ * make a misconfigured path look like contention and back the loop off until it times
+ * out instead of surfacing the real error.
  */
 export function readLockEntry(lockPath: string): LockEntry {
   let fd: number
@@ -59,11 +58,7 @@ export function readLockEntry(lockPath: string): LockEntry {
   }
 }
 
-/**
- * Write the record to a fresh sibling file. The full content exists before the file is ever
- * given a name a reader could look up, which is what makes the claim below atomic to any
- * observer.
- */
+/** Write the record to a fresh sibling file, complete before it has a name a reader could look up. */
 function writeTempRecord(lockPath: string, record: LockRecord): { tmpPath: string; inode: number } {
   const tmpPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   writeFileSync(tmpPath, JSON.stringify(record), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
@@ -71,17 +66,16 @@ function writeTempRecord(lockPath: string, record: LockRecord): { tmpPath: strin
 }
 
 /**
- * What `writeTempRecord` produces, and nothing else: `.<pid>.<12 hex>.tmp`. A looser match — any
- * sibling starting with `<basename>.` and ending in `.tmp` — also matches the LOCKFILE of a lock
- * named `<basename>.tmp`, and would unlink a live lock once it aged past the cutoff.
+ * Exactly what `writeTempRecord` produces: `.<pid>.<12 hex>.tmp`. A looser match would
+ * also catch the lockfile of a lock literally named `<basename>.tmp`.
  */
 const TEMP_RECORD_SUFFIX = /^\.\d+\.[0-9a-f]{12}\.tmp$/
 
 /**
- * Remove orphaned `.tmp` siblings left by a SIGKILL landing between the write and the link. Only
- * files old enough that no live claim could still be linking one are touched, so a concurrent
- * claimer's fresh temp file is never pulled out from under it. Best-effort throughout: a claim
- * must never fail because tidying up did.
+ * Remove orphaned `.tmp` siblings left by a SIGKILL between write and link. Only files
+ * older than `TEMP_RECORD_MAX_AGE_MS` are touched, so a concurrent claimer's fresh temp
+ * file is never pulled out from under it. Best-effort throughout: tidying up must never
+ * fail a claim.
  */
 export function sweepTempRecords(lockPath: string): void {
   const lockName = basename(lockPath)
@@ -106,15 +100,15 @@ export function sweepTempRecords(lockPath: string): void {
 }
 
 /**
- * Take an exclusive claim on `lockPath` via `link()` — the single atomic primitive this design
- * rests on. `link` fails with EEXIST when the name is taken, exactly like `O_EXCL`, but the name
- * it creates is already complete: the record is written to a temp file first, so no racer can
- * ever read the lockfile mid-write. (A create-then-write claim leaves a zero-byte file visible for
- * a moment; a racer reading it there parses nothing, concludes "nobody home", and reaps the
- * winner's fresh lock.)
+ * Take an exclusive claim on `lockPath` via `link()` — the single atomic primitive this
+ * design rests on. `link` fails with EEXIST when the name is taken, like `O_EXCL`, but
+ * the name it creates is already complete: the record is written to a temp file first,
+ * so a racer can never read the lockfile mid-write. (Create-then-write leaves a
+ * zero-byte file visible for a moment; a racer reading it there concludes "nobody home"
+ * and reaps the winner's fresh lock.)
  *
- * The winner gets the inode it linked, which is what it must present to release the lock. Losers
- * get the conflicting entry and must unlink nothing.
+ * The winner gets the inode it linked, which it must present to release the lock.
+ * Losers get the conflicting entry and must unlink nothing.
  */
 export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult {
   mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 })
@@ -125,8 +119,8 @@ export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     // EEXIST: the name is taken, someone else holds the lock.
-    // ENOENT: OUR temp file is gone — only possible if this process was suspended past the sweep
-    // cutoff between writing it and linking it, so a sweeper collected it as an orphan. Retryable.
+    // ENOENT: our own temp file was collected by a sweeper — only possible if this
+    // process was suspended past the sweep cutoff between writing and linking it. Retryable.
     if (code !== 'EEXIST' && code !== 'ENOENT') {
       throw err
     }
@@ -136,8 +130,8 @@ export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult
     rmSync(tmpPath, { force: true })
   }
 
-  // We won the claim: the one moment we know the previous holder is gone and can safely tidy up
-  // the temp files its crash may have orphaned.
+  // We won the claim: the one moment we know the previous holder is gone and can safely
+  // tidy up the temp files its crash may have orphaned.
   sweepTempRecords(lockPath)
 
   return { inode }
@@ -152,20 +146,20 @@ function inodeOf(lockPath: string): number | null {
 }
 
 /**
- * Unlink the lockfile only if its inode still matches `expectedInode`. Required, not optional: an
- * unguarded unlink removes whatever happens to sit at the path right now, which — after any await
- * — may be a different holder's live lock. Read the inode with `readLockEntry` at the same moment
- * you read the record you are classifying, and present it here.
+ * Unlink the lockfile only if its inode still matches `expectedInode`. Required: an
+ * unguarded unlink removes whatever now sits at the path, which — after any await — may
+ * be a different holder's live lock. Read the inode with `readLockEntry` at the same
+ * moment you read the record you are classifying, and present it here.
  *
- * Returns whether the file was removed. Losing this race is not an error: the winner's lock is
- * simply left alone.
+ * Returns whether the file was removed. Losing this race is not an error: the winner's
+ * lock is simply left alone.
  *
  * GUARDED, NOT ATOMIC: `statSync` and `rmSync` are two syscalls, and POSIX offers no
- * unlink-if-inode, so a residual window remains where two waiters reaping the same stale lock in
- * lockstep can both believe they won it and both enter the critical section. `acquireFileLock`
- * jitters before reaping so N waiters released by one stale lock do not step through that window
- * together — a probabilistic mitigation of a rare, crash-only path, not a proof. This is the one
- * place this package's exclusion is not absolute.
+ * unlink-if-inode, so a residual window remains where two waiters reaping the same stale
+ * lock in lockstep can both believe they won it. `acquireFileLock` jitters before reaping
+ * so N waiters released by one stale lock do not step through that window together — a
+ * probabilistic mitigation, not a proof. This is the one place this package's exclusion
+ * is not absolute.
  */
 export function reapLockFile(lockPath: string, expectedInode: number): boolean {
   if (inodeOf(lockPath) !== expectedInode) {

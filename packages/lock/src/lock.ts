@@ -7,24 +7,20 @@ import { createLockRecord, retryBootIDRead } from './record.js'
 
 export type FileLockOptions = {
   /**
-   * Milliseconds to wait for the lock before throwing. Bounds ACQUISITION ONLY — once the lock
-   * is held, the critical section runs to completion. Default 10_000.
+   * Milliseconds to wait for the lock before throwing. Bounds ACQUISITION ONLY — once
+   * the lock is held, the critical section runs to completion. Default 10_000.
    *
-   * `0` means TRY-LOCK: one attempt, no waiting. It may still reap a stale holder and re-attempt
-   * the claim immediately (reaping is not waiting), but it never backs off and never queues
-   * behind a same-process caller — any live contention throws `TimeoutInterruption` at once.
+   * `0` is a TRY-LOCK: one attempt, no waiting, no backoff, no queuing behind a
+   * same-process caller. Any contention throws `TimeoutInterruption` at once.
    */
   timeout?: number
   /**
-   * Milliseconds after which a holder whose liveness cannot be proven (a foreign host, a
-   * different boot, a corrupt record) is treated as stale. A holder that IS provably alive is
+   * Milliseconds after which a holder whose liveness cannot be proven (a foreign host,
+   * a different boot, a corrupt record) is treated as stale. A provably-alive holder is
    * never stale, whatever this is set to. Default 60_000.
    */
   staleTimeout?: number
-  /**
-   * Initial backoff ceiling in milliseconds: the backoff is halved and jittered, so the first
-   * realized delay is uniform in `[retryDelay / 2, retryDelay)`. Default 10.
-   */
+  /** Initial backoff ceiling in milliseconds; halved and jittered. Default 10. */
   retryDelay?: number
   /** Retry delay ceiling in milliseconds. Default 250. */
   maxRetryDelay?: number
@@ -44,14 +40,10 @@ const DEFAULT_RETRY_DELAY = 10
 const DEFAULT_MAX_RETRY_DELAY = 250
 
 /**
- * Every lock this process currently holds, so a clean exit does not leave one behind for the next
- * run to wait out.
- *
- * Covers only `process.exit()` and a natural drain of the event loop: a default-handled SIGINT or
- * SIGTERM terminates Node without emitting `'exit'`, and SIGKILL never could. That's fine — a
- * signalled process's pid is gone, so the next waiter's probe returns `'dead'` and reaps the
- * lockfile at once, with no TTL wait. Installing signal handlers here would silently change the
- * host process's termination behavior for no gain.
+ * Locks this process currently holds, so a clean exit does not leave one behind. Covers
+ * only `process.exit()` and a natural event-loop drain — a default-handled SIGINT/SIGTERM
+ * skips `'exit'`, and SIGKILL always does. That's fine: a signalled process's pid is
+ * gone, so the next waiter's probe returns `'dead'` and reaps at once, no TTL wait.
  */
 const heldLocks = new Set<{ path: string; inode: number }>()
 let exitHookInstalled = false
@@ -62,8 +54,8 @@ function trackHeldLock(entry: { path: string; inode: number }): void {
     exitHookInstalled = true
     process.on('exit', () => {
       for (const held of heldLocks) {
-        // Inode-guarded, like `release()` — see `reapLockFile` for the residual window this
-        // cannot close.
+        // Inode-guarded, like `release()` — see `reapLockFile` for the residual window
+        // this cannot close.
         reapLockFile(held.path, held.inode)
       }
     })
@@ -77,11 +69,9 @@ function backoffDelay(attempt: number, retryDelay: number, maxRetryDelay: number
 }
 
 /**
- * Sleep, CANCELLABLY. `sleep()` from `@sozai/async` is a bare `setTimeout` with no cancellation,
- * and `raceSignal` only wins the race — it never clears the loser's timer. Racing the two would
- * therefore leave a live timer holding the event loop open for up to `maxRetryDelay` after this
- * acquisition has already rejected, and `maxRetryDelay` is a public option: a caller passing
- * 30_000 would keep their process alive for 30s past an abort. Rejecting here clears the timer.
+ * Sleep, CANCELLABLY. `sleep()` from `@sozai/async` never clears its timer, and racing
+ * it against `raceSignal` would leave that timer holding the event loop open past an
+ * abort — `maxRetryDelay` is a public option, so that could be seconds.
  */
 function sleepFor(delay: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -97,16 +87,17 @@ function sleepFor(delay: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Acquire an exclusive cross-process lock on `lockPath`, waiting for the current holder to
- * release it. Throws `TimeoutInterruption` when the lock cannot be taken within `timeout`, and
- * rejects with `signal.reason` when the caller aborts. It never resolves without the lock.
+ * Acquire an exclusive cross-process lock on `lockPath`, waiting for the current holder
+ * to release it. Throws `TimeoutInterruption` when the lock cannot be taken within
+ * `timeout`, and rejects with `signal.reason` when the caller aborts. Never resolves
+ * without the lock.
  *
  * `timeout: 0` is a TRY-LOCK: one attempt, no waiting at all. See `FileLockOptions.timeout`.
  *
  * `lockPath` MUST be on a local filesystem: the atomicity of `link()` is not guaranteed on NFS.
  *
- * Not reentrant: acquiring the same path twice in one process, without releasing, deadlocks until
- * the timeout fires.
+ * Not reentrant: acquiring the same path twice in one process, without releasing,
+ * deadlocks until the timeout fires.
  */
 export async function acquireFileLock(
   lockPath: string,
@@ -120,12 +111,12 @@ export async function acquireFileLock(
     signal,
   } = options
 
-  // Must happen before `createLockRecord()` below, whose `bootID` is frozen on the record for the
-  // life of the hold. See `retryBootIDRead`.
+  // Must happen before `createLockRecord()` below, whose `bootID` is frozen on the record
+  // for the life of the hold. See `retryBootIDRead`.
   retryBootIDRead()
 
-  // One attempt, no waiting: the deadline below is scheduled all the same (and disposed), but a
-  // try-lock throws from the code path that WOULD have waited, so the timer never decides.
+  // A try-lock still schedules (and disposes) the deadline below, but throws from the
+  // path that would have waited, so the timer never gets to decide anything.
   const tryLock = timeout === 0
   const timeoutMessage = `Timeout acquiring lock ${lockPath} after ${timeout}ms`
 
@@ -138,13 +129,13 @@ export async function acquireFileLock(
     controller.abort(signal?.reason)
   })
 
-  // The queue slot must be released on EVERY exit path, or the callers behind us wait forever.
+  // Must be released on EVERY exit path, or the callers behind us wait forever.
   const slot = enterQueue(lockPath)
   try {
     if (tryLock) {
-      // A try-lock does not queue behind a same-process predecessor either: that is contention
-      // like any other. `slot.free` is decided synchronously at entry (see `enterQueue`), so this
-      // never depends on microtask timing.
+      // A try-lock does not queue behind a same-process predecessor either: that is
+      // contention like any other. `slot.free` is decided synchronously at entry (see
+      // `enterQueue`), so this never depends on microtask timing.
       if (!slot.free) {
         throw new TimeoutInterruption({ message: timeoutMessage })
       }
@@ -180,9 +171,9 @@ export async function acquireFileLock(
       const entry = result.conflict
       if (entry.inode != null && isStale(entry, staleTimeout)) {
         if (!tryLock) {
-          // Reaping is inode-guarded but not atomic (see `reapLockFile`); the residual window only
-          // opens when waiters reap in lockstep, which is exactly what a stale lock produces.
-          // Desynchronize first. A try-lock skips this and accepts the odds.
+          // Desynchronize before reaping: `reapLockFile` is inode-guarded but not atomic,
+          // and lockstep reaping by multiple waiters is exactly what a stale lock
+          // produces. A try-lock skips this and accepts the odds.
           await sleepFor(Math.random() * retryDelay, controller.signal)
         }
         if (reapLockFile(lockPath, entry.inode)) {
@@ -190,8 +181,8 @@ export async function acquireFileLock(
           continue
         }
       }
-      // Either the holder is alive, or we lost the reap race to another waiter. Both mean: back
-      // off and look again — and backing off is waiting, which a try-lock does not do.
+      // Either the holder is alive, or we lost the reap race to another waiter. Back off
+      // and look again — which a try-lock does not do.
       if (tryLock) {
         throw new TimeoutInterruption({ message: timeoutMessage })
       }
@@ -207,10 +198,9 @@ export async function acquireFileLock(
 }
 
 /**
- * Run `fn` under an exclusive cross-process lock on `lockPath`, releasing it however `fn`
- * settles. If the lock cannot be acquired within `timeout`, this THROWS and `fn` is never called:
- * running the critical section unlocked would drop the guard at exactly the moment contention is
- * real.
+ * Run `fn` under an exclusive cross-process lock on `lockPath`, releasing it however
+ * `fn` settles. If the lock cannot be acquired within `timeout`, this THROWS and `fn` is
+ * never called — running the critical section unlocked is not an option.
  */
 export async function withFileLock<T>(
   lockPath: string,

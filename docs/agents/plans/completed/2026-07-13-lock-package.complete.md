@@ -44,9 +44,10 @@ export function withFileLock<T>(
 export type LockRecord = {
   pid: number
   hostname: string
-  bootAt: number      // host boot time (ms since epoch) — gates the pid probe across a reboot
-  startedAt: number   // wall-clock claim time — ages a FOREIGN-host holder
-  uptimeAt: number    // os.uptime() (ms) at claim time — ages a SAME-host holder, monotonically
+  bootID: string | null  // OS boot identity — GATES the pid probe; null where unreadable
+  bootAt: number         // wall-clock-derived boot time — FALLBACK gate, only where bootID is null
+  startedAt: number      // wall-clock claim time — ages a FOREIGN-host holder
+  uptimeAt: number       // os.uptime() (ms) at claim time — ages a SAME-host holder, monotonically
 }
 
 export { TimeoutInterruption } from '@sozai/async'
@@ -55,7 +56,7 @@ export { TimeoutInterruption } from '@sozai/async'
 `LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal only — it is not
 re-exported from `index.ts`; `liveness.ts` is the sole consumer outside `file.ts`.
 
-98 tests: unit coverage per module (`record`, `file`, `liveness`, `queue`, `lock`) plus
+128 tests: unit coverage per module (`record`, `boot-id`, `file`, `liveness`, `queue`, `lock`) plus
 `test/cross-process.test.ts` (forks real child processes to prove mutual exclusion — nothing
 in-process can, since every in-process test shares one pid and one fs cache) and
 `test/cross-process-reap.test.ts` (a genuinely SIGKILLed holder is reaped without waiting out the
@@ -68,7 +69,7 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   create-then-write claim leaves a zero-byte file visible for an instant, and a racer reading it
   there parses nothing, concludes "nobody home," and reaps the winner's fresh lock — the exact
   check-then-act this design exists to remove.
-- **Liveness is proven, never assumed:** same hostname + same `bootAt` + `process.kill(pid, 0)`
+- **Liveness is proven, never assumed:** same hostname + same **boot ID** + `process.kill(pid, 0)`
   not throwing `ESRCH`. A provably-live holder is never reaped, however long it holds. This is
   what rules out a heartbeat: `@napi-rs/keyring` is synchronous and blocks the event loop, and the
   macOS keychain can put a user prompt in front of the read, so a holder can legitimately sit in
@@ -77,33 +78,64 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   section.
 - **`staleTimeout` applies only where the pid means nothing:** a foreign host, a different boot, or
   a record too corrupt to identify a holder (dated then by the file's own mtime, not the record).
-- **`bootAt` exists because pid-probing across a reboot is a lie.** pids recycle, `lockPath` is
-  persistent (kokuin puts it beside app data), and a recycled pid would report a live holder and
-  wedge the lock forever. A boot mismatch downgrades the holder to "unprovable" (TTL decides)
-  rather than reaping it.
-- **Superseded: "clock skew costs latency, never mutual exclusion."** That was this document's
-  original claim about `bootAt` and the TTL, and the final-review pass found it false: a forward
-  wall-clock step larger than `staleTimeout`, while a lock was genuinely held, pushed the record's
-  `bootAt` out of `BOOT_TOLERANCE_MS` (→ "unprovable") *and* pushed `now - startedAt` past the TTL —
-  one clock step, both halves of the reap condition, from a single stale-vs-alive check. It could
-  reap a live holder, i.e. break mutual exclusion, not just add latency. The fix
-  (`fdc2019`) adds `uptimeAt` (`os.uptime()` at claim time) to the record and ages a **same-host**
-  unprovable holder by the monotonic delta `getUptimeAt() - record.uptimeAt` instead of by wall
-  clock — no NTP correction, VM resume, laptop wake, or bad RTC can step `os.uptime()`, so that age
-  can no longer be inflated by a clock jump. A *negative* age (this host's uptime is now below the
-  record's) signals that the host rebooted since the record was written, and is stale at once when
-  the wall clock corroborates it (`now - startedAt > staleTimeout`, added in the final pass:
-  `os.uptime()` is **not** portably monotonic — darwin's `uv_uptime` is `time(NULL) - kern.boottime`
-  and the kernel adjusts `kern.boottime` on clock and sleep events, so a forward bump can hand a
-  *live* holder a boot mismatch and a negative age together. A reboot always leaves real downtime,
-  so requiring corroboration costs a real reboot nothing).
-- **Not "a strictly stronger reboot signal than `bootAt`" — that earlier claim was false, and is
-  retracted here.** The `uptimeAt` rule is a *trade*: a holder that claimed the lock 3s into a boot,
-  followed by a reboot, leaves a record whose `uptimeAt` sits *below* the new boot's current uptime →
-  a small positive age → not stale → respected for the full `staleTimeout`. The wall-clock rule it
-  replaced reaped that record immediately. It is bounded by the TTL, so it is reap **latency**, not
-  an exclusion hole, and the trade is inherent: from the wall clock alone a reboot and a forward
-  clock step are indistinguishable, which is precisely why the wall clock had to go.
+- **Boot identity gates the pid probe, because pid-probing across a reboot is a lie.** pids recycle,
+  `lockPath` is persistent (kokuin puts it beside app data), and a recycled pid would report a live
+  holder and wedge the lock forever. A boot mismatch downgrades the holder to "unprovable" (TTL
+  decides) rather than reaping it.
+- **Retracted: boot identity from the wall clock (`bootAt`).** The original design decided "same
+  boot" by comparing `bootAt` (`Date.now() - os.uptime() * 1000`) within a 30s tolerance. The final
+  review pass proved that broken against the real code — our own live pid, our own hostname, a
+  genuine 61s hold, plus a +300s wall-clock step ⇒ `liveness: 'unknown'`, a correct (uninflated)
+  monotonic age of 61s, a pid that was alive the whole time, and `isStale: true`. **The live holder
+  was reaped.** It is not fixable by tuning the tolerance, because the tolerance trades one failure
+  against the other with no safe side:
+  - **tight** ⇒ a forward step (NTP, laptop sleep/wake, VM resume) moves our `bootAt` away from a
+    live holder's, its pid is never probed, and the TTL reaps it — two processes in the critical
+    section. And this is the package's *own motivating scenario*: a macOS keychain prompt holds the
+    section for minutes, and sleep/wake supplies the step.
+  - **wide** ⇒ a reboot inside the tolerance still "matches", so a dead holder's recycled pid is
+    probed, answers as somebody else, and the lock wedges forever.
+  - **What replaced it:** `LockRecord.bootID`, an OS-provided boot identity that no clock can move —
+    `/proc/sys/kernel/random/boot_id` (linux), `sysctl -n kern.bootsessionuuid` (darwin), `null`
+    elsewhere or on any read failure. Read once per process, cached, and it never throws: a lock
+    claim must not fail because a boot ID could not be read. When both sides have one they are
+    compared **exactly** — equal ⇒ same boot ⇒ probe the pid (so a live holder is *always* probed
+    and *always* found alive, whatever the clock did); different ⇒ `unknown`, pid never probed (so a
+    recycled pid is never mistaken for a holder and the TTL reaps). This closes both halves at once.
+  - **The residual, stated honestly:** where either side has no boot ID (an unsupported platform, or
+    a record written by a process that could not read one) the `bootAt` tolerance is still the
+    fallback — which is the only reason `bootAt` remains on the record — and there a clock step
+    larger than the tolerance still costs a live holder its liveness *proof*. It no longer costs it
+    the *lock*, because of the `uptimeAt` rule below, but "a clock step cannot reap a live holder"
+    is a **linux/darwin** guarantee, not a universal one.
+- **Superseded: "clock skew costs latency, never mutual exclusion."** This document's original claim
+  about `bootAt` and the TTL, and false: one forward wall-clock step supplied *both* halves of the
+  reap condition — the boot mismatch above (→ "unprovable") *and* an inflated `now - startedAt` past
+  the TTL. The first fix (`fdc2019`) added `uptimeAt` (`os.uptime()` at claim time) and ages a
+  **same-host** unprovable holder by the monotonic delta `getUptimeAt() - record.uptimeAt`, so no
+  NTP correction, VM resume, laptop wake, or bad RTC can *inflate* that age. That fix was necessary
+  but **not sufficient**, and the plan record said otherwise for a while: it stopped a clock step
+  from inflating the age, and did nothing at all about the step destroying the liveness *proof* —
+  which is the hole `bootID` (above) actually closes.
+- **A negative age is a reboot SIGNAL, not a reboot proof, and is corroborated before anything is
+  reaped.** `os.uptime()` is **not** portably monotonic — darwin's `uv_uptime` is
+  `time(NULL) - kern.boottime` and the kernel adjusts `kern.boottime` on clock and sleep events, so
+  a forward bump can hand a *live* holder a negative age. Corroboration is *either* a claim older
+  than the TTL (`now - startedAt > staleTimeout`) *or* a claim dated in the **future**
+  (`now < record.startedAt`). The second is not optional: on a host whose clock runs *backwards*
+  past the record — a bad RTC on a Pi, a container booting to 1970 before NTP lands —
+  `now - startedAt` is permanently negative, so the first can never fire and a genuinely-dead
+  post-reboot holder is **never reaped**: the lock wedges forever, held by nobody. A future-dated
+  claim is corroboration a live holder cannot manufacture.
+- **Retracted: "a reboot always has real downtime, so corroboration costs a real reboot nothing."**
+  False for a *fast* reboot — a container restart or a kexec, seconds of downtime — where hold +
+  downtime + the new boot's uptime is still under the TTL: the negative age is there, but the wall
+  clock cannot corroborate it yet, so the record waits the TTL out. The honest statement is that
+  **reboot recovery is TTL-bounded in every case**, and there are two such cases: the fast reboot
+  just described, and a holder that claimed the lock a few seconds into a boot (whose `uptimeAt`
+  sits *below* the new boot's current uptime → a small positive age → no reboot signal at all).
+  Both are reap **latency**, bounded by the TTL, never an exclusion hole and never a wedge — and
+  both are now pinned by tests rather than assumed away.
 - The residual limit is real and is documented rather than glossed over: a **foreign-host** record
   still has no uptime we can read, so it is still aged by wall clock against `startedAt` (or the
   file's mtime for a corrupt record) — a clock step on either machine can still expire it early.
@@ -184,7 +216,7 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   guards, not an edge case.
 - **TTL-only staleness with no pid probe.** Would reap a live holder that has simply held the
   lock longer than the TTL; the whole point is that holding time and liveness are unrelated.
-- **A `maxHoldTime` outer bound, even on a provably-live holder.** `bootAt` already removes the
+- **A `maxHoldTime` outer bound, even on a provably-live holder.** `bootID` already removes the
   wedge case (recycled pid after reboot) that would motivate an outer bound, and adding one would
   re-open the reap-a-live-holder hole the rest of the design closes.
 - **A general `Mutex` interface with an in-memory backend.** Both known consumers need exactly a

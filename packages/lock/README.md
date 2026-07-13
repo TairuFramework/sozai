@@ -62,18 +62,26 @@ try {
   path two users share, is no longer waited out; the first read throws `EACCES`. Correct for a
   per-user keystore, which is what this guards, but a shared-path caller must expect it. A caller's
   `catch` should not assume every rejection is `TimeoutInterruption`.
-- Stale-holder recovery is aged monotonically (`os.uptime()`) for a holder on this same host, so a
-  forward wall-clock step cannot reap a live one. A holder on another host is still aged by wall
-  clock — there is no way to read another host's uptime — so a clock step there (or here, while
-  comparing to it) can still expire its record early. Cross-host locking is unsupported for this
-  reason among others.
-- Reboot recovery is bounded by the TTL, not instant, and this is a trade rather than a strictly
-  better signal than the old wall-clock rule: a holder that claimed the lock a few seconds into a
-  boot, followed by a reboot, leaves a record whose recorded uptime is *below* the new boot's
-  current uptime — a small positive age, so it is respected for the full `staleTimeout` rather than
-  reaped at once. Reap latency, never an exclusion hole; and inherent, since from the wall clock
-  alone a reboot and a forward clock step are indistinguishable — which is why the wall clock could
-  not be trusted to age a same-host holder in the first place.
+- **A wall-clock step cannot reap a live holder on linux or darwin.** A holder is proven alive by
+  its pid, and the pid is only probed when the record comes from the boot we are running in — which
+  is decided by an OS boot ID (`/proc/sys/kernel/random/boot_id` on linux, `sysctl -n
+  kern.bootsessionuuid` on darwin). Neither moves when the clock does. The holder's age is
+  measured monotonically from `os.uptime()`, so a step cannot inflate it either.
+- **On any other platform, no boot ID is readable** (`bootID` is then `null`), and the same-boot
+  check falls back to comparing wall-clock-derived boot *times* within a 30s tolerance. A forward
+  step larger than that still costs a live holder its liveness *proof* there — it no longer costs it
+  the lock, because the monotonic age still holds the TTL back, but the guarantee above is a
+  linux/darwin guarantee, not a universal one.
+- A holder on **another host** is still aged by wall clock — there is no way to read another host's
+  uptime — so a clock step there (or here, while comparing to it) can still expire its record early.
+  Cross-host locking is unsupported for this reason among others.
+- **Reboot recovery is bounded by the TTL in every case, never instant.** A reboot changes the boot
+  ID, so a recycled pid is correctly treated as meaningless and the record is never mistaken for a
+  live holder — but *how fast* the record is then reaped is the TTL's business, and two cases wait
+  it out in full: a holder that claimed the lock a few seconds into a boot (its recorded uptime sits
+  *below* the new boot's, so its monotonic age is small and positive), and a fast reboot — a
+  container restart or a kexec, seconds of downtime — where hold + downtime + the new uptime is
+  still under `staleTimeout`. Reap latency, bounded, never an exclusion hole and never a wedge.
 - Reaping a stale lock is inode-guarded but not provably atomic: `statSync` then `rmSync` is two
   syscalls, and two waiters that classify the same stale lock in the same instant can — in a rare,
   crash-only interleaving — have one waiter unlink the other's freshly-claimed live lock. A jitter

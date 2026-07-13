@@ -26,19 +26,35 @@ Stale-lock recovery proves liveness rather than assuming it. A holder on this ho
 whose pid still answers `kill(pid, 0)` is never reaped — no matter how long it holds the lock,
 because a critical section can legitimately block the event loop for minutes (a synchronous keyring
 call, an OS keychain prompt). Where liveness can't be proven, the `staleTimeout` TTL (default 60s)
-applies, and how the holder is aged depends on its host: same-host holders are aged monotonically
-from `os.uptime()`, so a forward wall-clock step cannot reap a live one. A negative age (uptime
-below the recorded value) signals a reboot, and reaps at once once the wall clock corroborates it —
-corroboration is required because `os.uptime()` is not portably monotonic (on darwin the kernel
-adjusts `kern.boottime` on clock and sleep events, which can run it backwards under a live holder),
-and a reboot always leaves real downtime behind it. This is a trade, not a strictly stronger reboot
-signal than the wall-clock rule it replaced: a holder that claimed the lock seconds into a boot,
-followed by a reboot, leaves a record whose uptime sits below the new boot's, so it is respected for
-the full TTL instead of being reaped immediately. Reap latency bounded by the TTL, never an
-exclusion hole — and inherent, since from the wall clock alone a reboot and a forward clock step
-cannot be told apart. A foreign-host holder is still aged by wall clock — another host's uptime
-can't be read — so a clock step can still expire its record early; this is one reason cross-host
-locking is unsupported.
+applies.
+
+"From this boot" is decided by an **OS boot ID**, never by the clock, and that is the load-bearing
+safety property: `LockRecord.bootID` is `/proc/sys/kernel/random/boot_id` on linux and `sysctl -n
+kern.bootsessionuuid` on darwin — read once per process, cached, and never able to throw (it is
+`null` on any other platform or on any read failure). When this process and the record both have
+one, they are compared exactly. So **on linux and darwin a forward wall-clock step cannot reap a
+live holder**: the step cannot suppress the liveness proof, because a boot ID does not move when the
+clock does, so the pid is still probed and still answers; and it cannot inflate the holder's age
+either, because a same-host holder is aged monotonically from `os.uptime()` (`uptimeAt`). Where no
+boot ID is readable — any other platform, or a record written by a process that could not read one —
+the check falls back to comparing wall-clock-derived boot *times* (`bootAt`) within a 30s tolerance,
+and a larger step there does still cost a live holder its liveness proof. It no longer costs it the
+lock (the monotonic age still holds the TTL back), but the guarantee is a linux/darwin guarantee,
+not a universal one.
+
+A negative monotonic age (uptime below the recorded value) signals a reboot, and is reaped once the
+wall clock corroborates it — either with a claim older than the TTL, or with a claim dated in the
+*future*, which is what a host whose clock has run *backwards* past the record leaves behind (a bad
+RTC, a container booted to 1970 before NTP lands; without this second corroboration such a host
+never reaps the record at all and the lock wedges forever). Reboot recovery is **TTL-bounded in
+every case, never instant**: a holder that claimed the lock seconds into a boot leaves a record
+whose uptime sits below the new boot's — a small positive age, no reboot signal — and a *fast*
+reboot (a container restart, a kexec — seconds of downtime, where hold + downtime + the new uptime
+is still under the TTL) cannot corroborate its negative age yet. Both wait the TTL out: reap
+latency, never an exclusion hole and never a wedge.
+
+A foreign-host holder is still aged by wall clock — another host's uptime can't be read — so a clock
+step can still expire its record early; this is one reason cross-host locking is unsupported.
 
 The process-exit cleanup hook releases held locks on `process.exit()` and a natural event-loop
 drain only. A default-handled `SIGINT`/`SIGTERM` terminates Node without emitting `'exit'`, so a

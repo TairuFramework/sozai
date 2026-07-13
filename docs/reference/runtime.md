@@ -126,7 +126,7 @@ const bytes = customRuntime.getRandomValues(new Uint8Array(32))
 | `acquireFileLock` | function | Acquire the lock, returning a `Disposable` handle |
 | `FileLock` | type | The handle: `{ path, release() }`, also a `Disposable` |
 | `FileLockOptions` | type | `timeout`, `staleTimeout`, `retryDelay`, `maxRetryDelay`, `signal` |
-| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `bootAt`, `startedAt`, `uptimeAt` |
+| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `bootID`, `bootAt`, `startedAt`, `uptimeAt` |
 | `TimeoutInterruption` | class | Re-exported from `@sozai/async`; what acquisition throws on timeout |
 
 `LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal — not exported.
@@ -156,21 +156,43 @@ Acquiring the lock creates `lockPath`'s parent directory tree if missing
 (`mkdirSync(..., { recursive: true, mode: 0o700 })`).
 
 A holder that is provably alive (same host, same boot, live pid) is never reaped, however long it
-holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unprovable. How the age
-is measured then depends on the holder's host: a same-host holder is aged monotonically from
-`uptimeAt` (`os.uptime()`), so a forward wall-clock step cannot reap it. A *negative* age signals a
-reboot, and is stale at once when the wall clock corroborates it (`now - startedAt > staleTimeout`)
-— corroboration is required because `os.uptime()` is not portably monotonic (darwin adjusts
-`kern.boottime` on clock and sleep events, so it can run backwards under a live holder), and a real
-reboot always leaves real downtime. This is a trade, not a strictly stronger reboot signal than the
-wall clock it replaced: a holder that claimed the lock seconds into a boot, then a reboot, leaves a
-record whose `uptimeAt` sits *below* the new boot's uptime — a small positive age, so it is
-respected for the full TTL rather than reaped immediately. Reap latency bounded by the TTL, never an
-exclusion hole, and inherent: from the wall clock alone, a reboot and a forward clock step are
-indistinguishable. A foreign-host holder (or a record too corrupt to identify one) is still aged by
-wall clock against `startedAt`, or the file's mtime — unavoidable, since another host's uptime can't
-be read, and the reason cross-host locking is unsupported. A clock step can still expire a
-foreign-host record early.
+holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unprovable.
+
+**"Same boot" is decided by an OS boot ID, not by the clock**, and that is the load-bearing safety
+property: `bootID` is `/proc/sys/kernel/random/boot_id` on linux and `sysctl -n
+kern.bootsessionuuid` on darwin (read once per process, cached, never throws — `null` on any other
+platform or any read failure). When both this process and the record have one, they are compared
+exactly. So on linux and darwin **a forward wall-clock step cannot reap a live holder**: the step
+cannot suppress the liveness proof (the boot ID does not move with the clock, so the pid is still
+probed and still answers), and it cannot inflate the age either (a same-host holder is aged
+monotonically from `uptimeAt`). Where no boot ID is readable — any other platform, or a record
+written by a process that could not read one — the check falls back to comparing wall-clock-derived
+boot *times* (`bootAt`) within a 30s tolerance, and a larger step there does still cost a live
+holder its liveness proof. It no longer costs it the lock, because the monotonic age still holds the
+TTL back, but the guarantee is a linux/darwin one, not a universal one. `bootAt` remains on the
+record for exactly this fallback.
+
+A *negative* monotonic age (this host has been up for less time than the record claims to have been
+held) signals a reboot, and is corroborated by the wall clock before anything is reaped — either a
+claim older than the TTL (`now - startedAt > staleTimeout`) or a claim dated in the *future*
+(`now < startedAt`). Corroboration is required because `os.uptime()` is not portably monotonic
+(darwin adjusts `kern.boottime` on clock and sleep events, so it can run backwards under a live
+holder); the future-dated case is required because a host whose clock runs *backwards* past the
+record — a bad RTC, a container booted to 1970 before NTP lands — makes `now - startedAt`
+permanently negative, so without it a dead post-reboot holder would never be reaped and the lock
+would wedge forever.
+
+**Reboot recovery is TTL-bounded in every case, never instant.** A reboot always changes the boot
+ID, so a recycled pid is never mistaken for a live holder — but two cases wait the TTL out in full:
+a holder that claimed the lock seconds into a boot (its `uptimeAt` sits *below* the new boot's
+uptime, so its age is small and positive, with no reboot signal at all), and a *fast* reboot — a
+container restart, a kexec, seconds of downtime — where hold + downtime + the new uptime is still
+under the TTL, so the negative age cannot be corroborated yet. Reap latency, bounded by the TTL,
+never an exclusion hole and never a wedge.
+
+A foreign-host holder (or a record too corrupt to identify one) is still aged by wall clock against
+`startedAt`, or the file's mtime — unavoidable, since another host's uptime can't be read, and the
+reason cross-host locking is unsupported. A clock step can still expire a foreign-host record early.
 
 Reaping a stale lock is inode-guarded, not provably atomic: the guard is `statSync` then `rmSync`,
 two syscalls, so a residual window remains where two waiters classifying the same stale lock in

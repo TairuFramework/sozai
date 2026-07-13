@@ -56,7 +56,7 @@ export { TimeoutInterruption } from '@sozai/async'
 `LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal only — it is not
 re-exported from `index.ts`; `liveness.ts` is the sole consumer outside `file.ts`.
 
-140 tests (139 + one platform-gated skip): unit coverage per module (`record`, `boot-id`, `file`,
+150 tests (149 + one platform-gated skip): unit coverage per module (`record`, `boot-id`, `file`,
 `liveness`, `queue`, `lock`) plus
 `test/cross-process.test.ts` (forks real child processes to prove mutual exclusion — nothing
 in-process can, since every in-process test shares one pid and one fs cache) and
@@ -99,36 +99,70 @@ claims were verified to go red when the mechanism they pin was stubbed out.
     probed, answers as somebody else, and the lock wedges forever.
   - **What replaced it:** `LockRecord.bootID`, an OS-provided boot identity that no clock can move —
     `/proc/sys/kernel/random/boot_id` (linux), `sysctl -n kern.bootsessionuuid` (darwin), `null`
-    elsewhere or on any read failure. Read once per process, cached, and it never throws: a lock
-    claim must not fail because a boot ID could not be read. When both sides have one they are
+    elsewhere or where the source will not answer at all. Read and cached per process (see the retry
+    below), and it never throws: a lock claim must not fail because a boot ID could not be read. When
+    both sides have one they are
     compared **exactly** — equal ⇒ same boot ⇒ probe the pid (so a live holder is *always* probed
     and *always* found alive, whatever the clock did); different ⇒ `unknown`, pid never probed (so a
     recycled pid is never mistaken for a holder and the TTL reaps). This closes both halves at once.
-  - **The residual, stated honestly — the fallback path is NOT safe.** Where either side has no boot
-    ID (an unsupported platform, or a record written by a process whose read failed) the `bootAt`
-    tolerance is still the fallback — the only reason `bootAt` remains on the record — and there a
-    clock step larger than the tolerance costs a live holder its liveness *proof*, **and therefore
-    its lock**, as soon as its true monotonic age passes `staleTimeout`. Disproved against the real
-    code: same host, `bootID: null`, live pid, 90s hold, 60s TTL, +31s step ⇒ `liveness: 'unknown'`,
-    `isStale: true`. The live holder is reaped. An earlier version of this document claimed the step
-    "no longer costs it the lock" there; **that was false and is retracted.** What `uptimeAt` buys
-    on this path is narrower: it removes the *inflated* age, so a holder *younger* than the TTL is
-    no longer reaped by the clock step alone — it does nothing for a holder that has held longer
-    than `staleTimeout`, which is exactly the minutes-long macOS-keychain-prompt hold this package
-    exists for. "A clock step cannot reap a live holder" is a **linux/darwin** guarantee, not a
-    universal one, and a consumer shipping without a boot ID must know its long-held lock is not
-    TTL-protected. Pinned by a test that asserts the reap rather than assuming it away.
-  - **A failed boot-ID read is retried, never cached as a value.** `getBootID` originally cached
-    `null` whatever produced it, so one `EMFILE` at the first claim — or a sandbox that denied the
-    `sysctl` exec once — silently downgraded the process to the clock-step-vulnerable fallback for
-    its whole life, on a platform whose docs promise the guarantee. `readBootID` now returns a
-    tri-state (`ok` / `unsupported` / `failed`): an unsupported platform settles on `null` at once
-    (no retry can change what the platform does not publish, and re-reading would put a failing read
-    in the hot acquisition loop), a failed read is retried **once** and only once (at most two
-    source reads per process, so a permanently-failing source can never become a per-turn `sysctl`
-    spawn), and an EMPTY read is a *failure*, never an empty boot ID that could compare equal to
-    another empty one. Still non-throwing: a lock claim must not fail because a boot ID could not
-    be read.
+  - **The residual, stated honestly — the fallback path is NOT safe, and it is NOT only a clock
+    story.** Where either side has no boot ID (an unsupported platform, or a record written by a
+    process whose read failed) the `bootAt` tolerance is still the fallback — the only reason
+    `bootAt` remains on the record — and the hostname is once again the only machine identity there
+    is. **Two** events therefore cost a live holder its liveness *proof*, and with it **its lock**,
+    as soon as its true monotonic age passes `staleTimeout`. Both measured against the real code:
+    - a **clock step** larger than the tolerance: same host, `bootID: null`, live pid, 90s hold, 60s
+      TTL, +31s step ⇒ `liveness: 'unknown'`, `isStale: true`;
+    - a **hostname change, with NO clock step at all**: darwin, `bootID: null` on either side, a DHCP
+      rename, live pid, 90s hold, 60s TTL, `bootAt` exactly ours ⇒ `liveness: 'unknown'`,
+      `probed: false`, `isStale: true`. Every earlier draft of this document framed the fallback's
+      danger as "a forward clock step larger than the tolerance"; **that framing was incomplete and
+      is retracted.** The rename is the very event the darwin boot-ID rule was introduced to survive,
+      and on the fallback it is not survived. Sharper still: darwin's boot ID comes from an **exec**,
+      so a macOS App Sandbox or hardened runtime that blocks spawning `/usr/sbin/sysctl` puts a
+      process on this path *permanently* — and macOS + laptop + DHCP-renamed is precisely the
+      population that then has no protection against the rename.
+
+    An earlier version also claimed the step "no longer costs it the lock" there; false, and
+    retracted. What `uptimeAt` buys on this path is narrower: it removes the *inflated* age, so a
+    holder *younger* than the TTL is no longer reaped by the clock step alone — it does nothing for a
+    holder that has held longer than `staleTimeout`, which is exactly the minutes-long
+    macOS-keychain-prompt hold this package exists for. "A clock step cannot reap a live holder" is a
+    **linux/darwin, boot-ID-readable** guarantee, not a universal one. Both reaps are pinned by tests
+    that assert them rather than assuming them away.
+  - **A failed boot-ID read is retried, never cached as a value — and the retry is spent where it
+    is worth something.** `getBootID` originally cached `null` whatever produced it, so one `EMFILE`
+    at the first claim — or a sandbox that denied the `sysctl` exec once — silently downgraded the
+    process to the clock-step-vulnerable fallback for its whole life, on a platform whose docs promise
+    the guarantee. `readBootID` returns a tri-state (`ok` / `unsupported` / `failed`): an unsupported
+    platform settles on `null` at once (no retry can change what the platform does not publish, and
+    re-reading would put a failing read in the hot acquisition loop), and an EMPTY read is a
+    *failure*, never an empty boot ID that could compare equal to another empty one. Still
+    non-throwing: a lock claim must not fail because a boot ID could not be read.
+
+    The retry's *placement* was fixed after a later review, and the fix has two halves:
+    - **The budget is spent BEFORE the first caller is answered.** It used to be spent on the call
+      *after* the failure, which paid off after the damage: `createLockRecord` had already written
+      `bootID: null` onto the record, where it is **frozen for the life of the hold** — so that hold,
+      and every waiter evaluating it, stayed on the unsafe fallback for the lock's entire life, long
+      after the process itself had recovered a real boot ID. `getBootID` now exhausts the budget
+      within the first call, so no caller ever sees a `null` the source has already recanted.
+    - **The budget is per ACQUISITION, not per process** (`retryBootIDRead`, called by
+      `acquireFileLock` before it builds its record). Both reads of one budget land in the same tick,
+      so on their own they survive a source that fails *non-deterministically* and nothing more — an
+      `EMFILE` storm or a sandbox denial that outlasts a tick fails both, and the old lifetime budget
+      then downgraded the process **for life** over one unlucky claim. (The comment claiming the
+      retry survived "an `EMFILE` at the first claim" was true only of one that cleared within a
+      tick; corrected.) Reset per acquisition, the same storm costs a single hold, and the next lock
+      the caller takes — the only real time separation a synchronous path has — reads the source
+      again. A permanently-failing source is still bounded at two reads per acquisition, never a
+      per-turn `sysctl` spawn.
+  - **One read of our own boot ID per liveness decision.** `checkLiveness` called `getBootID()`
+    directly *and* again inside `isSameBoot`, and across the retry window the two could disagree
+    (`null` once, a real boot ID once) — one decision made from two different boots. Safe only by
+    accident (`&&` short-circuited the second read, and `createLockRecord` absorbed the first), and a
+    live-holder reap waiting for a refactor. The value is now read once per `checkLiveness` and
+    threaded through, pinned by tests that count the reads.
 - **The hostname is checked AFTER the boot ID, and the platforms differ — deliberately.** Testing
   the hostname *first* reaped a live, boot-ID-matched holder running under our own eyes whenever the
   host was renamed mid-hold — and macOS renames the host from DHCP when a laptop joins a network,
@@ -140,9 +174,15 @@ claims were verified to go red when the mechanism they pin was stubbed out.
     **regardless of the hostname**.
   - **linux:** it does **not**. Containers on one host *share* `/proc/sys/kernel/random/boot_id` but
     have *separate* pid namespaces, so a boot-ID match there can be two different containers, and
-    probing the recorded pid would probe a stranger's process. Containers get distinct hostnames, so
-    the hostname check is what tells them apart and it **stays** on that path. Do not "simplify" the
-    linux branch into the darwin one.
+    probing the recorded pid would probe a stranger's process. The hostname is the only discriminator
+    available, so it **stays** on that path. Do not "simplify" the linux branch into the darwin one.
+    But it discriminates only *by default*, and the docs may not claim more: `--hostname`,
+    `--uts=host` or `--net=host` gives two containers the same hostname, the same `boot_id` and
+    separate pid namespaces at once, and the pid is then probed across namespaces — a live holder in
+    container A reads `'dead'` in B and is reaped immediately, and a dead holder's pid 1 matches B's
+    init and wedges the lock. Both directions are real, neither is detectable from inside, and
+    neither is fixed here: **sharing a `lockPath` across containers is unsupported**, for the same
+    reason sharing one across hosts is.
   - **fallback (`bootID: null`):** the hostname is the only machine identity there is. Unchanged.
 - **Superseded: "clock skew costs latency, never mutual exclusion."** This document's original claim
   about `bootAt` and the TTL, and false: one forward wall-clock step supplied *both* halves of the

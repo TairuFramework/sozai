@@ -62,27 +62,44 @@ try {
   path two users share, is no longer waited out; the first read throws `EACCES`. Correct for a
   per-user keystore, which is what this guards, but a shared-path caller must expect it. A caller's
   `catch` should not assume every rejection is `TimeoutInterruption`.
-- **A wall-clock step cannot reap a live holder on linux or darwin.** A holder is proven alive by
-  its pid, and the pid is only probed when the record comes from the boot we are running in — which
-  is decided by an OS boot ID (`/proc/sys/kernel/random/boot_id` on linux, `sysctl -n
-  kern.bootsessionuuid` on darwin). Neither moves when the clock does. The holder's age is
-  measured monotonically from `os.uptime()`, so a step cannot inflate it either.
+- **A wall-clock step cannot reap a live holder on linux or darwin, *where the boot ID is
+  readable*.** A holder is proven alive by its pid, and the pid is only probed when the record comes
+  from the boot we are running in — which is decided by an OS boot ID
+  (`/proc/sys/kernel/random/boot_id` on linux, `sysctl -n kern.bootsessionuuid` on darwin). Neither
+  moves when the clock does. The holder's age is measured monotonically from `os.uptime()`, so a step
+  cannot inflate it either. The qualifier is not decoration: that read can *fail* on linux and darwin
+  too (see the fallback below), and a process it failed for gets none of this.
 - On **darwin** a matching boot ID authorizes the pid probe *regardless of the hostname*: it proves
   the same machine and the same pid namespace, so a host renamed mid-hold (macOS renames from DHCP
   when a laptop joins a network) does not cost a live holder its lock. On **linux** the hostname
   check stays: containers on one host *share* `/proc/sys/kernel/random/boot_id` but have separate
   pid namespaces, so a boot-ID match there can be two different containers and the recorded pid
   would probe a stranger's process.
-- **On any other platform, no boot ID is readable** (`bootID` is then `null`, as it also is for a
-  record written by a process whose read failed), and the same-boot check falls back to comparing
-  wall-clock-derived boot *times* within a 30s tolerance. **That fallback path is not safe, and the
-  TTL does not protect a long-held lock there.** A forward step larger than the tolerance costs a
-  live holder its liveness *proof* — and therefore its **lock**, once its true monotonic age passes
-  `staleTimeout`. Which is precisely the case this package exists for: a macOS keychain prompt can
-  hold the critical section for minutes. What the monotonic age buys on that path is narrower: it
-  removes the *inflated* age, so a holder *younger* than the TTL is no longer reaped by the clock
-  step alone. A consumer shipping where no boot ID is readable must know this: the guarantee above
-  is a linux/darwin guarantee, not a universal one.
+- **Do not share a `lockPath` between containers**, for the same reason you must not share one
+  between hosts. The hostname is all that tells two containers apart above, and that is a *default*,
+  not a guarantee: `--hostname`, `--uts=host` or `--net=host` gives two containers the same hostname,
+  the same `boot_id` and separate pid namespaces at once, and the recorded pid is then probed across
+  namespaces — a live holder in one container can read as dead in the other and be reaped, and a dead
+  holder's pid 1 can match the other's init and wedge the lock. Nothing in this package detects that.
+- **Where no boot ID is readable the fallback is not safe, and the TTL does not protect a long-held
+  lock.** `bootID` is `null` on any other platform — and equally for a record written by a process
+  whose read *failed*, which can happen on linux (an `EMFILE` under fd pressure) and on darwin (the
+  boot ID comes from an **exec**, so a macOS App Sandbox or hardened runtime that denies the `sysctl`
+  spawn puts that process on this path *permanently*). The same-boot check then falls back to
+  comparing wall-clock-derived boot *times* within a 30s tolerance, and the hostname becomes the only
+  machine identity there is — so **two** different events reap a live holder there, once its true
+  monotonic age passes `staleTimeout`:
+  - a **forward clock step** larger than the tolerance (NTP, VM resume, laptop wake) — which is
+    precisely the case this package exists for: a macOS keychain prompt can hold the critical section
+    for minutes, and sleep/wake supplies the step;
+  - a **hostname change**, *with no clock event at all*. A DHCP rename alone, on a perfectly steady
+    clock, costs a live holder its lock at the TTL. And the population most exposed to it — macOS,
+    laptop, DHCP-renamed — is exactly the one a denied `sysctl` spawn leaves here.
+
+  What the monotonic age buys on this path is narrower: it removes the *inflated* age, so a holder
+  *younger* than the TTL is no longer reaped by the clock step alone. A consumer shipping where the
+  boot ID may not be readable must know this: the guarantee above is a linux/darwin *readable-boot-ID*
+  guarantee, not a universal one.
 - A holder on **another host** is still aged by wall clock — there is no way to read another host's
   uptime — so a clock step there (or here, while comparing to it) can still expire its record
   early. A *future-dated* foreign record has the mirror-image effect: it is respected until our own

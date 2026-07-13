@@ -160,12 +160,15 @@ holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unpro
 
 **"Same boot" is decided by an OS boot ID, not by the clock**, and that is the load-bearing safety
 property: `bootID` is `/proc/sys/kernel/random/boot_id` on linux and `sysctl -n
-kern.bootsessionuuid` on darwin (read once per process and cached — never throws; a *failed* read is
-retried once, then settles on `null`, while an unsupported platform settles on `null` at once). When
-both this process and the record have one, they are compared exactly. So on linux and darwin **a
-forward wall-clock step cannot reap a live holder**: the step cannot suppress the liveness proof (the
-boot ID does not move with the clock, so the pid is still probed and still answers), and it cannot
-inflate the age either (a same-host holder is aged monotonically from `uptimeAt`).
+kern.bootsessionuuid` on darwin (read and cached per process — never throws; a *failed* read is
+retried before anybody is answered, and a source that fails an acquisition's whole budget is read
+again on the next acquisition, so one unlucky claim cannot downgrade the process for life; an
+unsupported platform settles on `null` at once). When both this process and the record have one, they
+are compared exactly. So on linux and darwin, **where the boot ID is readable**, **a forward
+wall-clock step cannot reap a live holder**: the step cannot suppress the liveness proof (the boot ID
+does not move with the clock, so the pid is still probed and still answers), and it cannot inflate the
+age either (a same-host holder is aged monotonically from `uptimeAt`). The qualifier is load-bearing —
+the read *can* fail on both platforms, and a process it failed for gets none of this.
 
 The **hostname** is checked *after* the boot ID, and only where it is load-bearing — it is a machine
 identity, not a boot identity, and a mutable one (macOS renames the host from DHCP when a laptop
@@ -173,19 +176,30 @@ joins a network, which is the very sleep/wake event this package is written for)
 matching boot ID proves the same machine *and* the same pid namespace, so it authorizes the pid probe
 whatever the host is called now. On **linux** it does not: containers on one host *share*
 `/proc/sys/kernel/random/boot_id` but have *separate* pid namespaces, so a boot-ID match can be two
-different containers and the recorded pid would probe a stranger — the hostname check (containers get
-distinct hostnames) stays on that path, and must not be "simplified" into the darwin one.
+different containers and the recorded pid would probe a stranger — the hostname check stays on that
+path, and must not be "simplified" into the darwin one. It discriminates because containers get
+distinct hostnames *by default*, which is a default and not a guarantee (`--hostname`, `--uts=host`,
+`--net=host`), so sharing a `lockPath` **between containers is unsupported**, exactly as sharing one
+between hosts is.
 
 **The fallback path is not safe, and the TTL does not protect a long-held lock there.** Where no boot
-ID is readable — any other platform, or a record written by a process whose read failed — the check
-falls back to comparing wall-clock-derived boot *times* (`bootAt`) within a 30s tolerance, and the
-hostname is then the only machine identity there is. A forward step larger than the tolerance costs a
-live holder its liveness proof, and therefore its **lock**, as soon as its true monotonic age passes
-`staleTimeout` — the minutes-long macOS-keychain-prompt hold this package exists for is exactly such
-a holder. What `uptimeAt` buys on that path is narrower: it removes the *inflated* age, so a holder
-*younger* than the TTL is no longer reaped by the clock step alone. A consumer shipping on a platform
-without a boot ID must know that its long-held lock is not TTL-protected. `bootAt` remains on the
-record for exactly this fallback, and the guarantee above is a linux/darwin one, not a universal one.
+ID is readable — any other platform, or a record written by a process whose read *failed*, which is
+possible on linux (`EMFILE`) and on darwin (the boot ID comes from an **exec**: a macOS App Sandbox or
+hardened runtime that denies the `sysctl` spawn puts that process here permanently) — the check falls
+back to comparing wall-clock-derived boot *times* (`bootAt`) within a 30s tolerance, and the hostname
+becomes the only machine identity there is. **Two** events then reap a live holder, as soon as its
+true monotonic age passes `staleTimeout`:
+
+- a **forward clock step** larger than the tolerance — the minutes-long macOS-keychain-prompt hold
+  this package exists for is exactly such a holder, and sleep/wake supplies the step;
+- a **hostname change, with no clock event at all**. A DHCP rename alone, on a perfectly steady
+  clock, costs a live darwin holder its lock at the TTL — and a laptop on DHCP, whose `sysctl` spawn
+  a sandbox denied, is precisely the process that ends up here.
+
+What `uptimeAt` buys on that path is narrower: it removes the *inflated* age, so a holder *younger*
+than the TTL is no longer reaped by the clock step alone. A consumer that may not have a readable boot
+ID must know that its long-held lock is not TTL-protected. `bootAt` remains on the record for exactly
+this fallback, and the guarantee above is a linux/darwin *readable-boot-ID* one, not a universal one.
 
 A *negative* monotonic age (this host has been up for less time than the record claims to have been
 held) signals a reboot, and is corroborated by the wall clock before anything is reaped — either a

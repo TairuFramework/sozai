@@ -12,7 +12,6 @@
 
 export { TimeoutInterruption } from '@sozai/async'
 
-export type { LockEntry } from './file.js'
 export type { FileLock, FileLockOptions } from './lock.js'
 export { acquireFileLock, withFileLock } from './lock.js'
 export type { LockRecord } from './record.js'

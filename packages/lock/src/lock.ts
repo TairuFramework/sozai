@@ -1,4 +1,4 @@
-import { onAbort, raceSignal, ScheduledTimeout, sleep } from '@sozai/async'
+import { onAbort, raceSignal, ScheduledTimeout, sleep, TimeoutInterruption } from '@sozai/async'
 
 import { claimLockFile, reapLockFile } from './file.js'
 import { isStale } from './liveness.js'
@@ -9,6 +9,10 @@ export type FileLockOptions = {
   /**
    * Milliseconds to wait for the lock before throwing. Bounds ACQUISITION ONLY — once the lock
    * is held, the critical section runs to completion. Default 10_000.
+   *
+   * `0` means TRY-LOCK: one attempt, no waiting. It may still reap a stale holder and re-attempt
+   * the claim immediately (reaping is not waiting), but it never backs off and never queues
+   * behind a same-process caller — any live contention throws `TimeoutInterruption` at once.
    */
   timeout?: number
   /**
@@ -17,7 +21,10 @@ export type FileLockOptions = {
    * never stale, whatever this is set to. Default 60_000.
    */
   staleTimeout?: number
-  /** Initial retry delay in milliseconds. Default 10. */
+  /**
+   * Initial backoff ceiling in milliseconds: the backoff is halved and jittered, so the first
+   * realized delay is uniform in `[retryDelay / 2, retryDelay)`. Default 10.
+   */
   retryDelay?: number
   /** Retry delay ceiling in milliseconds. Default 250. */
   maxRetryDelay?: number
@@ -63,10 +70,15 @@ function backoffDelay(attempt: number, retryDelay: number, maxRetryDelay: number
   return ceiling / 2 + Math.random() * (ceiling / 2)
 }
 
+/** Loses any race against an already-settled promise, and only against one. See the try-lock. */
+const BUSY = Symbol('busy')
+
 /**
  * Acquire an exclusive cross-process lock on `lockPath`, waiting for the current holder to
  * release it. Throws `TimeoutInterruption` when the lock cannot be taken within `timeout`, and
  * rejects with `signal.reason` when the caller aborts. It never resolves without the lock.
+ *
+ * `timeout: 0` is a TRY-LOCK: one attempt, no waiting at all. See `FileLockOptions.timeout`.
  *
  * `lockPath` MUST be on a local filesystem: the atomicity of `link()` is not guaranteed on NFS.
  *
@@ -85,9 +97,12 @@ export async function acquireFileLock(
     signal,
   } = options
 
-  using deadline = ScheduledTimeout.in(timeout, {
-    message: `Timeout acquiring lock ${lockPath} after ${timeout}ms`,
-  })
+  // One attempt, no waiting: the deadline below is scheduled all the same (and disposed), but a
+  // try-lock throws from the code path that WOULD have waited, so the timer never decides.
+  const tryLock = timeout === 0
+  const timeoutMessage = `Timeout acquiring lock ${lockPath} after ${timeout}ms`
+
+  using deadline = ScheduledTimeout.in(timeout, { message: timeoutMessage })
   const controller = new AbortController()
   const unsubscribeDeadline = onAbort(deadline.signal, () => {
     controller.abort(deadline.signal.reason)
@@ -99,7 +114,17 @@ export async function acquireFileLock(
   // The queue slot must be released on EVERY exit path, or the callers behind us wait forever.
   const slot = enterQueue(lockPath)
   try {
-    await raceSignal(slot.turn, controller.signal)
+    if (tryLock) {
+      // A try-lock does not queue behind a same-process predecessor either: that is contention
+      // like any other. Racing the turn against an already-resolved sentinel asks exactly "is the
+      // slot free RIGHT NOW" — a settled turn wins the race, a pending one loses, both decided in
+      // microtasks so no timer can intervene.
+      if ((await Promise.race([slot.turn, Promise.resolve(BUSY)])) === BUSY) {
+        throw new TimeoutInterruption({ message: timeoutMessage })
+      }
+    } else {
+      await raceSignal(slot.turn, controller.signal)
+    }
 
     const record = createLockRecord()
     let attempt = 0
@@ -135,7 +160,10 @@ export async function acquireFileLock(
         continue
       }
       // Either the holder is alive, or we lost the reap race to another waiter. Both mean: back
-      // off and look again.
+      // off and look again — and backing off is waiting, which a try-lock does not do.
+      if (tryLock) {
+        throw new TimeoutInterruption({ message: timeoutMessage })
+      }
       await raceSignal(sleep(backoffDelay(attempt++, retryDelay, maxRetryDelay)), controller.signal)
     }
   } catch (err) {

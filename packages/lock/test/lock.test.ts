@@ -143,6 +143,70 @@ describe('acquireFileLock()', () => {
     await expect(acquiring).rejects.toBe(reason)
   })
 
+  describe('timeout: 0 (try-lock)', () => {
+    test('acquires an uncontended lock', async () => {
+      const lock = await acquireFileLock(lockPath, { timeout: 0 })
+      expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+      lock.release()
+    })
+
+    // Reaping is not waiting: a stale holder's file is removed and the claim retried at once.
+    test('reaps a stale holder and takes the lock, without waiting', async () => {
+      claimLockFile(lockPath, unprovableHolder(Date.now() - 61_000))
+
+      const lock = await acquireFileLock(lockPath, { timeout: 0, staleTimeout: 60_000 })
+      expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+      lock.release()
+    })
+
+    // A macrotask never runs: the rejection has to arrive before a timer queued BEFORE the call.
+    test('throws rather than backing off against a live holder, in the same tick', async () => {
+      claimLockFile(lockPath, unprovableHolder(Date.now()))
+      const holder = readLockEntry(lockPath).record
+      let timerFired = false
+      setTimeout(() => {
+        timerFired = true
+      }, 0)
+
+      await expect(
+        acquireFileLock(lockPath, { timeout: 0, staleTimeout: 60_000 }),
+      ).rejects.toBeInstanceOf(TimeoutInterruption)
+
+      expect(timerFired).toBe(false)
+      expect(readLockEntry(lockPath).record).toEqual(holder)
+    })
+
+    // A same-process predecessor holding the queue slot is contention like any other.
+    test('throws rather than queueing behind an in-process holder, in the same tick', async () => {
+      const held = await acquireFileLock(lockPath)
+      let timerFired = false
+      setTimeout(() => {
+        timerFired = true
+      }, 0)
+
+      await expect(acquireFileLock(lockPath, { timeout: 0 })).rejects.toBeInstanceOf(
+        TimeoutInterruption,
+      )
+
+      expect(timerFired).toBe(false)
+      held.release()
+    })
+
+    test('releases its queue slot when it throws, so the next caller is not stranded', async () => {
+      const held = await acquireFileLock(lockPath)
+      await expect(acquireFileLock(lockPath, { timeout: 0 })).rejects.toBeInstanceOf(
+        TimeoutInterruption,
+      )
+
+      const successor = acquireFileLock(lockPath, { timeout: 1_000 })
+      held.release()
+
+      const lock = await successor
+      expect(lock.path).toBe(lockPath)
+      lock.release()
+    })
+  })
+
   test('an abandoned waiter does not strand the next caller in this process', async () => {
     const held = await acquireFileLock(lockPath)
     const controller = new AbortController()

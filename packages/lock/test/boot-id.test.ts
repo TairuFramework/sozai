@@ -164,8 +164,13 @@ describe('getBootID()', () => {
    * first claim, or a sandbox that denies the exec once, would otherwise put this process on the
    * clock-step-vulnerable `bootAt` fallback for its whole life — on a platform whose docs promise
    * it will not be. So a failure is retried; a success is then cached like any other.
+   *
+   * THE RETRY IS SPENT BEFORE THE FIRST CALLER IS ANSWERED, and that is the whole point of it: a
+   * `null` handed to a caller is not a private disappointment, it is what the caller then WRITES
+   * into a lock record (frozen there for the life of the hold) and what it decides a live holder's
+   * fate from. A retry that only pays off on the NEXT call pays off after the damage.
    */
-  test('a failed read is retried, and a boot ID that becomes readable is picked up and cached', async () => {
+  test('a failed read is retried before anybody is answered, and the boot ID is cached', async () => {
     let attempt = 0
     const { getBootID } = await loadRecord({
       platform: 'linux',
@@ -180,14 +185,15 @@ describe('getBootID()', () => {
       },
     })
 
-    expect(getBootID()).toBeNull()
+    // The FIRST call, not the second: nobody ever sees the `null` the source has already recanted.
     expect(getBootID()).toBe('late-boot-id')
+    expect(readFileSpy).toHaveBeenCalledTimes(2)
     expect(getBootID()).toBe('late-boot-id')
     expect(readFileSpy).toHaveBeenCalledTimes(2)
   })
 
   // ...and the retry is bounded, so a permanently-failing source can never become a per-turn read
-  // (or a per-turn `sysctl` spawn) in the acquisition loop. At most two reads per process, ever.
+  // (or a per-turn `sysctl` spawn) in the acquisition loop. At most two reads per acquisition.
   test('a persistently failing read is retried once, then cached as null', async () => {
     const { getBootID } = await loadRecord({
       platform: 'linux',
@@ -200,5 +206,110 @@ describe('getBootID()', () => {
       expect(getBootID()).toBeNull()
     }
     expect(readFileSpy).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * The budget is per ACQUISITION, not per process — `acquireFileLock` calls this before it builds a
+ * record. Both reads of one acquisition land inside a single tick, so what they survive on their
+ * own is a source that fails NON-DETERMINISTICALLY; an EMFILE storm or a sandbox denial that
+ * outlasts a tick fails both. Without a reset that would downgrade the process to the
+ * clock-step-vulnerable fallback FOR ITS WHOLE LIFE on the first unlucky claim. With one, it
+ * downgrades a single acquisition, and the next one — separated from it by however long the caller
+ * took, which is the only real time this synchronous path has — reads the source again.
+ */
+describe('retryBootIDRead()', () => {
+  test('a source that failed for a whole acquisition is read again on the next one', async () => {
+    let failing = true
+    const { getBootID, retryBootIDRead } = await loadRecord({
+      platform: 'linux',
+      readFileSync: () => {
+        if (failing) {
+          const err: NodeJS.ErrnoException = new Error('too many open files')
+          err.code = 'EMFILE'
+          throw err
+        }
+        return 'recovered-boot-id\n'
+      },
+    })
+
+    expect(getBootID()).toBeNull()
+    expect(readFileSpy).toHaveBeenCalledTimes(2)
+
+    // The storm clears — but nothing re-reads the source WITHIN this acquisition: a settled null is
+    // settled, or the reads would be back in the hot loop.
+    failing = false
+    expect(getBootID()).toBeNull()
+    expect(readFileSpy).toHaveBeenCalledTimes(2)
+
+    // ...and the next acquisition picks the boot ID up.
+    retryBootIDRead()
+    expect(getBootID()).toBe('recovered-boot-id')
+  })
+
+  // The reset is for FAILURES only. "This platform publishes no boot ID" is settled forever, and no
+  // acquisition can change it: re-reading would put a pointless `sysctl` spawn in front of a lock.
+  test('an unsupported platform is never read again, however many acquisitions there are', async () => {
+    const { getBootID, retryBootIDRead } = await loadRecord({ platform: 'win32' })
+
+    expect(getBootID()).toBeNull()
+    retryBootIDRead()
+    expect(getBootID()).toBeNull()
+    expect(readFileSpy).not.toHaveBeenCalled()
+    expect(execFileSpy).not.toHaveBeenCalled()
+  })
+
+  test('a boot ID that has been read is not read again', async () => {
+    const { getBootID, retryBootIDRead } = await loadRecord({
+      platform: 'linux',
+      readFileSync: () => 'cached-boot-id\n',
+    })
+
+    expect(getBootID()).toBe('cached-boot-id')
+    retryBootIDRead()
+    expect(getBootID()).toBe('cached-boot-id')
+    expect(readFileSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * The record's `bootID` is FROZEN for the life of the hold: every waiter that evaluates this holder
+ * — for as long as it holds — decides from what was written here. A record written during a failing
+ * window with `bootID: null` therefore puts that hold, and every waiter of it, on the unsafe
+ * `bootAt` fallback for the lock's entire life, long after the process itself has recovered a real
+ * boot ID. So the retry is spent HERE, where it is worth something.
+ */
+describe('createLockRecord()', () => {
+  test('never writes a null boot ID the source would have answered on a retry', async () => {
+    let attempt = 0
+    const { createLockRecord } = await loadRecord({
+      platform: 'linux',
+      readFileSync: () => {
+        attempt += 1
+        if (attempt === 1) {
+          const err: NodeJS.ErrnoException = new Error('too many open files')
+          err.code = 'EMFILE'
+          throw err
+        }
+        return 'late-boot-id\n'
+      },
+    })
+
+    expect(createLockRecord().bootID).toBe('late-boot-id')
+    expect(readFileSpy).toHaveBeenCalledTimes(2)
+  })
+
+  // A source that is not merely flaking is a `null` on the record — the fallback, honestly declared,
+  // rather than a lock claim that fails or an empty string that fabricates a "same boot" proof.
+  test('writes a null boot ID when the source will not answer at all', async () => {
+    const { createLockRecord } = await loadRecord({
+      platform: 'darwin',
+      execFileSync: () => {
+        throw new Error('sandbox denied the exec')
+      },
+    })
+
+    expect(createLockRecord().bootID).toBeNull()
+    expect(execFileSpy).toHaveBeenCalledTimes(2)
   })
 })

@@ -35,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.doUnmock('../src/file.js')
+  vi.doUnmock('../src/record.js')
   vi.resetModules()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -75,6 +76,39 @@ describe('acquireFileLock()', () => {
 
     lock.release()
     expect(readLockEntry(lockPath).record).toBeNull()
+  })
+
+  /**
+   * The boot-ID retry budget is per ACQUISITION, and `acquireFileLock` is what resets it: two reads
+   * of a failing source land in one tick, so an outage that outlasts a tick fails both — and
+   * without a reset that single unlucky claim would leave the process on the clock-step-vulnerable
+   * `bootAt` fallback for the rest of its life. The next acquisition is the only real time this
+   * synchronous path has, so it is where the source is tried again.
+   *
+   * It must be reset BEFORE the record is built: the record's `bootID` is frozen for the life of
+   * the hold, so a record built from the previous acquisition's settled `null` carries that `null`
+   * to every waiter that ever evaluates it.
+   */
+  test('resets the boot-ID retry budget before it builds a record', async () => {
+    vi.resetModules()
+    const retryBootIDRead = vi.fn()
+    const createLockRecord = vi.fn()
+    vi.doMock('../src/record.js', async () => {
+      const actual = await vi.importActual<typeof import('../src/record.js')>('../src/record.js')
+      retryBootIDRead.mockImplementation(actual.retryBootIDRead)
+      createLockRecord.mockImplementation(actual.createLockRecord)
+      return { ...actual, retryBootIDRead, createLockRecord }
+    })
+    const { acquireFileLock: acquireWithSpiedRecord } = await import('../src/lock.js')
+
+    const lock = await acquireWithSpiedRecord(lockPath, { timeout: 1_000 })
+    lock.release()
+
+    expect(retryBootIDRead).toHaveBeenCalledTimes(1)
+    expect(createLockRecord).toHaveBeenCalledTimes(1)
+    expect(retryBootIDRead.mock.invocationCallOrder[0] as number).toBeLessThan(
+      createLockRecord.mock.invocationCallOrder[0] as number,
+    )
   })
 
   test('release is idempotent and never removes a lock that is not ours', async () => {

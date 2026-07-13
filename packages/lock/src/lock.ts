@@ -3,7 +3,7 @@ import { onAbort, raceSignal, ScheduledTimeout, TimeoutInterruption } from '@soz
 import { claimLockFile, reapLockFile } from './file.js'
 import { isStale } from './liveness.js'
 import { enterQueue } from './queue.js'
-import { createLockRecord } from './record.js'
+import { createLockRecord, retryBootIDRead } from './record.js'
 
 export type FileLockOptions = {
   /**
@@ -124,6 +124,14 @@ export async function acquireFileLock(
     maxRetryDelay = DEFAULT_MAX_RETRY_DELAY,
     signal,
   } = options
+
+  // A boot-ID source that failed at an earlier claim is read again here, and only here: the two
+  // reads of one acquisition's budget land in the same tick, so the gap between one acquisition and
+  // the next is the only real time this synchronous path has to let an `EMFILE` storm or a sandbox
+  // hiccup clear. It must happen BEFORE `createLockRecord()` below, whose `bootID` is frozen on the
+  // record for the life of the hold. Free on the path everyone is actually on: a boot ID that has
+  // been read, or a platform that publishes none, is never re-read. See `retryBootIDRead`.
+  retryBootIDRead()
 
   // One attempt, no waiting: the deadline below is scheduled all the same (and disposed), but a
   // try-lock throws from the code path that WOULD have waited, so the timer never decides.

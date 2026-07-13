@@ -42,10 +42,10 @@ const DARWIN_BOOT_ID_OID = 'kern.bootsessionuuid'
  * facts and must not be collapsed into a bare `null`:
  *
  * - `unsupported` is a permanent property of the platform. Retrying cannot change it.
- * - `failed` is transient — an `EMFILE` at the first claim, a sandbox that denies the exec once, a
- *   source that answers with nothing. Caching THAT as a value silently downgrades the process to
- *   the clock-step-vulnerable `bootAt` fallback for the rest of its life, on a platform whose docs
- *   promise it will not be. See `getBootID`.
+ * - `failed` is transient — an `EMFILE` under fd pressure, a sandbox that denies the exec, a source
+ *   that answers with nothing. Caching THAT as a value silently downgrades the process to the
+ *   clock-step-vulnerable `bootAt` fallback for the rest of its life, on a platform whose docs
+ *   promise it will not be. See `getBootID` and `retryBootIDRead`.
  */
 export type BootIDRead =
   | { status: 'ok'; bootID: string }
@@ -88,18 +88,24 @@ export function readBootID(): BootIDRead {
   }
 }
 
-/** `undefined` means "not settled yet"; `null` is a boot ID this process will never have. */
+/** `undefined` means "not settled yet"; `null` is a boot ID this process does not have. */
 let cachedBootID: string | null | undefined
 /**
- * How many times the source has been read and failed. Two attempts, ever: enough to survive a
- * transient failure at the first claim, few enough that a permanently-failing source can never put
- * a read — a `sysctl` SPAWN, on darwin — on every turn of the acquisition loop.
+ * How many times the source has been read and failed since the budget was last reset. Non-zero is
+ * also what tells a FAILURE-derived `null` apart from an unsupported platform's, which no retry can
+ * change — see `retryBootIDRead`.
  */
 let failedReads = 0
+/**
+ * Reads of the source per ACQUISITION (`retryBootIDRead` resets the count). Two: enough that a
+ * source failing non-deterministically is not believed on its first answer, few enough that a
+ * permanently-failing one can never put a read — a `sysctl` SPAWN, on darwin — on every turn of the
+ * acquisition loop. Both are spent by the FIRST caller (below), so the loop reads a settled cache.
+ */
 const MAX_BOOT_ID_READ_ATTEMPTS = 2
 
 /**
- * The identity of THIS boot, read once and cached.
+ * The identity of THIS boot, SETTLED and cached.
  *
  * Boot identity gates the pid probe, because pid-probing across a reboot is a lie: pids are
  * recycled from a small space, so after a reboot the pid in a stale lockfile is very likely alive
@@ -110,30 +116,59 @@ const MAX_BOOT_ID_READ_ATTEMPTS = 2
  * vs-alive decision happens on every turn of the acquisition loop, and re-reading would put that
  * `sysctl` spawn in the loop.
  *
- * What is cached is a SETTLED answer, never a failure: an unsupported platform settles on `null`
- * immediately (no retry can change what the platform does not publish), a successful read settles
- * on its value, and a FAILED read settles on nothing — it is retried on the next call, once, and
- * only then gives up. Caching a transient failure as `null` would be the whole boot-ID guarantee
- * lost to a single `EMFILE`, silently, for the life of the process.
+ * THE RETRY IS SPENT BEFORE THE FIRST CALLER IS ANSWERED, not on the call after it. A `null` handed
+ * out here is not a private disappointment: it is written into a lock record, where it is FROZEN for
+ * the life of the hold and puts every waiter of that hold on the clock-step-vulnerable fallback
+ * (`createLockRecord`), and it is what a liveness decision is then made from (`checkLiveness`). A
+ * retry that only paid off on the next call would pay off after the damage — and would hand two
+ * callers in one acquisition two different answers.
+ *
+ * What is cached is a SETTLED answer: an unsupported platform settles on `null` at once (no retry
+ * can change what the platform does not publish), a successful read settles on its value, and a
+ * source that fails every attempt of the budget settles on `null` FOR THIS ACQUISITION ONLY — see
+ * `retryBootIDRead`, which is what stops one unlucky claim from downgrading the process for life.
  */
 export function getBootID(): string | null {
-  if (cachedBootID !== undefined) {
-    return cachedBootID
-  }
-  const read = readBootID()
-  switch (read.status) {
-    case 'ok':
-      cachedBootID = read.bootID
-      return cachedBootID
-    case 'unsupported':
-      cachedBootID = null
-      return null
-    case 'failed':
-      failedReads += 1
-      if (failedReads >= MAX_BOOT_ID_READ_ATTEMPTS) {
+  while (cachedBootID === undefined) {
+    const read = readBootID()
+    switch (read.status) {
+      case 'ok':
+        cachedBootID = read.bootID
+        break
+      case 'unsupported':
         cachedBootID = null
-      }
-      return null
+        break
+      case 'failed':
+        failedReads += 1
+        if (failedReads >= MAX_BOOT_ID_READ_ATTEMPTS) {
+          cachedBootID = null
+        }
+        break
+    }
+  }
+  return cachedBootID
+}
+
+/**
+ * Give a FAILING source its budget back, so the next acquisition reads it again.
+ *
+ * `acquireFileLock` calls this before it builds a record, and it is the only real time separation
+ * this synchronous path has. The budget's two reads land inside a single tick, so on their own they
+ * survive a source that fails NON-DETERMINISTICALLY and nothing more: an `EMFILE` storm, or a macOS
+ * App Sandbox denying the `sysctl` spawn, outlasts a tick and fails both. Settling that as the
+ * process's answer would put it on the clock-step-vulnerable `bootAt` fallback FOR ITS WHOLE LIFE —
+ * on a platform whose docs promise otherwise — over one unlucky claim. Reset per acquisition, the
+ * same storm costs a single hold instead, and a process that recovers is picked up by the next lock
+ * it takes.
+ *
+ * FAILURES ONLY. A `null` from an unsupported platform (`failedReads === 0`) is a settled fact about
+ * the platform, and re-reading it would put a pointless read in front of every acquisition; a boot
+ * ID that HAS been read is never re-read either.
+ */
+export function retryBootIDRead(): void {
+  if (cachedBootID === null && failedReads > 0) {
+    cachedBootID = undefined
+    failedReads = 0
   }
 }
 
@@ -164,6 +199,15 @@ export function getUptimeAt(): number {
   return uptime() * 1000
 }
 
+/**
+ * The record this process writes when it claims the lock. Its `bootID` is the one thing here that
+ * cannot be re-derived later: `pid`, `hostname` and the two clocks are read by every waiter from
+ * ITS side, but `bootID` is FROZEN on the record for the life of the hold, and every waiter that
+ * evaluates this holder decides from it. Written `null`, it puts that hold — however long it lasts,
+ * and however completely this process later recovers a real boot ID — on the fallback path, where a
+ * clock step or a hostname change reaps a live holder (`checkLiveness`). So this is where the
+ * boot-ID retry is worth spending, and `getBootID` spends it before answering.
+ */
 export function createLockRecord(): LockRecord {
   return {
     pid: process.pid,

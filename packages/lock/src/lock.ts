@@ -47,13 +47,11 @@ const DEFAULT_MAX_RETRY_DELAY = 250
  * Every lock this process currently holds, so a clean exit does not leave one behind for the next
  * run to wait out.
  *
- * It covers EXACTLY two exits: `process.exit()`, and a natural drain of the event loop. Nothing
- * else. A default-handled SIGINT or SIGTERM terminates Node WITHOUT emitting `'exit'`, so the
- * hook does not run — and SIGKILL and hard crashes never could. That is fine, and deliberate: a
+ * Covers only `process.exit()` and a natural drain of the event loop: a default-handled SIGINT or
+ * SIGTERM terminates Node without emitting `'exit'`, and SIGKILL never could. That's fine — a
  * signalled process's pid is gone, so the next waiter's probe returns `'dead'` and reaps the
- * lockfile at once, with no TTL wait. Installing SIGINT/SIGTERM handlers here would buy nothing
- * and cost a great deal — a library that handles them silently changes its host process's
- * termination behavior.
+ * lockfile at once, with no TTL wait. Installing signal handlers here would silently change the
+ * host process's termination behavior for no gain.
  */
 const heldLocks = new Set<{ path: string; inode: number }>()
 let exitHookInstalled = false
@@ -64,11 +62,8 @@ function trackHeldLock(entry: { path: string; inode: number }): void {
     exitHookInstalled = true
     process.on('exit', () => {
       for (const held of heldLocks) {
-        // Inode-guarded, like `release()`: it will not remove a lock that has already been replaced
-        // by another holder's. (Guarded, not atomic — `reapLockFile` explains the residual window
-        // this cannot close. The temp-file `rmSync` in `claimLockFile` and the sweeper are NOT
-        // inode-guarded, and need not be: they only ever touch our own temp name, or orphans too
-        // old for any live claim to still be linking.)
+        // Inode-guarded, like `release()` — see `reapLockFile` for the residual window this
+        // cannot close.
         reapLockFile(held.path, held.inode)
       }
     })
@@ -125,12 +120,8 @@ export async function acquireFileLock(
     signal,
   } = options
 
-  // A boot-ID source that failed at an earlier claim is read again here, and only here: the two
-  // reads of one acquisition's budget land in the same tick, so the gap between one acquisition and
-  // the next is the only real time this synchronous path has to let an `EMFILE` storm or a sandbox
-  // hiccup clear. It must happen BEFORE `createLockRecord()` below, whose `bootID` is frozen on the
-  // record for the life of the hold. Free on the path everyone is actually on: a boot ID that has
-  // been read, or a platform that publishes none, is never re-read. See `retryBootIDRead`.
+  // Must happen before `createLockRecord()` below, whose `bootID` is frozen on the record for the
+  // life of the hold. See `retryBootIDRead`.
   retryBootIDRead()
 
   // One attempt, no waiting: the deadline below is scheduled all the same (and disposed), but a
@@ -152,10 +143,8 @@ export async function acquireFileLock(
   try {
     if (tryLock) {
       // A try-lock does not queue behind a same-process predecessor either: that is contention
-      // like any other. `slot.free` answers "does anyone in this process hold the path right now"
-      // synchronously, from a count taken at entry — exact, and free of the microtask timing that
-      // a promise race would have made the verdict depend on. The turn is then already destined to
-      // resolve; awaiting it only lets the chain hand the path over in order.
+      // like any other. `slot.free` is decided synchronously at entry (see `enterQueue`), so this
+      // never depends on microtask timing.
       if (!slot.free) {
         throw new TimeoutInterruption({ message: timeoutMessage })
       }
@@ -191,11 +180,9 @@ export async function acquireFileLock(
       const entry = result.conflict
       if (entry.inode != null && isStale(entry, staleTimeout)) {
         if (!tryLock) {
-          // Reaping is inode-guarded but NOT atomic — see `reapLockFile`, which spells out the
-          // residual window. That window only opens when waiters reap in LOCKSTEP, which is
-          // exactly what a stale lock produces: N waiters, all released by the same conflict, all
-          // classifying it stale in the same tick. Desynchronize them first. (A try-lock does not
-          // wait, so it skips this and accepts the odds.)
+          // Reaping is inode-guarded but not atomic (see `reapLockFile`); the residual window only
+          // opens when waiters reap in lockstep, which is exactly what a stale lock produces.
+          // Desynchronize first. A try-lock skips this and accepts the odds.
           await sleepFor(Math.random() * retryDelay, controller.signal)
         }
         if (reapLockFile(lockPath, entry.inode)) {

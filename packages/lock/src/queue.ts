@@ -9,11 +9,10 @@ export type QueueSlot = {
    * Whether the path was free at the instant this slot entered: no earlier caller still holds it,
    * so `turn` is already destined to resolve and only the filesystem can contend.
    *
-   * Decided SYNCHRONOUSLY, from a count — the only way to decide it. `turn` cannot be raced
-   * against a resolved sentinel to ask the same question: the chain resolves each link with a
-   * thenable, which costs two extra microtask hops, so a slot whose predecessor has fully released
-   * still reads as pending for two ticks. The verdict would then depend on how many microtask hops
-   * the caller happened to sit behind — which is exactly the raciness the try-lock removes.
+   * Decided SYNCHRONOUSLY, from a count, rather than by racing `turn` against a resolved
+   * sentinel: the chain resolves each link with a thenable, costing two extra microtask hops, so a
+   * slot behind a fully-released predecessor would still read as pending — and the verdict would
+   * depend on how many hops the caller happened to sit behind.
    */
   free: boolean
   /** Hand the path to the next caller. Idempotent, and safe to call before the turn arrives. */
@@ -29,16 +28,14 @@ type QueueState = {
 /**
  * FIFO chain of same-process callers, one per resolved path.
  *
- * Without it, two callers in one process fight through the filesystem — and the second reads a
- * lockfile whose pid is its OWN live pid, so it can never reap it and simply polls until the
- * first releases. Correct, but it pays backoff latency for the most common case in an app.
+ * Without it, two callers in one process fight through the filesystem: the second reads a
+ * lockfile with its OWN live pid, so it can never reap it and simply polls until the first
+ * releases (correct, but pays backoff latency for the common case).
  *
- * The map is per-realm, like any module state: it does not span worker threads or `vm` contexts,
- * and it does not need to. The file is the lock; this is only a fast path in front of it.
- *
- * Keyed on `resolve`, not `realpath`, because the lockfile need not exist yet. Two aliased paths
- * (through a symlinked directory) therefore fall back to filesystem contention — correct, merely
- * slower.
+ * Per-realm, like any module state — does not span worker threads or `vm` contexts, and does not
+ * need to; the file is the lock, this is only a fast path in front of it. Keyed on `resolve`, not
+ * `realpath`, because the lockfile need not exist yet: two aliased paths (via a symlinked
+ * directory) fall back to filesystem contention, merely slower.
  */
 const queues = new Map<string, QueueState>()
 

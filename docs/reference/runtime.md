@@ -8,6 +8,7 @@ Platform-agnostic runtime primitives (`fetch`, random ID, random bytes) and thei
 |---|---|
 | `@sozai/runtime` | Platform-agnostic `Runtime` abstraction and `createRuntime` factory |
 | `@sozai/runtime-expo` | Expo / React Native binding; independently versioned per `runtime-<env>` pattern |
+| `@sozai/lock` | Cross-process file mutex; Node-only (`node:fs`) |
 
 ---
 
@@ -108,6 +109,42 @@ const customRuntime: Runtime = createRuntime({
 const id = customRuntime.getRandomID()
 const bytes = customRuntime.getRandomValues(new Uint8Array(32))
 ```
+
+---
+
+## @sozai/lock
+
+> **Node-only.** The only package in sozai that is not environment-agnostic. `lockPath` must be on
+> a local filesystem — `link()` atomicity is not guaranteed on NFS.
+
+### Exports
+
+| Export | Kind | Description |
+|---|---|---|
+| `withFileLock` | function | Run a critical section under an exclusive cross-process lock |
+| `acquireFileLock` | function | Acquire the lock, returning a `Disposable` handle |
+| `FileLock` | type | The handle: `{ path, release() }`, also a `Disposable` |
+| `FileLockOptions` | type | `timeout`, `staleTimeout`, `retryDelay`, `maxRetryDelay`, `signal` |
+| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `bootAt`, `startedAt` |
+| `LockEntry` | type | A record with the inode and mtime it was read from |
+| `TimeoutInterruption` | class | Re-exported from `@sozai/async`; what acquisition throws on timeout |
+
+### Usage
+
+```ts
+import { withFileLock } from '@sozai/lock'
+
+await withFileLock(lockPath, async () => {
+  // Exactly one process runs this at a time.
+})
+```
+
+Acquisition is blocking with jittered backoff, and **throws** `TimeoutInterruption` when `timeout`
+(default 10s) expires — it never falls through and runs the section unlocked. `TimeoutInterruption`
+is re-exported from `@sozai/lock` itself, so a caller can catch it without depending on
+`@sozai/async` directly. A holder that is provably alive (same host, same boot, live pid) is never
+reaped, however long it holds; the `staleTimeout` TTL (default 60s) applies only where liveness is
+unprovable.
 
 ---
 

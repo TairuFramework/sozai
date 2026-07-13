@@ -30,8 +30,12 @@ describe('getUptimeAt()', () => {
     expect(Math.abs(getUptimeAt() - uptime() * 1000)).toBeLessThan(1_000)
   })
 
-  // It is what makes same-host ages monotonic: no wall-clock step can move it.
-  test('does not move when the wall clock steps forward', () => {
+  // A regression guard on the IMPLEMENTATION, not on the platform: it pins that this helper is
+  // derived from `os.uptime()` and never from `Date.now()`, so nobody rewrites it in terms of the
+  // wall clock and reopens the reap-a-live-holder hole. It cannot test that the host's uptime
+  // itself is monotonic — on darwin it is not (`kern.boottime` is adjustable), which is why
+  // `isStale` corroborates a negative age instead of trusting it.
+  test('is derived from os.uptime(), never from the wall clock', () => {
     const before = getUptimeAt()
     const realNow = Date.now
     try {

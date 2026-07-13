@@ -59,14 +59,27 @@ export function checkLiveness(record: LockRecord): Liveness {
  * too corrupt to identify a holder at all. How the holder's age is measured then depends on
  * whether we can measure it at all:
  *
- * - SAME HOST: monotonically, from `uptimeAt`. No wall-clock step can inflate that age, so a
- *   clock step can never reap a live holder. A NEGATIVE age — this host has been up for less time
- *   than the record claims to have been held — means the host rebooted since the record was
- *   written: the holder is definitively gone, and stale at once, whatever the TTL.
+ * - SAME HOST: monotonically, from `uptimeAt`. No wall-clock step can INFLATE that age, so a clock
+ *   step can never reap a live holder. A NEGATIVE age — this host has been up for less time than
+ *   the record claims to have been held — is the reboot signal, but it is not a reboot PROOF:
+ *   `os.uptime()` is not portably monotonic (on darwin it is `time(NULL) - kern.boottime`, and the
+ *   kernel adjusts `kern.boottime` on clock and sleep events), so a forward `boottime` bump can
+ *   hand a LIVE holder a boot mismatch and a negative age together. So the reboot verdict is
+ *   corroborated by the wall clock: stale at once only if the record was ALSO claimed longer than
+ *   the TTL ago. A reboot always has real downtime, so it still fires; a forward clock step alone
+ *   cannot produce a negative age, so nothing here reintroduces the wall clock's reap-a-live-holder
+ *   hole.
  * - FOREIGN HOST, or a record too corrupt to carry an uptime (dated, then, by the file's own
  *   mtime): the wall clock is all there is, because another host's uptime is unreadable to us.
  *   A clock step on EITHER machine can therefore still expire such a record early. Unavoidable,
  *   and the reason cross-host locking is not supported.
+ *
+ * What this trades away, and it is a real trade rather than a strictly better signal: a holder that
+ * claimed the lock a few seconds into a boot, followed by a REBOOT, leaves a record whose `uptimeAt`
+ * sits BELOW the new boot's current uptime — a small POSITIVE age, so it is respected for the full
+ * TTL. The wall-clock rule this replaced reaped it at once. That is reap LATENCY bounded by the
+ * TTL, never an exclusion hole, and it is inherent: from the wall clock alone a reboot and a
+ * forward clock step are indistinguishable, which is exactly why the wall clock had to go.
  */
 export function isStale(entry: LockEntry, staleTimeout: number, now: number = Date.now()): boolean {
   const { record, mtimeMs } = entry
@@ -85,7 +98,12 @@ export function isStale(entry: LockEntry, staleTimeout: number, now: number = Da
         return now - record.startedAt > staleTimeout
       }
       const age = getUptimeAt() - record.uptimeAt
-      return age < 0 || age > staleTimeout
+      if (age < 0) {
+        // Uptime ran backwards: a reboot, or a darwin `kern.boottime` adjustment under a live
+        // holder. Only the first leaves a claim older than the TTL behind it.
+        return now - record.startedAt > staleTimeout
+      }
+      return age > staleTimeout
     }
   }
 }

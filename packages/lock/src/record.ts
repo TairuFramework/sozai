@@ -27,12 +27,16 @@ export function getBootAt(): number {
 }
 
 /**
- * How long this host has been up, in milliseconds. MONOTONIC: unlike `Date.now()`, no NTP
- * correction, VM resume, laptop wake or bad RTC can step it. Subtracting a record's `uptimeAt`
- * from ours therefore yields the holder's true age on this host — an age a clock step cannot
- * inflate, which is what stops a forward step from reaping a live holder. It also identifies a
- * reboot exactly: our uptime BELOW the recorded one means the host restarted since the record
- * was written, so its process cannot have survived.
+ * How long this host has been up, in milliseconds. Unlike `Date.now()`, it does not move with the
+ * wall clock: an NTP correction, a VM resume, a laptop wake or a bad RTC cannot INFLATE the age
+ * that `getUptimeAt() - record.uptimeAt` yields, which is what stops a forward clock step from
+ * reaping a live holder.
+ *
+ * NOT portably monotonic, though, and `isStale` is written for that: on darwin `uv_uptime` is
+ * `time(NULL) - kern.boottime`, and the kernel adjusts `kern.boottime` on clock and sleep events —
+ * so this can run backwards under a live process, on a host that never rebooted. A negative age is
+ * therefore a reboot SIGNAL, corroborated against the wall clock before anything is reaped, not a
+ * reboot proof. See `isStale`.
  */
 export function getUptimeAt(): number {
   return uptime() * 1000

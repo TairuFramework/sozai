@@ -154,14 +154,29 @@ describe('isStale()', () => {
     expect(isStale(entry(record), staleTimeout)).toBe(true)
   })
 
-  // The host has been up for LESS time than the record claims to have been held: the machine
-  // rebooted since it was written, so the holder is definitively gone. No TTL wait.
-  test('a same-host holder whose uptime predates ours died in the reboot: stale immediately', () => {
+  // The host has been up for LESS time than the record claims to have been held. A real reboot
+  // produces that — and a real reboot also has real downtime, so the record's wall-clock claim
+  // time is well in the past. Both halves hold: the holder is definitively gone.
+  test('a same-host holder whose uptime predates ours, with the downtime a reboot leaves, is stale', () => {
     const record = unprovableLocalRecord({
-      startedAt: Date.now(),
+      startedAt: Date.now() - (staleTimeout + 60_000),
       uptimeAt: getUptimeAt() + 60_000,
     })
     expect(isStale(entry(record), staleTimeout)).toBe(true)
+  })
+
+  // ...but a reboot is not the only thing that makes `os.uptime()` run backwards. On darwin it is
+  // not portably monotonic: `uv_uptime` is `time(NULL) - kern.boottime`, and the kernel adjusts
+  // `kern.boottime` on clock and sleep events. A forward `boottime` bump larger than
+  // BOOT_TOLERANCE_MS produces a boot mismatch (→ `unknown`, the pid probe is skipped) AND a
+  // negative age — together, on a LIVE holder. Corroboration from the wall clock tells the two
+  // apart: no reboot leaves a holder that claimed the lock seconds ago.
+  test('a same-host holder claimed seconds ago is NOT reaped when the uptime merely ran backwards', () => {
+    const record = unprovableLocalRecord({
+      startedAt: Date.now() - 5_000,
+      uptimeAt: getUptimeAt() + 60_000,
+    })
+    expect(isStale(entry(record), staleTimeout)).toBe(false)
   })
 
   test('a corrupt record is dated by the file mtime, and respected until the TTL expires', () => {

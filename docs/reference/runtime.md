@@ -126,9 +126,10 @@ const bytes = customRuntime.getRandomValues(new Uint8Array(32))
 | `acquireFileLock` | function | Acquire the lock, returning a `Disposable` handle |
 | `FileLock` | type | The handle: `{ path, release() }`, also a `Disposable` |
 | `FileLockOptions` | type | `timeout`, `staleTimeout`, `retryDelay`, `maxRetryDelay`, `signal` |
-| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `bootAt`, `startedAt` |
-| `LockEntry` | type | A record with the inode and mtime it was read from |
+| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `bootAt`, `startedAt`, `uptimeAt` |
 | `TimeoutInterruption` | class | Re-exported from `@sozai/async`; what acquisition throws on timeout |
+
+`LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal — not exported.
 
 ### Usage
 
@@ -145,9 +146,40 @@ Acquisition is blocking with jittered backoff, and **throws** `TimeoutInterrupti
 acquisition only, however: once the lock is held, the critical section runs to completion
 regardless of `timeout`, so a caller that needs to bound the section itself must do so.
 `TimeoutInterruption` is re-exported from `@sozai/lock` itself, so a caller can catch it without
-depending on `@sozai/async` directly. A holder that is provably alive (same host, same boot, live
-pid) is never reaped, however long it holds; the `staleTimeout` TTL (default 60s) applies only where
-liveness is unprovable.
+depending on `@sozai/async` directly. `timeout: 0` is a deterministic try-lock instead: one
+attempt, no waiting, no backoff, no queueing behind a same-process caller — live contention throws
+`TimeoutInterruption` synchronously.
+
+Acquiring the lock creates `lockPath`'s parent directory tree if missing
+(`mkdirSync(..., { recursive: true, mode: 0o700 })`).
+
+A holder that is provably alive (same host, same boot, live pid) is never reaped, however long it
+holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unprovable. How the age
+is measured then depends on the holder's host: a same-host holder is aged monotonically from
+`uptimeAt` (`os.uptime()`), so a forward wall-clock step cannot reap it — a *negative* age means the
+host rebooted since the record was written, so it is stale at once. A foreign-host holder (or a
+record too corrupt to identify one) is still aged by wall clock against `startedAt`, or the file's
+mtime — unavoidable, since another host's uptime can't be read, and the reason cross-host locking
+is unsupported. A clock step can still expire a foreign-host record early.
+
+Reaping a stale lock is inode-guarded, not provably atomic: the guard is `statSync` then `rmSync`,
+two syscalls, so a residual window remains where two waiters classifying the same stale lock in
+lockstep can have one unlink the other's freshly-claimed live lock. POSIX has no unlink-if-inode, so
+this can't be closed with name operations; a jitter before reaping (uniform in `[0, retryDelay)`,
+skipped by a try-lock) desynchronizes waiters released together so this doesn't happen in practice —
+a mitigation, not a proof, and the one place this package's exclusion is probabilistic.
+
+The exit-cleanup hook releases held locks on `process.exit()` and a natural event-loop drain only —
+a default-handled `SIGINT`/`SIGTERM` terminates Node without emitting `'exit'`, so it does not run
+there. Benign: the process is gone, so the next waiter's liveness probe reports it dead and reaps
+immediately, no TTL wait.
+
+Acquisition can reject with a real filesystem error (`EACCES`, `EISDIR`, ...) instead of timing out,
+when `lockPath` is misconfigured (a directory at the path, an unreadable file). A caller should not
+assume every rejection is `TimeoutInterruption`.
+
+`retryDelay` is a backoff ceiling, not the realized first delay: the first wait is uniform in
+`[retryDelay / 2, retryDelay)` (`[5, 10)` at the default).
 
 ---
 

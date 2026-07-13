@@ -41,15 +41,26 @@ export function withFileLock<T>(
   options?: FileLockOptions,
 ): Promise<T>
 
-export type LockRecord = { pid: number; hostname: string; bootAt: number; startedAt: number }
-export type LockEntry = { record: LockRecord | null; inode: number | null; mtimeMs: number | null }
+export type LockRecord = {
+  pid: number
+  hostname: string
+  bootAt: number      // host boot time (ms since epoch) — gates the pid probe across a reboot
+  startedAt: number   // wall-clock claim time — ages a FOREIGN-host holder
+  uptimeAt: number    // os.uptime() (ms) at claim time — ages a SAME-host holder, monotonically
+}
 
 export { TimeoutInterruption } from '@sozai/async'
 ```
 
-68 tests: unit coverage per module (`record`, `file`, `liveness`, `queue`, `lock`) plus
-`test/cross-process.test.ts`, which forks real child processes to prove the actual claim —
-nothing in-process can, since every in-process test shares one pid and one fs cache.
+`LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal only — it is not
+re-exported from `index.ts`; `liveness.ts` is the sole consumer outside `file.ts`.
+
+98 tests: unit coverage per module (`record`, `file`, `liveness`, `queue`, `lock`) plus
+`test/cross-process.test.ts` (forks real child processes to prove mutual exclusion — nothing
+in-process can, since every in-process test shares one pid and one fs cache) and
+`test/cross-process-reap.test.ts` (a genuinely SIGKILLed holder is reaped without waiting out the
+TTL, and the exit hook removes a lockfile left behind by `process.exit()`). Both cross-process
+claims were verified to go red when the mechanism they pin was stubbed out.
 
 ## Design decisions
 
@@ -69,11 +80,62 @@ nothing in-process can, since every in-process test shares one pid and one fs ca
 - **`bootAt` exists because pid-probing across a reboot is a lie.** pids recycle, `lockPath` is
   persistent (kokuin puts it beside app data), and a recycled pid would report a live holder and
   wedge the lock forever. A boot mismatch downgrades the holder to "unprovable" (TTL decides)
-  rather than reaping it, so clock skew costs latency, never mutual exclusion.
-- **Reap and release are both inode-guarded.** An unguarded unlink removes whatever sits at the
-  path *right now*, which — after any `await` — may be a different holder's live lock.
-  `readLockEntry` reads the record, inode, and mtime through one descriptor so the three can't
-  straddle a replacement; reap and release both present the inode read at classification time.
+  rather than reaping it.
+- **Superseded: "clock skew costs latency, never mutual exclusion."** That was this document's
+  original claim about `bootAt` and the TTL, and the final-review pass found it false: a forward
+  wall-clock step larger than `staleTimeout`, while a lock was genuinely held, pushed the record's
+  `bootAt` out of `BOOT_TOLERANCE_MS` (→ "unprovable") *and* pushed `now - startedAt` past the TTL —
+  one clock step, both halves of the reap condition, from a single stale-vs-alive check. It could
+  reap a live holder, i.e. break mutual exclusion, not just add latency. The fix
+  (`fdc2019`) adds `uptimeAt` (`os.uptime()` at claim time) to the record and ages a **same-host**
+  unprovable holder by the monotonic delta `getUptimeAt() - record.uptimeAt` instead of by wall
+  clock — no NTP correction, VM resume, laptop wake, or bad RTC can step `os.uptime()`, so that age
+  can no longer be inflated by a clock jump. A *negative* age (this host's uptime is now below the
+  record's) means the host rebooted since the record was written and is treated as stale at once,
+  which is a strictly stronger reboot signal than the `bootAt` comparison. The residual limit is
+  real and is now documented rather than glossed over: a **foreign-host** record still has no
+  uptime we can read, so it is still aged by wall clock against `startedAt` (or the file's mtime for
+  a corrupt record) — a clock step on either machine can still expire it early. This is on top of,
+  not instead of, "cross-host locking is unsupported."
+- **`timeout: 0` is a documented try-lock, not merely "a short timeout."** One attempt, no waiting:
+  the queue turn is raced against an already-resolved sentinel so contention is decided in
+  microtasks (no timer can intervene), and the retry/backoff branch throws immediately instead of
+  sleeping. It still reaps a stale holder and re-claims at once — reaping is not waiting — and it
+  skips the pre-reap jitter below, accepting the (crash-only, already-rare) TOCTOU odds rather than
+  spending time it was told not to spend.
+- **Reap and release are both inode-guarded, but the guard is not a proof.** An unguarded unlink
+  removes whatever sits at the path *right now*, which — after any `await` — may be a different
+  holder's live lock. `readLockEntry` reads the record, inode, and mtime through one descriptor so
+  the three can't straddle a replacement; reap and release both present the inode read at
+  classification time. But `reapLockFile` is `statSync` then `rmSync` — two syscalls — so a window
+  remains *during the call*: two waiters that classify the same stale inode in lockstep can
+  interleave such that the second unlinks the first's freshly-claimed live lock. POSIX has no
+  unlink-if-inode, so no sequence of name operations closes this; `acquireFileLock` now awaits a
+  jitter uniform in `[0, retryDelay)` before reaping (skipped for a try-lock), which desynchronizes
+  waiters released by the same stale lock so they don't step through the window together. That is a
+  probabilistic mitigation of a rare, crash-only path, not a proof — it is the one place this
+  package's exclusion is not absolute, and the source comments say so rather than implying
+  otherwise.
+- **The exit-cleanup hook covers less than "a clean exit."** It runs on `process.exit()` and a
+  natural event-loop drain, and nothing else: a default-handled `SIGINT`/`SIGTERM` terminates Node
+  without emitting `'exit'`, so the hook does not run there (SIGKILL never could). This is
+  deliberate, not an oversight — installing signal handlers here would silently change the host
+  process's termination behavior for a library concern. It is also benign: a signalled process's
+  pid is gone, so the next waiter's liveness probe reports `'dead'` and reaps at once, with no TTL
+  wait. Now covered by `test/cross-process-reap.test.ts` (see below).
+- **I/O errors surface, they are not folded into "no lock present."** `readLockEntry` originally
+  treated any read failure the same as `ENOENT`. The final-review pass found this made a
+  misconfigured `lockPath` (a directory sitting there, or an unreadable file) indistinguishable from
+  a lock genuinely held by someone else: the acquire loop backed off and eventually threw
+  `TimeoutInterruption`, blaming a phantom holder for what was really `EISDIR`/`EACCES`. Only
+  `ENOENT` now yields the all-null entry; every other error is thrown immediately. A consumer's
+  `catch` must therefore handle real filesystem errors, not only `TimeoutInterruption`.
+- **`retryDelay` is a backoff ceiling, not the realized first delay.** The backoff is halved and
+  jittered, so the first wait is uniform in `[retryDelay / 2, retryDelay)` — `[5, 10)` at the
+  default. The same value also bounds the pre-reap jitter above.
+- **Acquiring a lock creates `lockPath`'s parent directory tree**
+  (`mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 })`) — an undocumented-until-now
+  side effect: callers do not need to pre-create the directory a lockfile lives in.
 - **An in-process FIFO queue (`enterQueue`) serializes same-process callers before any filesystem
   work.** Without it, two callers in one process fight through the filesystem, and the second
   reads a lockfile whose pid is *its own live pid* — it can never reap it, so it simply polls
@@ -89,6 +151,12 @@ nothing in-process can, since every in-process test shares one pid and one fs ca
 - **Mutual exclusion is proven by a forked-children test** (`test/cross-process.test.ts`): N
   children append `enter`/`exit` markers to a witness file inside the critical section, and the
   test asserts they never interleave. It was verified to go red when the lock was stubbed out.
+  `test/cross-process-reap.test.ts` (added in the final-review pass) additionally proves recovery
+  from a genuinely **`SIGKILL`ed** holder — a child is killed while holding the lock, and the parent
+  acquires well within the `staleTimeout` TTL, which is only possible if the dead-pid probe reaped
+  it, not the TTL — and that the exit hook removes the lockfile after a clean `process.exit()`. Both
+  were verified to go red when the mechanism under test was stubbed out (`checkLiveness` forced to
+  `'alive'` for the SIGKILL case).
 - **Node-only, and `lockPath` must be on a local filesystem** — `link()` atomicity is not
   guaranteed on NFS. Not reentrant: acquiring the same path twice in one process without
   releasing deadlocks until the timeout throws.
@@ -121,8 +189,7 @@ nothing in-process can, since every in-process test shares one pid and one fs ca
   would derive a filename from an attacker-influenced `keyID` (path traversal), and
   `provideAsync` is a once-per-identity operation, so serializing across keyIDs costs nothing.
   kokuin drops its in-process `#provideLock` chain in the same change.
-- **Test-coverage gap:** the process-exit hook in `src/lock.ts` (the module-level `heldLocks` set
-  and its `process.on('exit', ...)` listener, which inode-guard-unlinks any lock still held on a
-  clean exit) has no test. Exercising it means asserting behavior across a real process exit,
-  which the current unit/cross-process split doesn't cover — worth a dedicated child-process test
-  if this path ever needs to change.
+- ~~**Test-coverage gap:** the process-exit hook in `src/lock.ts` ... has no test.~~ Closed in the
+  final-review pass: `test/cross-process-reap.test.ts` runs a real child process that acquires the
+  lock and calls `process.exit(0)` without releasing, then asserts the lockfile is gone. The same
+  file also adds the `SIGKILL` recovery test noted above.

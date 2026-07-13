@@ -10,7 +10,10 @@ export type LockRecord = {
   hostname: string
   /** Host boot time in ms since epoch. See `getBootAt`. */
   bootAt: number
+  /** Wall-clock claim time in ms since epoch. Ages a holder on a FOREIGN host. See `isStale`. */
   startedAt: number
+  /** Host uptime in ms at claim time. Ages a holder on THIS host. See `getUptimeAt`. */
+  uptimeAt: number
 }
 
 /**
@@ -23,8 +26,26 @@ export function getBootAt(): number {
   return Date.now() - uptime() * 1000
 }
 
+/**
+ * How long this host has been up, in milliseconds. MONOTONIC: unlike `Date.now()`, no NTP
+ * correction, VM resume, laptop wake or bad RTC can step it. Subtracting a record's `uptimeAt`
+ * from ours therefore yields the holder's true age on this host — an age a clock step cannot
+ * inflate, which is what stops a forward step from reaping a live holder. It also identifies a
+ * reboot exactly: our uptime BELOW the recorded one means the host restarted since the record
+ * was written, so its process cannot have survived.
+ */
+export function getUptimeAt(): number {
+  return uptime() * 1000
+}
+
 export function createLockRecord(): LockRecord {
-  return { pid: process.pid, hostname: hostname(), bootAt: getBootAt(), startedAt: Date.now() }
+  return {
+    pid: process.pid,
+    hostname: hostname(),
+    bootAt: getBootAt(),
+    startedAt: Date.now(),
+    uptimeAt: getUptimeAt(),
+  }
 }
 
 export function isLockRecord(value: unknown): value is LockRecord {
@@ -45,7 +66,12 @@ export function isLockRecord(value: unknown): value is LockRecord {
     typeof record.bootAt === 'number' &&
     Number.isFinite(record.bootAt) &&
     typeof record.startedAt === 'number' &&
-    Number.isFinite(record.startedAt)
+    Number.isFinite(record.startedAt) &&
+    typeof record.uptimeAt === 'number' &&
+    Number.isFinite(record.uptimeAt) &&
+    // Uptime runs forward from the boot: a negative one is not a record this package wrote, and
+    // it would make every same-host age look larger than it is.
+    record.uptimeAt >= 0
   )
 }
 

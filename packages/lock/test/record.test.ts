@@ -1,10 +1,16 @@
-import { hostname } from 'node:os'
+import { hostname, uptime } from 'node:os'
 import { describe, expect, test } from 'vitest'
 
-import { createLockRecord, getBootAt, isLockRecord, parseLockRecord } from '../src/record.js'
+import {
+  createLockRecord,
+  getBootAt,
+  getUptimeAt,
+  isLockRecord,
+  parseLockRecord,
+} from '../src/record.js'
 
 function validRecord() {
-  return { pid: 123, hostname: 'host-a', bootAt: 1_000, startedAt: 2_000 }
+  return { pid: 123, hostname: 'host-a', bootAt: 1_000, startedAt: 2_000, uptimeAt: 3_000 }
 }
 
 describe('getBootAt()', () => {
@@ -19,6 +25,24 @@ describe('getBootAt()', () => {
   })
 })
 
+describe('getUptimeAt()', () => {
+  test('is the host uptime in milliseconds', () => {
+    expect(Math.abs(getUptimeAt() - uptime() * 1000)).toBeLessThan(1_000)
+  })
+
+  // It is what makes same-host ages monotonic: no wall-clock step can move it.
+  test('does not move when the wall clock steps forward', () => {
+    const before = getUptimeAt()
+    const realNow = Date.now
+    try {
+      Date.now = () => realNow() + 60 * 60 * 1000
+      expect(Math.abs(getUptimeAt() - before)).toBeLessThan(1_000)
+    } finally {
+      Date.now = realNow
+    }
+  })
+})
+
 describe('createLockRecord()', () => {
   test('describes this process on this host and this boot', () => {
     const record = createLockRecord()
@@ -26,6 +50,7 @@ describe('createLockRecord()', () => {
     expect(record.hostname).toBe(hostname())
     expect(Math.abs(record.bootAt - getBootAt())).toBeLessThan(1_000)
     expect(Math.abs(record.startedAt - Date.now())).toBeLessThan(1_000)
+    expect(Math.abs(record.uptimeAt - getUptimeAt())).toBeLessThan(1_000)
     expect(isLockRecord(record)).toBe(true)
   })
 })
@@ -55,8 +80,13 @@ describe('isLockRecord()', () => {
     ['empty hostname', { ...validRecord(), hostname: '' }],
     ['non-string hostname', { ...validRecord(), hostname: 42 }],
     ['non-finite bootAt', { ...validRecord(), bootAt: Number.POSITIVE_INFINITY }],
-    ['missing startedAt', { pid: 1, hostname: 'h', bootAt: 1 }],
+    ['missing startedAt', { pid: 1, hostname: 'h', bootAt: 1, uptimeAt: 1 }],
     ['non-finite startedAt', { ...validRecord(), startedAt: Number.NaN }],
+    ['missing uptimeAt', { pid: 1, hostname: 'h', bootAt: 1, startedAt: 1 }],
+    ['non-finite uptimeAt', { ...validRecord(), uptimeAt: Number.POSITIVE_INFINITY }],
+    ['non-number uptimeAt', { ...validRecord(), uptimeAt: '3000' }],
+    // Uptime cannot run backwards from the boot: a negative one is not a record we wrote.
+    ['negative uptimeAt', { ...validRecord(), uptimeAt: -1 }],
   ])('rejects %s', (_label, value) => {
     expect(isLockRecord(value)).toBe(false)
   })

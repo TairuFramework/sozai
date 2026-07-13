@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { claimLockFile, readLockEntry } from '../src/file.js'
 import { TimeoutInterruption as LockTimeoutInterruption } from '../src/index.js'
 import { acquireFileLock, withFileLock } from '../src/lock.js'
-import { getBootAt, type LockRecord } from '../src/record.js'
+import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
 
 let dir: string
 let lockPath: string
@@ -22,13 +22,18 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-/** A holder this process cannot probe: same host, but a boot that is not ours. */
+/**
+ * A holder this process cannot probe: same host, but a boot that is not ours. Same-host holders
+ * are aged monotonically, so the record's uptime has to carry the same age as its `startedAt`.
+ */
 function unprovableHolder(startedAt: number): LockRecord {
+  const age = Date.now() - startedAt
   return {
     pid: 999_999,
     hostname: hostname(),
     bootAt: getBootAt() - 10 * 60 * 60 * 1000,
     startedAt,
+    uptimeAt: Math.max(0, getUptimeAt() - age),
   }
 }
 
@@ -77,6 +82,7 @@ describe('acquireFileLock()', () => {
       hostname: hostname(),
       bootAt: getBootAt(),
       startedAt: Date.now(),
+      uptimeAt: getUptimeAt(),
     })
 
     const lock = await acquireFileLock(lockPath, { timeout: 1_000 })

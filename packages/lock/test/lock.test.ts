@@ -19,6 +19,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.doUnmock('../src/file.js')
+  vi.resetModules()
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -295,6 +297,69 @@ describe('acquireFileLock()', () => {
 
     // Both the 30s deadline and the 10-20s backoff sleep must be gone.
     expect([...pending.values()]).toEqual([])
+  })
+
+  // `using deadline` disposes its `ScheduledTimeout` when this function returns. If that `using`
+  // ever degraded to a plain `const`, a SUCCESSFUL acquire would leave the deadline's timer
+  // running for the rest of `timeout` — a CLI that acquires, does its work, and releases would
+  // hang open for up to `timeout` past the point it had nothing left to do.
+  test('leaves no timer running after a successful acquire and release', async () => {
+    vi.useFakeTimers()
+    try {
+      const lock = await acquireFileLock(lockPath, { timeout: 30_000 })
+      lock.release()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // The abort-driven `catch { slot.release(); throw }` is shared by every exit path, but a caller
+  // whose OWN `timeout` fires while still queued behind an in-process holder (no signal involved)
+  // is a different trigger through that same catch. If it failed to release the slot, a live
+  // caller queued behind the timed-out one would wait forever.
+  test('releases its queue slot when its own timeout fires while still queued, so the next caller is not stranded', async () => {
+    const held = await acquireFileLock(lockPath)
+
+    await expect(acquireFileLock(lockPath, { timeout: 50 })).rejects.toBeInstanceOf(
+      TimeoutInterruption,
+    )
+
+    held.release()
+    const lock = await acquireFileLock(lockPath, { timeout: 1_000 })
+    expect(lock.path).toBe(lockPath)
+    lock.release()
+  })
+
+  // A `claimLockFile` throw mid-loop (a real I/O error, not EEXIST/ENOENT) goes through the same
+  // catch as an abort. Pin that it releases the queue slot too: a caller stuck here would strand
+  // every same-process caller behind it on this path.
+  test('releases its queue slot when claimLockFile throws mid-loop, so the next caller is not stranded', async () => {
+    vi.resetModules()
+    let throwOnce = true
+    vi.doMock('../src/file.js', async () => {
+      const actual = await vi.importActual<typeof import('../src/file.js')>('../src/file.js')
+      return {
+        ...actual,
+        claimLockFile: (path: string, record: LockRecord) => {
+          if (throwOnce) {
+            throwOnce = false
+            const err: NodeJS.ErrnoException = new Error('EACCES: permission denied')
+            err.code = 'EACCES'
+            throw err
+          }
+          return actual.claimLockFile(path, record)
+        },
+      }
+    })
+
+    const { acquireFileLock: acquireWithFaultyClaim } = await import('../src/lock.js')
+
+    await expect(acquireWithFaultyClaim(lockPath, { timeout: 1_000 })).rejects.toThrow('EACCES')
+
+    const lock = await acquireWithFaultyClaim(lockPath, { timeout: 1_000 })
+    expect(lock.path).toBe(lockPath)
+    lock.release()
   })
 
   test('an abandoned waiter does not strand the next caller in this process', async () => {

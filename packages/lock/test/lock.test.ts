@@ -90,6 +90,45 @@ describe('acquireFileLock()', () => {
     lock.release()
   })
 
+  // `statSync` then `rmSync` is two syscalls: N waiters released together by the same stale lock
+  // classify it in lockstep, and the lockstep reap is the interleaving that can slip a waiter's
+  // unlink between another's inode check and its own claim. A short jitter breaks the lockstep.
+  test('waits a jitter before reaping a stale holder, so waiters do not reap in lockstep', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    claimLockFile(lockPath, unprovableHolder(Date.now() - 61_000))
+
+    const start = Date.now()
+    const lock = await acquireFileLock(lockPath, {
+      timeout: 1_000,
+      staleTimeout: 60_000,
+      retryDelay: 200,
+    })
+    const elapsed = Date.now() - start
+
+    expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+    // Uniform in [0, retryDelay): 0.5 of 200ms.
+    expect(elapsed).toBeGreaterThanOrEqual(60)
+    lock.release()
+  })
+
+  // A try-lock does not wait, and the jitter is waiting.
+  test('a try-lock reaps a stale holder without the jitter', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    claimLockFile(lockPath, unprovableHolder(Date.now() - 61_000))
+
+    const start = Date.now()
+    const lock = await acquireFileLock(lockPath, {
+      timeout: 0,
+      staleTimeout: 60_000,
+      retryDelay: 400,
+    })
+    const elapsed = Date.now() - start
+
+    expect(readLockEntry(lockPath).record?.pid).toBe(process.pid)
+    expect(elapsed).toBeLessThan(100)
+    lock.release()
+  })
+
   test('reaps an unprovable holder once its TTL has expired', async () => {
     claimLockFile(lockPath, unprovableHolder(Date.now() - 61_000))
 

@@ -165,6 +165,22 @@ function inodeOf(lockPath: string): number | null {
  *
  * Returns whether the file was removed. Losing this race is not an error: the winner's lock is
  * simply left alone.
+ *
+ * GUARDED, NOT ATOMIC. The guard narrows the window; it does not close it. `statSync` and
+ * `rmSync` are two syscalls, and a residual window remains DURING the call:
+ *
+ *   1. Waiters A and B both read the entry with inode I and both classify it stale — the normal
+ *      shape after a crash, where every waiter sees the same dead holder.
+ *   2. B calls `inodeOf()` and sees I. It is about to unlink.
+ *   3. A unlinks I first, writes its temp file, and links inode J: A now holds a LIVE lock.
+ *   4. B's `rmSync(lockPath)` removes J — A's lock — and returns `true`.
+ *   5. B claims the free path as inode K. A and B are both in the critical section.
+ *
+ * POSIX offers no unlink-if-inode, so no sequence of name operations fixes this. What narrows it
+ * to near-nothing is not reaping in lockstep: `acquireFileLock` jitters before it reaps, so N
+ * waiters released by one stale lock do not step through 1-5 together. That is a probabilistic
+ * mitigation of a rare, crash-only path, not a proof — and it is the one place this package's
+ * exclusion is not absolute.
  */
 export function reapLockFile(lockPath: string, expectedInode: number): boolean {
   if (inodeOf(lockPath) !== expectedInode) {

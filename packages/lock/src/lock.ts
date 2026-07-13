@@ -45,8 +45,15 @@ const DEFAULT_MAX_RETRY_DELAY = 250
 
 /**
  * Every lock this process currently holds, so a clean exit does not leave one behind for the next
- * run to wait out. SIGKILL and hard crashes are what the staleness rules are for; this only
- * covers `process.exit()` and a default-handled SIGINT.
+ * run to wait out.
+ *
+ * It covers EXACTLY two exits: `process.exit()`, and a natural drain of the event loop. Nothing
+ * else. A default-handled SIGINT or SIGTERM terminates Node WITHOUT emitting `'exit'`, so the
+ * hook does not run — and SIGKILL and hard crashes never could. That is fine, and deliberate: a
+ * signalled process's pid is gone, so the next waiter's probe returns `'dead'` and reaps the
+ * lockfile at once, with no TTL wait. Installing SIGINT/SIGTERM handlers here would buy nothing
+ * and cost a great deal — a library that handles them silently changes its host process's
+ * termination behavior.
  */
 const heldLocks = new Set<{ path: string; inode: number }>()
 let exitHookInstalled = false
@@ -57,7 +64,9 @@ function trackHeldLock(entry: { path: string; inode: number }): void {
     exitHookInstalled = true
     process.on('exit', () => {
       for (const held of heldLocks) {
-        // Inode-guarded, like every other unlink here: never remove a lock that is no longer ours.
+        // Inode-guarded, like every other unlink here: it will not remove a lock that has already
+        // been replaced by another holder's. (Guarded, not atomic — `reapLockFile` explains the
+        // residual window this cannot close.)
         reapLockFile(held.path, held.inode)
       }
     })
@@ -171,13 +180,19 @@ export async function acquireFileLock(
       }
 
       const entry = result.conflict
-      if (
-        entry.inode != null &&
-        isStale(entry, staleTimeout) &&
-        reapLockFile(lockPath, entry.inode)
-      ) {
-        // The holder is gone and its file with it. Claim again immediately.
-        continue
+      if (entry.inode != null && isStale(entry, staleTimeout)) {
+        if (!tryLock) {
+          // Reaping is inode-guarded but NOT atomic — see `reapLockFile`, which spells out the
+          // residual window. That window only opens when waiters reap in LOCKSTEP, which is
+          // exactly what a stale lock produces: N waiters, all released by the same conflict, all
+          // classifying it stale in the same tick. Desynchronize them first. (A try-lock does not
+          // wait, so it skips this and accepts the odds.)
+          await sleepFor(Math.random() * retryDelay, controller.signal)
+        }
+        if (reapLockFile(lockPath, entry.inode)) {
+          // The holder is gone and its file with it. Claim again immediately.
+          continue
+        }
       }
       // Either the holder is alive, or we lost the reap race to another waiter. Both mean: back
       // off and look again — and backing off is waiting, which a try-lock does not do.

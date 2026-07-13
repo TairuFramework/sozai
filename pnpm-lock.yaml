@@ -104,6 +104,12 @@ importers:
         specifier: workspace:^
         version: link:../stream
 
+  packages/lock:
+    dependencies:
+      '@sozai/async':
+        specifier: workspace:^
+        version: link:../async
+
   packages/log:
     dependencies:
       '@logtape/logtape':

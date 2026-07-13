@@ -37,6 +37,13 @@ folded in next to the otel work. Each is a self-contained unit (target: one PR).
 8. [log — setup() double-configuration guard + first tests](next/log-setup-guard.md) — small crash, pairs with otel.
 9. [infra — LICENSE files + changesets fixed-group decision](next/infra-license-and-versioning.md) — ship-blockers.
 
+## New packages (not audit-derived)
+
+- [lock — cross-process file mutex](next/lock-package.md) — new Node-only `@sozai/lock`,
+  requested by kokuin (unconditional-upsert keystores race across processes and silently lose
+  keys). No freeze dependency on the existing packages, but it blocks kokuin's keystore
+  contract, and `@tejika/process` rebases onto it afterwards.
+
 ## Deferred (no freeze dependency)
 
 - [infra hygiene — turbo, test scripts, READMEs, keywords](backlog/infra-hygiene.md).

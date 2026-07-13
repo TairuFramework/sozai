@@ -28,16 +28,24 @@ afterEach(() => {
 test('concurrent processes never hold the lock at the same time', async () => {
   await Promise.all(
     Array.from({ length: CHILDREN }, (_unused, index) =>
-      run(process.execPath, [
-        '--import',
-        'tsx',
-        CHILD,
-        lockPath,
-        witnessPath,
-        `child-${index}`,
-        // Varied hold times, so a broken lock interleaves visibly rather than by luck.
-        String(20 + index * 15),
-      ]),
+      run(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          CHILD,
+          lockPath,
+          witnessPath,
+          `child-${index}`,
+          // Varied hold times, so a broken lock interleaves visibly rather than by luck.
+          String(20 + index * 15),
+        ],
+        // Comfortably above real runtime (~350ms of hold time plus node/tsx startup) but
+        // well under the child's own 15s lock timeout, so a genuine deadlock kills the
+        // child and rejects here instead of hanging until vitest's timeout abandons the
+        // still-running processes.
+        { timeout: 8_000 },
+      ),
     ),
   )
 
@@ -60,4 +68,4 @@ test('concurrent processes never hold the lock at the same time', async () => {
 
   // The last holder released: no lockfile is left behind.
   expect(() => readFileSync(lockPath, 'utf8')).toThrow()
-}, 30_000)
+}, 20_000)

@@ -11,5 +11,8 @@ await withFileLock(
     await new Promise((resolve) => setTimeout(resolve, Number(holdMs)))
     appendFileSync(witnessPath, `exit ${id}\n`)
   },
-  { timeout: 30_000 },
+  // Above execFile's 8s kill in cross-process.test.ts (so a genuine deadlock is caught
+  // there first, killing this process) and below vitest's 20s test timeout (so the
+  // Promise.all is never abandoned while children are still alive).
+  { timeout: 15_000 },
 )

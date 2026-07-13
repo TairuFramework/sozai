@@ -2,8 +2,9 @@
 
 **Status:** complete · 2026-07-13
 **Package:** `@sozai/lock` (minor, first release `0.1.0`)
-**Source:** requested by kokuin (`../../../../kokuin/docs/superpowers/specs/` — keystore contract
-& adversarial tests), not audit-derived. Prior art: `../../../../tejika/packages/process/src/lock.ts`.
+**Source:** requested by kokuin (keystore contract & adversarial tests), not audit-derived.
+Prior art: `../../../../tejika/packages/process/src/lock.ts` — its `claimDaemonLock` supplied the
+`link()`-from-a-temp-file claim, the inode-guarded reap, and the `pid > 0` record validation.
 
 ## Goal
 

@@ -33,6 +33,7 @@ function foreignRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   return {
     pid: 999_999,
     hostname: 'other-host',
+    bootID: 'a3e1f0d2-0000-4000-8000-otherhost',
     bootAt: 1_000,
     startedAt: 2_000,
     uptimeAt: 3_000,

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { claimLockFile, readLockEntry } from '../src/file.js'
 import { TimeoutInterruption as LockTimeoutInterruption } from '../src/index.js'
 import { acquireFileLock, withFileLock } from '../src/lock.js'
-import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
+import { getBootAt, getBootID, getUptimeAt, type LockRecord } from '../src/record.js'
 
 /**
  * A same-host holder is aged MONOTONICALLY, from `os.uptime()` — so a test that fabricates a
@@ -40,8 +40,10 @@ afterEach(() => {
 })
 
 /**
- * A holder this process cannot probe: same host, but a boot that is not ours. Same-host holders
- * are aged monotonically, so the record's uptime has to carry the same age as its `startedAt`.
+ * A holder this process cannot probe: same host, but a boot that is not ours — by the boot ID
+ * (a different one) and, for a platform that publishes none, by a `bootAt` far outside the
+ * tolerance. Same-host holders are aged monotonically, so the record's uptime has to carry the
+ * same age as its `startedAt`.
  */
 function unprovableHolder(startedAt: number): LockRecord {
   const age = Date.now() - startedAt
@@ -57,6 +59,7 @@ function unprovableHolder(startedAt: number): LockRecord {
   return {
     pid: 999_999,
     hostname: hostname(),
+    bootID: 'f1c0de00-0000-4000-8000-notourboot',
     bootAt: getBootAt() - 10 * 60 * 60 * 1000,
     startedAt,
     uptimeAt,
@@ -106,6 +109,7 @@ describe('acquireFileLock()', () => {
     claimLockFile(lockPath, {
       pid: 999_999,
       hostname: hostname(),
+      bootID: getBootID(),
       bootAt: getBootAt(),
       startedAt: Date.now(),
       uptimeAt: getUptimeAt(),

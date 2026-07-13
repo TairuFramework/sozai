@@ -1,4 +1,6 @@
-import { hostname, uptime } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { hostname, platform, uptime } from 'node:os'
 
 /**
  * The on-disk lock. It carries what a waiter needs to *prove* the holder is alive, and
@@ -8,7 +10,19 @@ import { hostname, uptime } from 'node:os'
 export type LockRecord = {
   pid: number
   hostname: string
-  /** Host boot time in ms since epoch. See `getBootAt`. */
+  /**
+   * The OS-provided identity of the boot this record was written in, or `null` where the platform
+   * publishes none. THE gate on the pid probe, and the load-bearing safety property of this
+   * package: a pid only means something within the boot that recorded it, and this is the only way
+   * to decide "same boot" that a wall-clock step cannot corrupt. See `getBootID` and
+   * `checkLiveness`.
+   */
+  bootID: string | null
+  /**
+   * Host boot time in ms since epoch — a FALLBACK for `bootID`, used only when this record or this
+   * process has none (an unsupported platform, an unreadable source). Derived from the wall clock,
+   * and therefore clock-step-vulnerable: see `getBootAt` and `checkLiveness`.
+   */
   bootAt: number
   /** Wall-clock claim time in ms since epoch. Ages a holder on a FOREIGN host. See `isStale`. */
   startedAt: number
@@ -16,11 +30,76 @@ export type LockRecord = {
   uptimeAt: number
 }
 
+/** A UUID the kernel regenerates on every boot. Readable by any user. */
+const LINUX_BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id'
+/** Absolute, so the boot identity never depends on a `PATH` this process does not control. */
+const DARWIN_SYSCTL_PATH = '/usr/sbin/sysctl'
+/** The darwin equivalent: a UUID regenerated per boot session, unaffected by clock changes. */
+const DARWIN_BOOT_ID_OID = 'kern.bootsessionuuid'
+
+function normalizeBootID(raw: string): string | null {
+  const bootID = raw.trim()
+  // An empty ID would compare EQUAL to another empty one, manufacturing a "same boot" proof out of
+  // two failed reads. Absent is `null`, and `null` never proves anything.
+  return bootID === '' ? null : bootID
+}
+
 /**
- * When this host booted. Pid-probing across a reboot is a lie: pids are recycled from a small
- * space, so after a reboot the pid in a stale lockfile is very likely alive again as an
- * unrelated process — and a lock on a persistent path would wedge forever. Comparing boot
- * times tells the two apart.
+ * The OS-provided identity of the current boot, read fresh. `getBootID` is what callers want; this
+ * exists to be read once, and to be testable.
+ *
+ * NEVER throws, on any platform, for any reason. A boot ID that cannot be read costs the fallback
+ * comparison in `checkLiveness`; a boot ID that THREW would fail the lock claim itself.
+ */
+export function readBootID(): string | null {
+  try {
+    switch (platform()) {
+      case 'linux':
+        return normalizeBootID(readFileSync(LINUX_BOOT_ID_PATH, 'utf8'))
+      case 'darwin':
+        return normalizeBootID(
+          execFileSync(DARWIN_SYSCTL_PATH, ['-n', DARWIN_BOOT_ID_OID], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 1_000,
+          }),
+        )
+      default:
+        return null
+    }
+  } catch {
+    return null
+  }
+}
+
+/** `undefined` means "not read yet"; `null` is a boot ID this platform does not publish. */
+let cachedBootID: string | null | undefined
+
+/**
+ * The identity of THIS boot, read once and cached.
+ *
+ * Boot identity gates the pid probe, because pid-probing across a reboot is a lie: pids are
+ * recycled from a small space, so after a reboot the pid in a stale lockfile is very likely alive
+ * again as an unrelated process — and a lock on a persistent path would wedge forever.
+ *
+ * It must come from a source the wall clock cannot move (see `getBootAt` for what happens when it
+ * does not): a monotonic, OS-provided token, compared for exact equality. Cached because a stale-
+ * vs-alive decision happens on every turn of the acquisition loop, and re-reading would put a
+ * `sysctl` spawn in that loop — including in the `null` case, which is a value, not a miss.
+ */
+export function getBootID(): string | null {
+  if (cachedBootID === undefined) {
+    cachedBootID = readBootID()
+  }
+  return cachedBootID
+}
+
+/**
+ * When this host booted, derived from the wall clock — and therefore NOT a safe way to decide boot
+ * identity on its own. A forward wall-clock step (NTP, VM resume, laptop wake) moves this without
+ * any reboot, so a LIVE holder's recorded `bootAt` stops matching ours, its pid is never probed,
+ * and the TTL reaps it: two processes in the critical section. That is why `bootID` exists, and why
+ * this value is consulted only where no boot ID is available on either side. See `checkLiveness`.
  */
 export function getBootAt(): number {
   return Date.now() - uptime() * 1000
@@ -46,6 +125,7 @@ export function createLockRecord(): LockRecord {
   return {
     pid: process.pid,
     hostname: hostname(),
+    bootID: getBootID(),
     bootAt: getBootAt(),
     startedAt: Date.now(),
     uptimeAt: getUptimeAt(),
@@ -67,6 +147,11 @@ export function isLockRecord(value: unknown): value is LockRecord {
     record.pid > 0 &&
     typeof record.hostname === 'string' &&
     record.hostname !== '' &&
+    // `null` is legitimate — a platform that publishes no boot ID, decided by the `bootAt` fallback
+    // instead. An EMPTY STRING is not: it would compare equal to another empty one and fabricate a
+    // "same boot" proof from two failed reads. A MISSING field is not either: `undefined` is not a
+    // record this package wrote, and which boot it came from is precisely what must not be guessed.
+    (record.bootID === null || (typeof record.bootID === 'string' && record.bootID !== '')) &&
     typeof record.bootAt === 'number' &&
     Number.isFinite(record.bootAt) &&
     typeof record.startedAt === 'number' &&

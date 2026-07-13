@@ -1,14 +1,29 @@
 import { hostname } from 'node:os'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import type { LockEntry } from '../src/file.js'
 import { BOOT_TOLERANCE_MS, checkLiveness, isStale } from '../src/liveness.js'
 import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
 
+/**
+ * The boot-ID SOURCE is mocked, never the host's real one: these assertions must hold identically
+ * on a linux runner, on a darwin laptop, and — through `null` — on a platform that publishes no
+ * boot ID at all. `src/record.js` keeps its real `getBootAt`/`getUptimeAt`.
+ */
+const { ourBootID } = vi.hoisted(() => ({ ourBootID: { value: null as string | null } }))
+vi.mock('../src/record.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/record.js')>('../src/record.js')
+  return { ...actual, getBootID: () => ourBootID.value }
+})
+
+const OUR_BOOT_ID = 'e6f0c1a2-0000-4000-8000-thisboot'
+const PREVIOUS_BOOT_ID = 'e6f0c1a2-0000-4000-8000-lastboot'
+
 function localRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   return {
     pid: process.pid,
     hostname: hostname(),
+    bootID: ourBootID.value,
     bootAt: getBootAt(),
     startedAt: Date.now(),
     uptimeAt: getUptimeAt(),
@@ -16,10 +31,15 @@ function localRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   }
 }
 
-/** A same-host holder whose pid cannot be probed: our host, but not our boot. */
+/**
+ * A same-host holder whose pid cannot be probed: our host, but not our boot. Unprovable by the boot
+ * ID (a different one) AND by the `bootAt` fallback (far outside the tolerance), so it reads
+ * `unknown` on either path — which is what makes it the fixture for every age rule below.
+ */
 function unprovableLocalRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   return localRecord({
     pid: 999_999,
+    bootID: PREVIOUS_BOOT_ID,
     bootAt: getBootAt() - 10 * 60 * 60 * 1000,
     ...overrides,
   })
@@ -28,6 +48,10 @@ function unprovableLocalRecord(overrides: Partial<LockRecord> = {}): LockRecord 
 function entry(record: LockRecord | null, mtimeMs: number | null = Date.now()): LockEntry {
   return { record, inode: 42, mtimeMs }
 }
+
+beforeEach(() => {
+  ourBootID.value = OUR_BOOT_ID
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -63,18 +87,65 @@ describe('checkLiveness()', () => {
     expect(kill).not.toHaveBeenCalled()
   })
 
+  test('matching boot IDs: the pid IS probed', () => {
+    const kill = vi.spyOn(process, 'kill')
+    expect(checkLiveness(localRecord({ bootID: OUR_BOOT_ID }))).toBe('alive')
+    expect(kill).toHaveBeenCalledWith(process.pid, 0)
+  })
+
   // After a reboot the recorded pid is very likely alive again as an unrelated process. Probing
   // it would report a live holder and wedge a persistent lockPath forever.
-  test('unknown: a boot time outside the tolerance, without probing the pid', () => {
+  test('differing boot IDs: unknown, without probing the pid', () => {
     const kill = vi.spyOn(process, 'kill')
-    const record = localRecord({ bootAt: getBootAt() - BOOT_TOLERANCE_MS - 1_000 })
-    expect(checkLiveness(record)).toBe('unknown')
+    expect(checkLiveness(localRecord({ bootID: PREVIOUS_BOOT_ID }))).toBe('unknown')
     expect(kill).not.toHaveBeenCalled()
   })
 
-  test('alive: a boot time inside the tolerance (clock drift is not a reboot)', () => {
-    const record = localRecord({ bootAt: getBootAt() - (BOOT_TOLERANCE_MS - 5_000) })
+  // THE property that closes the reap-a-live-holder hole. The wall clock steps forward by five
+  // minutes (NTP, VM resume, laptop wake): every wall-clock-derived boot TIME moves with it, and
+  // the old `bootAt` tolerance therefore declared a LIVE holder unprovable, skipped its pid probe,
+  // and let the TTL reap it. An OS boot ID does not move with the clock, so the probe still runs
+  // and still finds the holder alive.
+  test('matching boot IDs survive a wall-clock step that blows the bootAt tolerance apart', () => {
+    const record = localRecord({
+      bootID: OUR_BOOT_ID,
+      bootAt: getBootAt() - 300_000,
+    })
+    expect(Math.abs(record.bootAt - getBootAt())).toBeGreaterThan(BOOT_TOLERANCE_MS)
     expect(checkLiveness(record)).toBe('alive')
+  })
+
+  describe('the bootAt fallback, where no boot ID is available', () => {
+    // Only reachable when a boot ID is missing on one side or the other — an unsupported platform,
+    // or a record written by a process that could not read one. It is clock-step-vulnerable by
+    // construction, which is exactly why it is a fallback and not the rule.
+    test.each([
+      ['the record has no boot ID', OUR_BOOT_ID, null],
+      ['this process has no boot ID', null, PREVIOUS_BOOT_ID],
+      ['neither side has one', null, null],
+    ])('%s: a boot time outside the tolerance is unknown, and the pid is not probed', (_label, processBootID, recordBootID) => {
+      ourBootID.value = processBootID
+      const kill = vi.spyOn(process, 'kill')
+      const record = localRecord({
+        bootID: recordBootID,
+        bootAt: getBootAt() - BOOT_TOLERANCE_MS - 1_000,
+      })
+      expect(checkLiveness(record)).toBe('unknown')
+      expect(kill).not.toHaveBeenCalled()
+    })
+
+    test.each([
+      ['the record has no boot ID', OUR_BOOT_ID, null],
+      ['this process has no boot ID', null, PREVIOUS_BOOT_ID],
+      ['neither side has one', null, null],
+    ])('%s: a boot time inside the tolerance is probed (clock drift is not a reboot)', (_label, processBootID, recordBootID) => {
+      ourBootID.value = processBootID
+      const record = localRecord({
+        bootID: recordBootID,
+        bootAt: getBootAt() - (BOOT_TOLERANCE_MS - 5_000),
+      })
+      expect(checkLiveness(record)).toBe('alive')
+    })
   })
 })
 
@@ -126,10 +197,36 @@ describe('isStale()', () => {
     expect(isStale(entry(record), staleTimeout, now)).toBe(true)
   })
 
-  // THE design hole this field closes: a forward wall-clock step (NTP, VM resume, laptop wake)
-  // larger than the TTL both pushes the record out of the boot tolerance — so liveness reads
-  // `unknown` — AND inflates `now - startedAt` past the TTL. One clock step, both halves of the
-  // reap condition, and a LIVE holder gets reaped. The same-host age is monotonic instead.
+  /**
+   * THE reviewer's repro, and the reason `bootID` exists. Our own host, our own LIVE pid, a genuine
+   * 61s hold, and a +300s wall-clock step — against a 60s TTL:
+   *
+   * - the step moved our `getBootAt()` 300s away from the record's, so the OLD boot-tolerance check
+   *   declared this live holder unprovable and never probed its pid;
+   * - the monotonic age was correct at 61s and uninflated — and 61s > 60s, so the TTL reaped it.
+   *
+   * `uptimeAt` stopped the step from INFLATING the age; it did nothing about the step destroying
+   * the liveness PROOF. Two processes in the critical section, two keys generated, one silently
+   * lost. The boot ID does not move with the clock: the pid is probed, the holder is alive, and an
+   * alive holder is never stale.
+   */
+  test("the reviewer's repro: a LIVE holder survives a +300s clock step at 61s of hold", () => {
+    const record = localRecord({
+      pid: process.pid, // real, and alive: this very process
+      bootID: OUR_BOOT_ID, // same boot — unmoved by the clock step
+      bootAt: getBootAt() - 300_000, // wall-clock-derived, and the step moved ours 300s away
+      startedAt: Date.now() - 361_000, // 61s of hold + the 300s the clock jumped
+      uptimeAt: getUptimeAt() - 61_000, // the TRUE, monotonic age: 61s
+    })
+
+    expect(Math.abs(record.bootAt - getBootAt())).toBeGreaterThan(BOOT_TOLERANCE_MS)
+    expect(checkLiveness(record)).toBe('alive')
+    expect(isStale(entry(record), staleTimeout)).toBe(false)
+  })
+
+  // The same guarantee where NO boot ID is readable (an unsupported platform): the liveness proof
+  // is lost to the clock step, but the monotonic age still holds the line — the holder is respected
+  // until its REAL age reaches the TTL, not its apparent one.
   test('a forward wall-clock step does not make a same-host holder stale', () => {
     const record = unprovableLocalRecord({
       startedAt: Date.now() - 60 * 60 * 1000,
@@ -177,6 +274,39 @@ describe('isStale()', () => {
       uptimeAt: getUptimeAt() + 60_000,
     })
     expect(isStale(entry(record), staleTimeout)).toBe(false)
+  })
+
+  // Corroborating a reboot against `now - startedAt > staleTimeout` alone WEDGES the lock on a host
+  // whose clock runs BACKWARDS past the record: a bad RTC on a Pi, a container booting to 1970
+  // before NTP lands. `now - startedAt` is then permanently negative, never exceeds the TTL, and a
+  // genuinely-dead post-reboot holder is never reaped — the lock is held by nobody, forever. A
+  // record dated in the FUTURE is corroboration a live holder cannot manufacture: it claimed the
+  // lock at a wall-clock instant that, from here, has not happened yet.
+  test('a dead post-reboot holder is still reaped when the wall clock has run backwards past it', () => {
+    const record = unprovableLocalRecord({
+      startedAt: now + 60 * 60 * 1000, // the clock went back an hour under a record from "the future"
+      uptimeAt: getUptimeAt() + 60_000, // uptime below ours: the reboot signal
+    })
+    expect(isStale(entry(record), staleTimeout, now)).toBe(true)
+  })
+
+  // Not every reboot has downtime worth the name. A container restart or a kexec can be back inside
+  // seconds, and where hold + downtime + the new boot's uptime is still under the TTL, the wall
+  // clock cannot yet corroborate the reboot — so the record is respected until the TTL expires.
+  // Reap LATENCY, bounded by the TTL, never a wedge and never an exclusion hole. Pinned here rather
+  // than assumed away: the docs used to claim corroboration "costs a real reboot nothing", and for
+  // a fast reboot that is simply false.
+  test('a fast reboot (seconds of downtime) is reaped by the TTL, not at once', () => {
+    // Held 3s into the old boot, 2s of downtime, we are now 5s into the new one: 10s of wall clock
+    // in total, against a 60s TTL.
+    const record = unprovableLocalRecord({
+      startedAt: now - 10_000,
+      uptimeAt: getUptimeAt() + 3_000, // the old boot had been up longer than this one has
+    })
+
+    expect(isStale(entry(record), staleTimeout, now)).toBe(false)
+    // ...and reaped once the TTL has elapsed since the claim, with nothing else having changed.
+    expect(isStale(entry(record), staleTimeout, now + 51_000)).toBe(true)
   })
 
   test('a corrupt record is dated by the file mtime, and respected until the TTL expires', () => {

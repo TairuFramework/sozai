@@ -1,8 +1,8 @@
 import type { Config, LogRecord } from '@logtape/logtape'
 import { getConfig } from '@logtape/logtape'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { getDefaultConfig, reset, setup } from '../src/index.js'
+import { getDefaultConfig, getLogger, getSozaiLogger, reset, setup } from '../src/index.js'
 
 // Routes both the package's own category and a `test` category into `records`, at
 // `debug` so every level is captured. The default config only routes `sozai` at
@@ -80,5 +80,77 @@ describe('setup', () => {
     expect(records[0].level).toBe('error')
     expect(records[0].category).toEqual(['sozai', 'log'])
     expect(records[0].rawMessage).toBe('Logging already configured, setup() call ignored')
+  })
+})
+
+describe('getLogger', () => {
+  beforeEach(() => {
+    reset()
+  })
+
+  test('takes a category as a string', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getLogger('test').info('hello')
+    expect(records).toHaveLength(1)
+    expect(records[0].category).toEqual(['test'])
+    expect(records[0].rawMessage).toBe('hello')
+  })
+
+  test('takes a category as an array', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getLogger(['test', 'nested']).info('hello')
+    expect(records[0].category).toEqual(['test', 'nested'])
+  })
+
+  test('attaches the given properties to records', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getLogger('test', { requestID: 'abc' }).info('hello')
+    expect(records[0].properties).toMatchObject({ requestID: 'abc' })
+  })
+})
+
+describe('getSozaiLogger', () => {
+  beforeEach(() => {
+    reset()
+  })
+
+  test('namespaces the category under sozai', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getSozaiLogger('otel').info('hello')
+    expect(records[0].category).toEqual(['sozai', 'otel'])
+  })
+
+  test('attaches the given properties to records', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getSozaiLogger('otel', { traceID: 'abc' }).info('hello')
+    expect(records[0].properties).toMatchObject({ traceID: 'abc' })
+  })
+})
+
+describe('getDefaultConfig', () => {
+  beforeEach(() => {
+    reset()
+  })
+
+  test('routes the sozai and logtape meta categories to a console sink at error level', () => {
+    const config = getDefaultConfig()
+    expect(Object.keys(config.sinks)).toEqual(['console'])
+    expect(config.loggers).toEqual([
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: ['console'] },
+      { category: ['sozai'], lowestLevel: 'error', sinks: ['console'] },
+    ])
+  })
+
+  test('passes the sink options through to the console sink', () => {
+    const error = vi.fn()
+    const fakeConsole = { error } as unknown as Console
+    setup(getDefaultConfig({ console: fakeConsole }))
+    getSozaiLogger('test').error('boom')
+    expect(error).toHaveBeenCalledOnce()
   })
 })

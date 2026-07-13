@@ -39,16 +39,28 @@ export type Liveness = 'alive' | 'dead' | 'unknown'
  * survives ONLY as the fallback for a platform that publishes no boot ID (or a record written by a
  * process that could not read one), where the trade above is unavoidable.
  *
- * THE FALLBACK IS NOT SAFE, AND NOTHING HERE MAKES IT SO. A forward step larger than the tolerance
- * costs a live holder its liveness PROOF there — and therefore its LOCK, as soon as its true
- * monotonic age passes `staleTimeout`. Which is exactly the case this package exists for: a macOS
- * keychain prompt can hold the critical section for minutes. What the monotonic `uptimeAt` age
- * (`isStale`) buys on that path is narrower than "no longer costs it the lock": it removes the
- * INFLATED age, so a holder YOUNGER than the TTL survives the step. A long-held one does not. On a
- * platform with no boot ID this is a two-lock design, and a consumer shipping there must know it.
+ * THE FALLBACK IS NOT SAFE, AND NOTHING HERE MAKES IT SO. Once either side's `bootID` is `null`,
+ * TWO different events reap a live holder as soon as its true monotonic age passes `staleTimeout`,
+ * and only the first of them is a clock story:
+ *
+ * - a forward wall-clock STEP larger than the tolerance (NTP, VM resume, laptop wake) moves our
+ *   `bootAt` away from the holder's, and its liveness PROOF — and therefore its LOCK — goes with it;
+ * - a HOSTNAME CHANGE, with a perfectly steady clock. The hostname is the only machine identity left
+ *   on this path, so `isSameBootAndPIDNamespace` gates the probe on it again — and macOS renames the
+ *   host from DHCP when a laptop joins a network. A renamed darwin laptop whose boot ID could not be
+ *   read loses a live holder's lock at the TTL with no clock event at all, which is the very event
+ *   the darwin boot-ID path exists to survive.
+ *
+ * And a darwin boot ID comes from an EXEC (`record.ts`). A macOS App Sandbox or hardened runtime
+ * that denies the `sysctl` spawn puts that process permanently here: the population most exposed to
+ * the rename — macOS, laptop, DHCP — is exactly the one that can lose the protection against it.
+ *
+ * What the monotonic `uptimeAt` age (`isStale`) buys on this path is narrower than "no longer costs
+ * it the lock": it removes the INFLATED age, so a holder YOUNGER than the TTL survives. A long-held
+ * one does not — and a minutes-long keychain prompt is exactly such a holder. With no boot ID this
+ * is a two-lock design, and a consumer shipping there must know it.
  */
-function isSameBoot(record: LockRecord): boolean {
-  const bootID = getBootID()
+function isSameBoot(record: LockRecord, bootID: string | null): boolean {
   if (bootID !== null && record.bootID !== null) {
     // Both sides know which boot they are from. Nothing else is consulted: an exact match is proof,
     // however far apart the two wall-clock-derived `bootAt` values have drifted.
@@ -74,8 +86,13 @@ function isSameBoot(record: LockRecord): boolean {
  * - LINUX: NO. Containers on one host SHARE `/proc/sys/kernel/random/boot_id` but have SEPARATE pid
  *   namespaces. A boot-ID match there can therefore be two different containers, and pid 42 in ours
  *   is not pid 42 in theirs — probing it would report a live "holder" that is an unrelated process,
- *   and wedge the lock. Containers get distinct hostnames, so the hostname check is what tells them
- *   apart, and it stays on this path.
+ *   and wedge the lock. The hostname is the only discriminator available, and it stays on this path:
+ *   containers are given distinct hostnames BY DEFAULT. That is a default, not a guarantee — a
+ *   `--hostname` flag, `--uts=host` or `--net=host` gives two containers the same hostname, the same
+ *   `boot_id` and separate pid namespaces at once, and the pid is then probed across namespaces (a
+ *   live holder in one container reads 'dead' in the other and is reaped at once; a dead holder's
+ *   pid 1 matches the other's init and wedges). Nothing here detects that, which is why sharing a
+ *   `lockPath` between containers is unsupported, exactly as sharing one between hosts is.
  * - ANYWHERE ELSE: no boot ID is published, so this is unreachable — but answer NO, because the
  *   hostname is then the only machine identity there is.
  */
@@ -92,9 +109,10 @@ function bootIDProvesSamePIDNamespace(): boolean {
  * only where it is load-bearing — as a pid-namespace discriminator on linux, and as the sole
  * machine identity on the fallback path — and never as a gate in front of a darwin boot-ID match
  * that already proves more than it does.
+ *
+ * OUR boot ID is passed in, never re-read here: see `checkLiveness`.
  */
-function isSameBootAndPIDNamespace(record: LockRecord): boolean {
-  const bootID = getBootID()
+function isSameBootAndPIDNamespace(record: LockRecord, bootID: string | null): boolean {
   if (bootID !== null && record.bootID !== null) {
     return (
       record.bootID === bootID && (bootIDProvesSamePIDNamespace() || record.hostname === hostname())
@@ -102,16 +120,22 @@ function isSameBootAndPIDNamespace(record: LockRecord): boolean {
   }
   // No boot ID on one side or the other: the hostname is the only machine identity left, so it
   // gates the fallback comparison rather than being skipped by it.
-  return record.hostname === hostname() && isSameBoot(record)
+  return record.hostname === hostname() && isSameBoot(record, bootID)
 }
 
 /**
  * Liveness is proven, never assumed. A pid is only meaningful within the boot that recorded it and
  * within the pid namespace that recorded it: across a reboot, across hosts, and across containers,
  * the same number belongs to somebody else.
+ *
+ * ONE READ OF OUR BOOT ID PER DECISION, threaded through everything below. `getBootID()` is not a
+ * constant: it settles a failing source's retry before answering, but a caller that reads it TWICE
+ * — here and again inside `isSameBoot` — could still be answered `null` once and a real boot ID once
+ * across a reset (`retryBootIDRead`), and would then decide a live holder's fate from two different
+ * boots. The verdict comes from one answer, whatever that answer is.
  */
 export function checkLiveness(record: LockRecord): Liveness {
-  if (!isSameBootAndPIDNamespace(record)) {
+  if (!isSameBootAndPIDNamespace(record, getBootID())) {
     return 'unknown'
   }
   try {
@@ -152,10 +176,13 @@ export function checkLiveness(record: LockRecord): Liveness {
  *
  * - SAME HOST: monotonically, from `uptimeAt`. No wall-clock step can INFLATE that age. Together
  *   with the boot ID in `checkLiveness` — which no clock step can move either — that is what makes
- *   a live holder unreapable ON LINUX AND DARWIN: the step can neither suppress its liveness proof
- *   nor age it out. Where NO boot ID is readable the first half is gone and only this one holds, so
- *   the step still reaps a live holder that has held longer than the TTL: see `isSameBoot`, and do
- *   not restate this rule as if it saved that holder — it saves only a holder younger than the TTL.
+ *   a live holder unreapable ON LINUX AND DARWIN, WHERE THE BOOT ID IS READABLE: the step can
+ *   neither suppress its liveness proof nor age it out. Where no boot ID is readable — an
+ *   unsupported platform, or a read that FAILED, which is possible on linux and darwin too — the
+ *   first half is gone and only this one holds, so a live holder that has held longer than the TTL
+ *   is still reaped: by a clock step OR by a hostname change, neither of which it can do anything
+ *   about. See `isSameBoot`, and do not restate this rule as if it saved that holder — it saves only
+ *   a holder younger than the TTL.
  *   A NEGATIVE age — this host has been up for less time than the record claims to have been held —
  *   is the reboot signal, but it is not a reboot PROOF: `os.uptime()` is not portably monotonic (on
  *   darwin it is `time(NULL) - kern.boottime`, and the kernel adjusts `kern.boottime` on clock and

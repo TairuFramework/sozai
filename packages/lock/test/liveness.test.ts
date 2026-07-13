@@ -16,13 +16,31 @@ import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
  * other half assert nothing on a laptop. Every test here states the platform it is about; the
  * default is `linux`, the stricter of the two.
  */
-const { ourBootID, ourPlatform } = vi.hoisted(() => ({
+const { ourBootID, ourPlatform, bootIDReads } = vi.hoisted(() => ({
   ourBootID: { value: null as string | null },
   ourPlatform: { value: 'linux' as NodeJS.Platform },
+  /**
+   * Every read of OUR boot ID, counted — and, where a test needs it, answered DIFFERENTLY per read.
+   * `getBootID()` is a cache with a retry behind it, so a process whose source is still failing can
+   * answer `null` to one read and a real boot ID to the next. A liveness decision that consulted it
+   * twice would then be deciding from two different boots. Both facts are asserted below.
+   */
+  bootIDReads: { count: 0, answers: null as Array<string | null> | null },
 }))
 vi.mock('../src/record.js', async () => {
   const actual = await vi.importActual<typeof import('../src/record.js')>('../src/record.js')
-  return { ...actual, getBootID: () => ourBootID.value }
+  return {
+    ...actual,
+    getBootID: (): string | null => {
+      const { count, answers } = bootIDReads
+      bootIDReads.count = count + 1
+      if (answers == null) {
+        return ourBootID.value
+      }
+      // The last answer repeats: a source that has recovered stays recovered.
+      return answers[Math.min(count, answers.length - 1)] ?? null
+    },
+  }
 })
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os')
@@ -65,6 +83,8 @@ function entry(record: LockRecord | null, mtimeMs: number | null = Date.now()): 
 beforeEach(() => {
   ourBootID.value = OUR_BOOT_ID
   ourPlatform.value = 'linux'
+  bootIDReads.count = 0
+  bootIDReads.answers = null
 })
 
 afterEach(() => {
@@ -224,6 +244,52 @@ describe('checkLiveness()', () => {
       expect(checkLiveness(record)).toBe('alive')
     })
   })
+
+  /**
+   * ONE READ OF OUR OWN BOOT ID PER DECISION. `getBootID()` is not a constant: it answers from a
+   * cache with a RETRY behind it, so a process whose source is still failing can answer `null` to
+   * one read and a real boot ID to the next. A decision that consults it twice — once directly,
+   * once again inside `isSameBoot` — can therefore be told "this process has no boot ID" by the
+   * first read and "this process is on boot X" by the second, and settle a live holder's fate from
+   * a mixture of the two. Today that is latent (`&&` short-circuits, and `createLockRecord`
+   * absorbs the first read), and it is a live-holder reap waiting for a refactor.
+   */
+  describe('the boot ID is read exactly once per decision', () => {
+    test('the boot-ID path reads it once', () => {
+      expect(checkLiveness(localRecord())).toBe('alive')
+      expect(bootIDReads.count).toBe(1)
+    })
+
+    test('the fallback path reads it once, not once per comparison', () => {
+      ourBootID.value = null
+      expect(checkLiveness(localRecord({ bootID: null }))).toBe('alive')
+      expect(bootIDReads.count).toBe(1)
+    })
+
+    /**
+     * A source that failed once and then answered: read #1 is `null`, read #2 is the real boot ID.
+     * ONE decision must not use both. Decided from read #1 alone, this record is on the FALLBACK —
+     * which is what a `null` read honestly means — rather than half-crediting a boot-ID match the
+     * decision never established.
+     *
+     * That is a verdict about the READ, not a verdict about the holder: what keeps a live holder
+     * off this path is `getBootID` spending its retry BEFORE it answers anybody, so the `null` here
+     * is never handed out in the first place (`test/boot-id.test.ts`). This test pins only that one
+     * decision uses one answer.
+     */
+    test('a boot ID that becomes readable mid-decision cannot change the decision mid-flight', () => {
+      bootIDReads.answers = [null, OUR_BOOT_ID]
+      const record = localRecord({
+        bootID: OUR_BOOT_ID,
+        // Far outside the tolerance, so the fallback the `null` read lands us on says "not our
+        // boot" — while a second read would have said "same boot, exactly".
+        bootAt: getBootAt() - 10 * 60 * 60 * 1000,
+      })
+
+      expect(checkLiveness(record)).toBe('unknown')
+      expect(bootIDReads.count).toBe(1)
+    })
+  })
 })
 
 describe('isStale()', () => {
@@ -350,6 +416,34 @@ describe('isStale()', () => {
       pid: process.pid, // real, and alive: this very process
       bootID: null, // an unsupported platform, or a read that failed
       bootAt: getBootAt() - (BOOT_TOLERANCE_MS + 1_000), // a +31s step moved ours away from it
+      startedAt: Date.now() - 90_000,
+      uptimeAt: getUptimeAt() - 90_000, // the TRUE, monotonic age: 90s — past the 60s TTL
+    })
+
+    expect(checkLiveness(record)).toBe('unknown') // the live holder's proof: gone
+    expect(isStale(entry(record), staleTimeout)).toBe(true) // ...and with it, its lock
+  })
+
+  /**
+   * THE OTHER WAY THE FALLBACK REAPS A LIVE HOLDER, AND IT IS NOT A CLOCK STORY AT ALL. Once either
+   * side's `bootID` is `null` the hostname is the only machine identity left, so it gates the probe
+   * again — and macOS renames the host from DHCP when a laptop joins a network. Same machine, same
+   * boot, our own live pid, a PERFECTLY STEADY CLOCK (`bootAt` is ours, exactly), 90s of hold
+   * against a 60s TTL: the rename alone costs this holder its lock.
+   *
+   * Sharper still: darwin's boot ID comes from an EXEC, so an App Sandbox or hardened runtime that
+   * denies the `sysctl` spawn puts a process permanently on this path — and the population that is
+   * macOS, laptop and DHCP-renamed is precisely the one the darwin boot-ID rule exists to protect.
+   * Pinned here so no document can go back to framing the fallback's danger as "a clock step".
+   */
+  test('the fallback path reaps a live holder on a HOSTNAME CHANGE alone, with no clock step', () => {
+    ourPlatform.value = 'darwin'
+    ourBootID.value = null // our own read failed: a sandbox denied the `sysctl` spawn
+    const record = localRecord({
+      pid: process.pid, // real, and alive: this very process
+      bootID: null,
+      hostname: 'the-name-it-had-at-claim-time', // DHCP renamed the laptop under it
+      bootAt: getBootAt(), // the clock never moved
       startedAt: Date.now() - 90_000,
       uptimeAt: getUptimeAt() - 90_000, // the TRUE, monotonic age: 90s — past the 60s TTL
     })

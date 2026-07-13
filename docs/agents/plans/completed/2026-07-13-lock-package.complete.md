@@ -56,7 +56,8 @@ export { TimeoutInterruption } from '@sozai/async'
 `LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal only — it is not
 re-exported from `index.ts`; `liveness.ts` is the sole consumer outside `file.ts`.
 
-128 tests: unit coverage per module (`record`, `boot-id`, `file`, `liveness`, `queue`, `lock`) plus
+140 tests (139 + one platform-gated skip): unit coverage per module (`record`, `boot-id`, `file`,
+`liveness`, `queue`, `lock`) plus
 `test/cross-process.test.ts` (forks real child processes to prove mutual exclusion — nothing
 in-process can, since every in-process test shares one pid and one fs cache) and
 `test/cross-process-reap.test.ts` (a genuinely SIGKILLed holder is reaped without waiting out the
@@ -69,8 +70,9 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   create-then-write claim leaves a zero-byte file visible for an instant, and a racer reading it
   there parses nothing, concludes "nobody home," and reaps the winner's fresh lock — the exact
   check-then-act this design exists to remove.
-- **Liveness is proven, never assumed:** same hostname + same **boot ID** + `process.kill(pid, 0)`
-  not throwing `ESRCH`. A provably-live holder is never reaped, however long it holds. This is
+- **Liveness is proven, never assumed:** same **boot ID** + same pid namespace (which on linux, and
+  on the no-boot-ID fallback, means the same hostname — see below) + `process.kill(pid, 0)` not
+  throwing `ESRCH`. A provably-live holder is never reaped, however long it holds. This is
   what rules out a heartbeat: `@napi-rs/keyring` is synchronous and blocks the event loop, and the
   macOS keychain can put a user prompt in front of the read, so a holder can legitimately sit in
   its critical section for minutes with a starved event loop. A heartbeat timer would never fire,
@@ -102,12 +104,46 @@ claims were verified to go red when the mechanism they pin was stubbed out.
     compared **exactly** — equal ⇒ same boot ⇒ probe the pid (so a live holder is *always* probed
     and *always* found alive, whatever the clock did); different ⇒ `unknown`, pid never probed (so a
     recycled pid is never mistaken for a holder and the TTL reaps). This closes both halves at once.
-  - **The residual, stated honestly:** where either side has no boot ID (an unsupported platform, or
-    a record written by a process that could not read one) the `bootAt` tolerance is still the
-    fallback — which is the only reason `bootAt` remains on the record — and there a clock step
-    larger than the tolerance still costs a live holder its liveness *proof*. It no longer costs it
-    the *lock*, because of the `uptimeAt` rule below, but "a clock step cannot reap a live holder"
-    is a **linux/darwin** guarantee, not a universal one.
+  - **The residual, stated honestly — the fallback path is NOT safe.** Where either side has no boot
+    ID (an unsupported platform, or a record written by a process whose read failed) the `bootAt`
+    tolerance is still the fallback — the only reason `bootAt` remains on the record — and there a
+    clock step larger than the tolerance costs a live holder its liveness *proof*, **and therefore
+    its lock**, as soon as its true monotonic age passes `staleTimeout`. Disproved against the real
+    code: same host, `bootID: null`, live pid, 90s hold, 60s TTL, +31s step ⇒ `liveness: 'unknown'`,
+    `isStale: true`. The live holder is reaped. An earlier version of this document claimed the step
+    "no longer costs it the lock" there; **that was false and is retracted.** What `uptimeAt` buys
+    on this path is narrower: it removes the *inflated* age, so a holder *younger* than the TTL is
+    no longer reaped by the clock step alone — it does nothing for a holder that has held longer
+    than `staleTimeout`, which is exactly the minutes-long macOS-keychain-prompt hold this package
+    exists for. "A clock step cannot reap a live holder" is a **linux/darwin** guarantee, not a
+    universal one, and a consumer shipping without a boot ID must know its long-held lock is not
+    TTL-protected. Pinned by a test that asserts the reap rather than assuming it away.
+  - **A failed boot-ID read is retried, never cached as a value.** `getBootID` originally cached
+    `null` whatever produced it, so one `EMFILE` at the first claim — or a sandbox that denied the
+    `sysctl` exec once — silently downgraded the process to the clock-step-vulnerable fallback for
+    its whole life, on a platform whose docs promise the guarantee. `readBootID` now returns a
+    tri-state (`ok` / `unsupported` / `failed`): an unsupported platform settles on `null` at once
+    (no retry can change what the platform does not publish, and re-reading would put a failing read
+    in the hot acquisition loop), a failed read is retried **once** and only once (at most two
+    source reads per process, so a permanently-failing source can never become a per-turn `sysctl`
+    spawn), and an EMPTY read is a *failure*, never an empty boot ID that could compare equal to
+    another empty one. Still non-throwing: a lock claim must not fail because a boot ID could not
+    be read.
+- **The hostname is checked AFTER the boot ID, and the platforms differ — deliberately.** Testing
+  the hostname *first* reaped a live, boot-ID-matched holder running under our own eyes whenever the
+  host was renamed mid-hold — and macOS renames the host from DHCP when a laptop joins a network,
+  i.e. on the very sleep/wake event this package is written for. The hostname is a *machine*
+  identity, not a boot identity, and a mutable one, so it is consulted only where it is load-bearing:
+  - **darwin:** a matching `kern.bootsessionuuid` proves the same machine *and* the same pid
+    namespace (macOS has no pid namespaces, and a container "on a Mac" is really a linux VM — it
+    reports platform `linux` and reads that VM's own `boot_id`). So it authorizes the pid probe
+    **regardless of the hostname**.
+  - **linux:** it does **not**. Containers on one host *share* `/proc/sys/kernel/random/boot_id` but
+    have *separate* pid namespaces, so a boot-ID match there can be two different containers, and
+    probing the recorded pid would probe a stranger's process. Containers get distinct hostnames, so
+    the hostname check is what tells them apart and it **stays** on that path. Do not "simplify" the
+    linux branch into the darwin one.
+  - **fallback (`bootID: null`):** the hostname is the only machine identity there is. Unchanged.
 - **Superseded: "clock skew costs latency, never mutual exclusion."** This document's original claim
   about `bootAt` and the TTL, and false: one forward wall-clock step supplied *both* halves of the
   reap condition — the boot mismatch above (→ "unprovable") *and* an inflated `now - startedAt` past
@@ -139,7 +175,12 @@ claims were verified to go red when the mechanism they pin was stubbed out.
 - The residual limit is real and is documented rather than glossed over: a **foreign-host** record
   still has no uptime we can read, so it is still aged by wall clock against `startedAt` (or the
   file's mtime for a corrupt record) — a clock step on either machine can still expire it early.
-  This is on top of, not instead of, "cross-host locking is unsupported."
+  The mirror image is equally true and was under-documented: a **future-dated foreign record is
+  respected until our own clock catches up to its `startedAt`**, so that wait is bounded by the
+  *peer's skew*, not by the TTL. Deliberate — two hosts' clocks legitimately disagree, and a foreign
+  record carries no reboot signal to corroborate reaping it early — but a consumer sees a lock held
+  for longer than `staleTimeout` and must not be surprised. All of this is on top of, not instead
+  of, "cross-host locking is unsupported."
 - **`timeout: 0` is a documented try-lock, not merely "a short timeout."** One attempt, no waiting:
   the queue reports whether the path is free **synchronously**, from a count of un-released slots
   taken at entry, and the retry/backoff branch throws immediately instead of sleeping. (The first
@@ -216,9 +257,20 @@ claims were verified to go red when the mechanism they pin was stubbed out.
   guards, not an edge case.
 - **TTL-only staleness with no pid probe.** Would reap a live holder that has simply held the
   lock longer than the TTL; the whole point is that holding time and liveness are unrelated.
-- **A `maxHoldTime` outer bound, even on a provably-live holder.** `bootID` already removes the
-  wedge case (recycled pid after reboot) that would motivate an outer bound, and adding one would
-  re-open the reap-a-live-holder hole the rest of the design closes.
+- **A `maxHoldTime` outer bound, even on a provably-live holder.** Adding one would re-open the
+  reap-a-live-holder hole the rest of the design closes: a live holder would lose its lock for
+  holding it too long, which is the exact bug this package exists to prevent (a keychain prompt can
+  legitimately hold the section for minutes). Rejected on those grounds — **not** because the wedge
+  case it would bound is gone. An earlier version of this document said `bootID` "already removes
+  the wedge case", which is true only of the **cross-reboot** recycle. The honest statement:
+  - **A pid recycled *within* the same boot still wedges the lock, forever.** A `SIGKILL`ed holder
+    whose lockfile outlives the pid space wrapping around to that number again probes `'alive'` →
+    never stale → unrecoverable without a reboot or a manual `rm`. Same boot, so the boot ID matches
+    and proves nothing about the *process*.
+  - It is an **availability** failure, not an exclusion failure: it fails in the safe direction and
+    never lets two processes into the critical section — where `maxHoldTime` would fail in the
+    unsafe one. That is the trade, made knowingly, and it is documented in the README and in
+    `docs/reference/runtime.md` rather than claimed away.
 - **A general `Mutex` interface with an in-memory backend.** Both known consumers need exactly a
   file mutex; every extra symbol is permanent after the freeze, and the package is deliberately
   named for the domain (like every sibling), not for an abstraction.

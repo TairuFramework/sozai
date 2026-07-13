@@ -138,13 +138,24 @@ export function checkLiveness(record: LockRecord): Liveness {
  * has to emit on a timer would starve — and a TTL-based reaper would then hand a second process
  * the same critical section. Exactly the bug this package exists to prevent.
  *
+ * THE PRICE OF THAT, STATED RATHER THAN CLAIMED AWAY: a pid recycled WITHIN THE SAME BOOT wedges
+ * the lock forever. A SIGKILLed holder whose lockfile outlives the pid space wrapping around to its
+ * number probes 'alive' here, is therefore never stale, and needs a reboot or a manual unlink. The
+ * boot ID removes the CROSS-REBOOT recycle — the common case for a persistent `lockPath` — and not
+ * this one. It is an AVAILABILITY failure, never an exclusion failure: it fails in the safe
+ * direction. A `maxHoldTime` outer bound would bound it, and was rejected because it fails in the
+ * UNSAFE one — a live holder losing its lock for holding it too long is the bug above.
+ *
  * The TTL applies only where the pid means nothing: a foreign host, a different boot, or a record
  * too corrupt to identify a holder at all. How the holder's age is measured then depends on
  * whether we can measure it at all:
  *
  * - SAME HOST: monotonically, from `uptimeAt`. No wall-clock step can INFLATE that age. Together
  *   with the boot ID in `checkLiveness` — which no clock step can move either — that is what makes
- *   a live holder unreapable: the step can neither suppress its liveness proof nor age it out.
+ *   a live holder unreapable ON LINUX AND DARWIN: the step can neither suppress its liveness proof
+ *   nor age it out. Where NO boot ID is readable the first half is gone and only this one holds, so
+ *   the step still reaps a live holder that has held longer than the TTL: see `isSameBoot`, and do
+ *   not restate this rule as if it saved that holder — it saves only a holder younger than the TTL.
  *   A NEGATIVE age — this host has been up for less time than the record claims to have been held —
  *   is the reboot signal, but it is not a reboot PROOF: `os.uptime()` is not portably monotonic (on
  *   darwin it is `time(NULL) - kern.boottime`, and the kernel adjusts `kern.boottime` on clock and

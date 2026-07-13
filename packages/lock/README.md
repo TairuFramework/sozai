@@ -67,14 +67,36 @@ try {
   is decided by an OS boot ID (`/proc/sys/kernel/random/boot_id` on linux, `sysctl -n
   kern.bootsessionuuid` on darwin). Neither moves when the clock does. The holder's age is
   measured monotonically from `os.uptime()`, so a step cannot inflate it either.
-- **On any other platform, no boot ID is readable** (`bootID` is then `null`), and the same-boot
-  check falls back to comparing wall-clock-derived boot *times* within a 30s tolerance. A forward
-  step larger than that still costs a live holder its liveness *proof* there — it no longer costs it
-  the lock, because the monotonic age still holds the TTL back, but the guarantee above is a
-  linux/darwin guarantee, not a universal one.
+- On **darwin** a matching boot ID authorizes the pid probe *regardless of the hostname*: it proves
+  the same machine and the same pid namespace, so a host renamed mid-hold (macOS renames from DHCP
+  when a laptop joins a network) does not cost a live holder its lock. On **linux** the hostname
+  check stays: containers on one host *share* `/proc/sys/kernel/random/boot_id` but have separate
+  pid namespaces, so a boot-ID match there can be two different containers and the recorded pid
+  would probe a stranger's process.
+- **On any other platform, no boot ID is readable** (`bootID` is then `null`, as it also is for a
+  record written by a process whose read failed), and the same-boot check falls back to comparing
+  wall-clock-derived boot *times* within a 30s tolerance. **That fallback path is not safe, and the
+  TTL does not protect a long-held lock there.** A forward step larger than the tolerance costs a
+  live holder its liveness *proof* — and therefore its **lock**, once its true monotonic age passes
+  `staleTimeout`. Which is precisely the case this package exists for: a macOS keychain prompt can
+  hold the critical section for minutes. What the monotonic age buys on that path is narrower: it
+  removes the *inflated* age, so a holder *younger* than the TTL is no longer reaped by the clock
+  step alone. A consumer shipping where no boot ID is readable must know this: the guarantee above
+  is a linux/darwin guarantee, not a universal one.
 - A holder on **another host** is still aged by wall clock — there is no way to read another host's
-  uptime — so a clock step there (or here, while comparing to it) can still expire its record early.
-  Cross-host locking is unsupported for this reason among others.
+  uptime — so a clock step there (or here, while comparing to it) can still expire its record
+  early. A *future-dated* foreign record has the mirror-image effect: it is respected until our own
+  clock catches up to its `startedAt`, so the wait is bounded by the peer's skew rather than by the
+  TTL. (Deliberate: two hosts' clocks legitimately disagree, and there is no reboot signal on a
+  foreign record to corroborate the alternative.) Cross-host locking is unsupported for this reason
+  among others.
+- **A pid recycled within the same boot still wedges the lock.** A `SIGKILL`ed holder whose lockfile
+  outlives the pid space wrapping around to that number again probes as `'alive'`, is never stale,
+  and is not recoverable without a reboot or a manual `rm`. The boot ID removes the *cross-reboot*
+  recycle, not this one. It is an availability failure, not an exclusion failure — it fails in the
+  safe direction, never letting two processes into the critical section — and it is the deliberate
+  price of refusing a `maxHoldTime` outer bound, which would re-open the reap-a-live-holder hole
+  the rest of the design closes.
 - **Reboot recovery is bounded by the TTL in every case, never instant.** A reboot changes the boot
   ID, so a recycled pid is correctly treated as meaningless and the record is never mistaken for a
   live holder — but *how fast* the record is then reaped is the TTL's business, and two cases wait

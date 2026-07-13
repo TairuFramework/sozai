@@ -160,17 +160,32 @@ holds; the `staleTimeout` TTL (default 60s) applies only where liveness is unpro
 
 **"Same boot" is decided by an OS boot ID, not by the clock**, and that is the load-bearing safety
 property: `bootID` is `/proc/sys/kernel/random/boot_id` on linux and `sysctl -n
-kern.bootsessionuuid` on darwin (read once per process, cached, never throws — `null` on any other
-platform or any read failure). When both this process and the record have one, they are compared
-exactly. So on linux and darwin **a forward wall-clock step cannot reap a live holder**: the step
-cannot suppress the liveness proof (the boot ID does not move with the clock, so the pid is still
-probed and still answers), and it cannot inflate the age either (a same-host holder is aged
-monotonically from `uptimeAt`). Where no boot ID is readable — any other platform, or a record
-written by a process that could not read one — the check falls back to comparing wall-clock-derived
-boot *times* (`bootAt`) within a 30s tolerance, and a larger step there does still cost a live
-holder its liveness proof. It no longer costs it the lock, because the monotonic age still holds the
-TTL back, but the guarantee is a linux/darwin one, not a universal one. `bootAt` remains on the
-record for exactly this fallback.
+kern.bootsessionuuid` on darwin (read once per process and cached — never throws; a *failed* read is
+retried once, then settles on `null`, while an unsupported platform settles on `null` at once). When
+both this process and the record have one, they are compared exactly. So on linux and darwin **a
+forward wall-clock step cannot reap a live holder**: the step cannot suppress the liveness proof (the
+boot ID does not move with the clock, so the pid is still probed and still answers), and it cannot
+inflate the age either (a same-host holder is aged monotonically from `uptimeAt`).
+
+The **hostname** is checked *after* the boot ID, and only where it is load-bearing — it is a machine
+identity, not a boot identity, and a mutable one (macOS renames the host from DHCP when a laptop
+joins a network, which is the very sleep/wake event this package is written for). On **darwin** a
+matching boot ID proves the same machine *and* the same pid namespace, so it authorizes the pid probe
+whatever the host is called now. On **linux** it does not: containers on one host *share*
+`/proc/sys/kernel/random/boot_id` but have *separate* pid namespaces, so a boot-ID match can be two
+different containers and the recorded pid would probe a stranger — the hostname check (containers get
+distinct hostnames) stays on that path, and must not be "simplified" into the darwin one.
+
+**The fallback path is not safe, and the TTL does not protect a long-held lock there.** Where no boot
+ID is readable — any other platform, or a record written by a process whose read failed — the check
+falls back to comparing wall-clock-derived boot *times* (`bootAt`) within a 30s tolerance, and the
+hostname is then the only machine identity there is. A forward step larger than the tolerance costs a
+live holder its liveness proof, and therefore its **lock**, as soon as its true monotonic age passes
+`staleTimeout` — the minutes-long macOS-keychain-prompt hold this package exists for is exactly such
+a holder. What `uptimeAt` buys on that path is narrower: it removes the *inflated* age, so a holder
+*younger* than the TTL is no longer reaped by the clock step alone. A consumer shipping on a platform
+without a boot ID must know that its long-held lock is not TTL-protected. `bootAt` remains on the
+record for exactly this fallback, and the guarantee above is a linux/darwin one, not a universal one.
 
 A *negative* monotonic age (this host has been up for less time than the record claims to have been
 held) signals a reboot, and is corroborated by the wall clock before anything is reaped — either a
@@ -192,7 +207,19 @@ never an exclusion hole and never a wedge.
 
 A foreign-host holder (or a record too corrupt to identify one) is still aged by wall clock against
 `startedAt`, or the file's mtime — unavoidable, since another host's uptime can't be read, and the
-reason cross-host locking is unsupported. A clock step can still expire a foreign-host record early.
+reason cross-host locking is unsupported. A clock step can still expire a foreign-host record early;
+and in the other direction, a *future-dated* foreign record is respected until our own clock catches
+up to its `startedAt`, so the wait is bounded by the peer's skew, not by the TTL. (Deliberate: two
+hosts' clocks legitimately disagree, and a foreign record carries no reboot signal to corroborate
+reaping it early — only the claim itself, which is what a live remote holder writes.)
+
+**A pid recycled within the same boot still wedges the lock.** A `SIGKILL`ed holder whose lockfile
+outlives the pid space wrapping around to that number probes as `'alive'`, is therefore never stale,
+and is unrecoverable without a reboot or a manual `rm`. The boot ID removes the *cross-reboot*
+recycle — the common case, where a persistent `lockPath` survives a reboot — and not this one. This
+is an availability failure, not an exclusion failure: it fails in the safe direction and never lets
+two processes into the critical section. It is the deliberate price of rejecting a `maxHoldTime`
+outer bound, which would re-open the reap-a-live-holder hole the rest of the design exists to close.
 
 Reaping a stale lock is inode-guarded, not provably atomic: the guard is `statSync` then `rmSync`,
 two syscalls, so a residual window remains where two waiters classifying the same stale lock in

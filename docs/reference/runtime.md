@@ -1,6 +1,7 @@
 # Runtime
 
-Platform-agnostic runtime primitives (`fetch`, random ID, random bytes) and their Expo binding.
+Platform-agnostic runtime primitives (`fetch`, random ID, random bytes), their Expo binding, and a
+Node-only cross-process file mutex.
 
 ## Packages
 
@@ -140,11 +141,13 @@ await withFileLock(lockPath, async () => {
 ```
 
 Acquisition is blocking with jittered backoff, and **throws** `TimeoutInterruption` when `timeout`
-(default 10s) expires — it never falls through and runs the section unlocked. `TimeoutInterruption`
-is re-exported from `@sozai/lock` itself, so a caller can catch it without depending on
-`@sozai/async` directly. A holder that is provably alive (same host, same boot, live pid) is never
-reaped, however long it holds; the `staleTimeout` TTL (default 60s) applies only where liveness is
-unprovable.
+(default 10s) expires — it never falls through and runs the section unlocked. `timeout` bounds
+acquisition only, however: once the lock is held, the critical section runs to completion
+regardless of `timeout`, so a caller that needs to bound the section itself must do so.
+`TimeoutInterruption` is re-exported from `@sozai/lock` itself, so a caller can catch it without
+depending on `@sozai/async` directly. A holder that is provably alive (same host, same boot, live
+pid) is never reaped, however long it holds; the `staleTimeout` TTL (default 60s) applies only where
+liveness is unprovable.
 
 ---
 
@@ -159,6 +162,9 @@ unprovable.
 - Call `polyfill()` once at app startup to shim missing globals
 - Pass `expoRuntime` or `createRuntime()` where a `Runtime` is expected
 - Pin the package to your Expo SDK version — it may major independently
+
+**Use `@sozai/lock`** when two processes may touch the same resource and the store underneath has
+no compare-and-swap — e.g. a keystore whose write API is an unconditional upsert.
 
 ---
 

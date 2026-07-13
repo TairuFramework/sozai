@@ -59,8 +59,27 @@ describe('getUptimeAt()', () => {
 describe('getBootID()', () => {
   test('is stable across calls, and never throws on this host', () => {
     expect(getBootID()).toBe(getBootID())
-    expect(getBootID()).toBe(readBootID())
+    const read = readBootID()
+    expect(getBootID()).toBe(read.status === 'ok' ? read.bootID : null)
   })
+
+  // The two ways of having no boot ID are different facts: a platform that publishes none is
+  // settled forever, while a read that FAILED is transient and must not silently downgrade this
+  // process to the clock-step-vulnerable `bootAt` fallback for its whole life. On the platforms we
+  // ship on, the read succeeds — pinned here against the REAL source, not a mock.
+  test.runIf(process.platform === 'linux' || process.platform === 'darwin')(
+    'reads a real boot ID from the real source on this host',
+    () => {
+      expect(readBootID()).toEqual({ status: 'ok', bootID: getBootID() })
+    },
+  )
+
+  test.runIf(process.platform !== 'linux' && process.platform !== 'darwin')(
+    'reports an unsupported platform as unsupported, never as a failed read',
+    () => {
+      expect(readBootID()).toEqual({ status: 'unsupported' })
+    },
+  )
 
   // The two platforms this package targets both publish a boot identity that is regenerated on
   // every boot and is immune to the wall clock. Where one is readable, `checkLiveness` never has

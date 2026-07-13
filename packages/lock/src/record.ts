@@ -37,11 +37,27 @@ const DARWIN_SYSCTL_PATH = '/usr/sbin/sysctl'
 /** The darwin equivalent: a UUID regenerated per boot session, unaffected by clock changes. */
 const DARWIN_BOOT_ID_OID = 'kern.bootsessionuuid'
 
-function normalizeBootID(raw: string): string | null {
+/**
+ * The outcome of one attempt to read the boot ID. The two ways of NOT getting one are different
+ * facts and must not be collapsed into a bare `null`:
+ *
+ * - `unsupported` is a permanent property of the platform. Retrying cannot change it.
+ * - `failed` is transient — an `EMFILE` at the first claim, a sandbox that denies the exec once, a
+ *   source that answers with nothing. Caching THAT as a value silently downgrades the process to
+ *   the clock-step-vulnerable `bootAt` fallback for the rest of its life, on a platform whose docs
+ *   promise it will not be. See `getBootID`.
+ */
+export type BootIDRead =
+  | { status: 'ok'; bootID: string }
+  | { status: 'unsupported' }
+  | { status: 'failed' }
+
+function readSource(raw: string): BootIDRead {
   const bootID = raw.trim()
-  // An empty ID would compare EQUAL to another empty one, manufacturing a "same boot" proof out of
-  // two failed reads. Absent is `null`, and `null` never proves anything.
-  return bootID === '' ? null : bootID
+  // Never an empty string: an empty ID would compare EQUAL to another empty one, manufacturing a
+  // "same boot" proof out of two failed reads. A supported source that answers with nothing has
+  // failed, whatever it thinks it did.
+  return bootID === '' ? { status: 'failed' } : { status: 'ok', bootID }
 }
 
 /**
@@ -51,13 +67,13 @@ function normalizeBootID(raw: string): string | null {
  * NEVER throws, on any platform, for any reason. A boot ID that cannot be read costs the fallback
  * comparison in `checkLiveness`; a boot ID that THREW would fail the lock claim itself.
  */
-export function readBootID(): string | null {
+export function readBootID(): BootIDRead {
   try {
     switch (platform()) {
       case 'linux':
-        return normalizeBootID(readFileSync(LINUX_BOOT_ID_PATH, 'utf8'))
+        return readSource(readFileSync(LINUX_BOOT_ID_PATH, 'utf8'))
       case 'darwin':
-        return normalizeBootID(
+        return readSource(
           execFileSync(DARWIN_SYSCTL_PATH, ['-n', DARWIN_BOOT_ID_OID], {
             encoding: 'utf8',
             stdio: ['ignore', 'pipe', 'ignore'],
@@ -65,15 +81,22 @@ export function readBootID(): string | null {
           }),
         )
       default:
-        return null
+        return { status: 'unsupported' }
     }
   } catch {
-    return null
+    return { status: 'failed' }
   }
 }
 
-/** `undefined` means "not read yet"; `null` is a boot ID this platform does not publish. */
+/** `undefined` means "not settled yet"; `null` is a boot ID this process will never have. */
 let cachedBootID: string | null | undefined
+/**
+ * How many times the source has been read and failed. Two attempts, ever: enough to survive a
+ * transient failure at the first claim, few enough that a permanently-failing source can never put
+ * a read — a `sysctl` SPAWN, on darwin — on every turn of the acquisition loop.
+ */
+let failedReads = 0
+const MAX_BOOT_ID_READ_ATTEMPTS = 2
 
 /**
  * The identity of THIS boot, read once and cached.
@@ -84,14 +107,34 @@ let cachedBootID: string | null | undefined
  *
  * It must come from a source the wall clock cannot move (see `getBootAt` for what happens when it
  * does not): a monotonic, OS-provided token, compared for exact equality. Cached because a stale-
- * vs-alive decision happens on every turn of the acquisition loop, and re-reading would put a
- * `sysctl` spawn in that loop — including in the `null` case, which is a value, not a miss.
+ * vs-alive decision happens on every turn of the acquisition loop, and re-reading would put that
+ * `sysctl` spawn in the loop.
+ *
+ * What is cached is a SETTLED answer, never a failure: an unsupported platform settles on `null`
+ * immediately (no retry can change what the platform does not publish), a successful read settles
+ * on its value, and a FAILED read settles on nothing — it is retried on the next call, once, and
+ * only then gives up. Caching a transient failure as `null` would be the whole boot-ID guarantee
+ * lost to a single `EMFILE`, silently, for the life of the process.
  */
 export function getBootID(): string | null {
-  if (cachedBootID === undefined) {
-    cachedBootID = readBootID()
+  if (cachedBootID !== undefined) {
+    return cachedBootID
   }
-  return cachedBootID
+  const read = readBootID()
+  switch (read.status) {
+    case 'ok':
+      cachedBootID = read.bootID
+      return cachedBootID
+    case 'unsupported':
+      cachedBootID = null
+      return null
+    case 'failed':
+      failedReads += 1
+      if (failedReads >= MAX_BOOT_ID_READ_ATTEMPTS) {
+        cachedBootID = null
+      }
+      return null
+  }
 }
 
 /**

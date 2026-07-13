@@ -1,5 +1,11 @@
 import type { Config, ConsoleSinkOptions, Logger, LogLevel } from '@logtape/logtape'
-import { configureSync, getConsoleSink, getLogger as logtape, resetSync } from '@logtape/logtape'
+import {
+  configureSync,
+  getConfig,
+  getConsoleSink,
+  getLogger as logtape,
+  resetSync,
+} from '@logtape/logtape'
 
 export type { Config, ConsoleSinkOptions, Logger, LogLevel }
 export { getConsoleSink }
@@ -26,7 +32,18 @@ export function getDefaultConfig(options?: ConsoleSinkOptions): Config<'console'
   }
 }
 
-export function setup(maybeConfig?: Config<string, string>) {
+/**
+ * Configure logging, using the default configuration if none is given.
+ *
+ * The first call wins: if logging is already configured, this logs an error and
+ * returns without reconfiguring, so that independent consumers each calling
+ * `setup()` cannot crash the process. Use `reset()` to reconfigure deliberately.
+ */
+export function setup(maybeConfig?: Config<string, string>): void {
+  if (getConfig() != null) {
+    getSozaiLogger('log').error('Logging already configured, setup() call ignored')
+    return
+  }
   configureSync(maybeConfig ?? getDefaultConfig())
 }
 

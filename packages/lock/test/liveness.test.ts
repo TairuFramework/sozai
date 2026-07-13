@@ -9,11 +9,24 @@ import { getBootAt, getUptimeAt, type LockRecord } from '../src/record.js'
  * The boot-ID SOURCE is mocked, never the host's real one: these assertions must hold identically
  * on a linux runner, on a darwin laptop, and — through `null` — on a platform that publishes no
  * boot ID at all. `src/record.js` keeps its real `getBootAt`/`getUptimeAt`.
+ *
+ * The PLATFORM is mocked for the same reason. A boot-ID match means different things on the two
+ * platforms `checkLiveness` distinguishes (see `isSameBootAndPIDNamespace`), so leaving it to be
+ * whatever the runner happens to be would make half of these tests assert nothing on CI and the
+ * other half assert nothing on a laptop. Every test here states the platform it is about; the
+ * default is `linux`, the stricter of the two.
  */
-const { ourBootID } = vi.hoisted(() => ({ ourBootID: { value: null as string | null } }))
+const { ourBootID, ourPlatform } = vi.hoisted(() => ({
+  ourBootID: { value: null as string | null },
+  ourPlatform: { value: 'linux' as NodeJS.Platform },
+}))
 vi.mock('../src/record.js', async () => {
   const actual = await vi.importActual<typeof import('../src/record.js')>('../src/record.js')
   return { ...actual, getBootID: () => ourBootID.value }
+})
+vi.mock('node:os', async () => {
+  const actual = await vi.importActual<typeof import('node:os')>('node:os')
+  return { ...actual, platform: () => ourPlatform.value }
 })
 
 const OUR_BOOT_ID = 'e6f0c1a2-0000-4000-8000-thisboot'
@@ -51,6 +64,7 @@ function entry(record: LockRecord | null, mtimeMs: number | null = Date.now()): 
 
 beforeEach(() => {
   ourBootID.value = OUR_BOOT_ID
+  ourPlatform.value = 'linux'
 })
 
 afterEach(() => {
@@ -81,6 +95,8 @@ describe('checkLiveness()', () => {
     expect(checkLiveness(localRecord({ pid: 1 }))).toBe('alive')
   })
 
+  // Linux, per the default above — where a shared boot ID does NOT imply a shared pid namespace, so
+  // the hostname still gates the probe. Darwin's answer differs, and has its own tests below.
   test('unknown: a foreign hostname, without probing the pid', () => {
     const kill = vi.spyOn(process, 'kill')
     expect(checkLiveness(localRecord({ hostname: 'some-other-host' }))).toBe('unknown')
@@ -113,6 +129,67 @@ describe('checkLiveness()', () => {
     })
     expect(Math.abs(record.bootAt - getBootAt())).toBeGreaterThan(BOOT_TOLERANCE_MS)
     expect(checkLiveness(record)).toBe('alive')
+  })
+
+  /**
+   * A HOSTNAME CHANGE UNDER A LIVE HOLDER. macOS renames the host from DHCP when a laptop joins a
+   * network — the very sleep/wake event this package exists for. Testing the hostname BEFORE the
+   * boot ID reaped that holder at the TTL: same machine, same boot, live pid, new name.
+   *
+   * The two platforms answer differently, and the asymmetry is load-bearing — see
+   * `isSameBootAndPIDNamespace` in `src/liveness.ts`.
+   */
+  describe('a renamed host', () => {
+    // darwin: a matching `kern.bootsessionuuid` proves the same machine AND the same pid namespace
+    // (macOS has no pid namespaces, and a Docker container on a Mac runs inside a linux VM, where
+    // it reports platform `linux` and reads that VM's boot_id). So the pid means what it says,
+    // whatever the host is called now.
+    test('darwin: a matching boot ID probes the pid, whatever the host is called now', () => {
+      ourPlatform.value = 'darwin'
+      const kill = vi.spyOn(process, 'kill')
+      const record = localRecord({ bootID: OUR_BOOT_ID, hostname: 'the-name-it-had-at-claim-time' })
+
+      expect(checkLiveness(record)).toBe('alive')
+      expect(kill).toHaveBeenCalledWith(process.pid, 0)
+    })
+
+    // linux: NOT the same. Containers on one host share `/proc/sys/kernel/random/boot_id` but have
+    // SEPARATE pid namespaces, so a boot-ID match there can be two different containers — and the
+    // recorded pid would then probe a stranger's process in ours, reporting a holder that does not
+    // exist. Containers get distinct hostnames, so the hostname check is what tells them apart, and
+    // it must stay on this path. Do not "simplify" this branch into the darwin one.
+    test('linux: a matching boot ID under a different hostname is NOT probed (two containers)', () => {
+      const kill = vi.spyOn(process, 'kill')
+      const record = localRecord({ bootID: OUR_BOOT_ID, hostname: 'another-container' })
+
+      expect(checkLiveness(record)).toBe('unknown')
+      expect(kill).not.toHaveBeenCalled()
+    })
+
+    test('darwin: a DIFFERENT boot ID under a different hostname is still not probed', () => {
+      ourPlatform.value = 'darwin'
+      const kill = vi.spyOn(process, 'kill')
+      const record = localRecord({ bootID: PREVIOUS_BOOT_ID, hostname: 'some-other-host' })
+
+      expect(checkLiveness(record)).toBe('unknown')
+      expect(kill).not.toHaveBeenCalled()
+    })
+
+    // With no boot ID on either side the hostname is the only machine identity there is, so it
+    // gates the probe on darwin too: a renamed darwin host whose boot ID could not be read DOES
+    // lose its holder's liveness proof.
+    test.each([
+      'darwin',
+      'linux',
+    ] as const)('%s fallback: no boot ID plus a different hostname is not probed', (platform) => {
+      ourPlatform.value = platform
+      ourBootID.value = null
+      const kill = vi.spyOn(process, 'kill')
+      const record = localRecord({ bootID: null, hostname: 'some-other-host' })
+
+      expect(checkLiveness(record)).toBe('unknown')
+      expect(kill).not.toHaveBeenCalled()
+    })
   })
 
   describe('the bootAt fallback, where no boot ID is available', () => {
@@ -224,9 +301,66 @@ describe('isStale()', () => {
     expect(isStale(entry(record), staleTimeout)).toBe(false)
   })
 
-  // The same guarantee where NO boot ID is readable (an unsupported platform): the liveness proof
-  // is lost to the clock step, but the monotonic age still holds the line — the holder is respected
-  // until its REAL age reaches the TTL, not its apparent one.
+  // A renamed host is not a foreign host. On darwin a matching boot ID proves the same machine and
+  // the same pid namespace, so the pid probe still runs, and a provably-live holder is never stale
+  // — however long it has held, and whatever DHCP renamed the laptop to while it held.
+  test('darwin: a live holder is NOT reaped when the host is renamed under it', () => {
+    ourPlatform.value = 'darwin'
+    const record = localRecord({
+      pid: process.pid, // real, and alive: this very process
+      bootID: OUR_BOOT_ID,
+      hostname: 'the-name-it-had-at-claim-time',
+      startedAt: now - 10 * 60_000, // ten minutes of hold, against a 60s TTL
+      uptimeAt: getUptimeAt() - 10 * 60_000,
+    })
+    expect(checkLiveness(record)).toBe('alive')
+    expect(isStale(entry(record), staleTimeout, now)).toBe(false)
+  })
+
+  // The same record on linux, where a boot-ID match does NOT imply a shared pid namespace: this is
+  // another container, its pid is meaningless here, and it is aged out by the TTL like any other
+  // holder we cannot prove alive. Deliberate, and the reason the platforms differ.
+  test('linux: the same renamed-host record is a different container, and the TTL applies', () => {
+    const record = localRecord({
+      pid: process.pid,
+      bootID: OUR_BOOT_ID,
+      hostname: 'another-container',
+      startedAt: now - 10 * 60_000,
+      uptimeAt: getUptimeAt() - 10 * 60_000,
+    })
+    expect(checkLiveness(record)).toBe('unknown')
+    expect(isStale(entry(record), staleTimeout, now)).toBe(true)
+  })
+
+  /**
+   * THE RESIDUAL, PINNED SO THE DOCS CANNOT DRIFT BACK INTO CLAIMING IT AWAY: on the FALLBACK path
+   * — no boot ID on one side or the other — a forward clock step larger than `BOOT_TOLERANCE_MS`
+   * costs a LIVE holder its liveness proof, and therefore its lock, as soon as its true monotonic
+   * age passes the TTL. Our own host, our own live pid, a genuine 90s hold, a +31s step, a 60s TTL:
+   * the holder is reaped and two processes enter the critical section.
+   *
+   * `uptimeAt` buys something narrower here than the docs used to say: it removes the INFLATED age,
+   * so a holder YOUNGER than the TTL survives the step (the test below this one). It does nothing
+   * for the minutes-long keychain-prompt hold this package exists for. A consumer shipping where no
+   * boot ID is readable must know the TTL does not protect a long-held lock.
+   */
+  test('the fallback path DOES reap a live holder past the TTL: the clock step still costs the lock', () => {
+    ourBootID.value = null
+    const record = localRecord({
+      pid: process.pid, // real, and alive: this very process
+      bootID: null, // an unsupported platform, or a read that failed
+      bootAt: getBootAt() - (BOOT_TOLERANCE_MS + 1_000), // a +31s step moved ours away from it
+      startedAt: Date.now() - 90_000,
+      uptimeAt: getUptimeAt() - 90_000, // the TRUE, monotonic age: 90s — past the 60s TTL
+    })
+
+    expect(checkLiveness(record)).toBe('unknown') // the live holder's proof: gone
+    expect(isStale(entry(record), staleTimeout)).toBe(true) // ...and with it, its lock
+  })
+
+  // What `uptimeAt` DOES buy on that path, and all it buys: the step cannot INFLATE the age, so a
+  // holder younger than the TTL is no longer reaped by the clock step alone. The liveness proof is
+  // still gone — this holder is now on the TTL's clock, not on its own liveness.
   test('a forward wall-clock step does not make a same-host holder stale', () => {
     const record = unprovableLocalRecord({
       startedAt: Date.now() - 60 * 60 * 1000,

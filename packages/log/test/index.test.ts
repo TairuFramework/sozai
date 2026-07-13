@@ -2,7 +2,7 @@ import type { Config, LogRecord } from '@logtape/logtape'
 import { getConfig } from '@logtape/logtape'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { getDefaultConfig, getLogger, getSozaiLogger, reset, setup } from '../src/index.js'
+import { getDefaultConfig, getLogger, getSozaiLogger, isSetup, reset, setup } from '../src/index.js'
 
 // Routes both the package's own category and a `test` category into `records`, at
 // `debug` so every level is captured. The default config only routes `sozai` at
@@ -81,6 +81,14 @@ describe('setup', () => {
     expect(records[0].category).toEqual(['sozai', 'log'])
     expect(records[0].rawMessage).toBe('Logging already configured, setup() call ignored')
   })
+
+  test("notifies through the default configuration's console sink", () => {
+    const error = vi.fn()
+    const fakeConsole = { error } as unknown as Console
+    setup(getDefaultConfig({ console: fakeConsole }))
+    setup()
+    expect(error).toHaveBeenCalledOnce()
+  })
 })
 
 describe('getLogger', () => {
@@ -146,11 +154,32 @@ describe('getDefaultConfig', () => {
     ])
   })
 
-  test('passes the sink options through to the console sink', () => {
+  test('passes the console option through to the console sink', () => {
     const error = vi.fn()
     const fakeConsole = { error } as unknown as Console
     setup(getDefaultConfig({ console: fakeConsole }))
     getSozaiLogger('test').error('boom')
     expect(error).toHaveBeenCalledOnce()
+  })
+})
+
+describe('isSetup', () => {
+  beforeEach(() => {
+    reset()
+  })
+
+  test('is false before setup() is called', () => {
+    expect(isSetup()).toBe(false)
+  })
+
+  test('is true after setup() is called', () => {
+    setup()
+    expect(isSetup()).toBe(true)
+  })
+
+  test('is false again after reset()', () => {
+    setup()
+    reset()
+    expect(isSetup()).toBe(false)
   })
 })

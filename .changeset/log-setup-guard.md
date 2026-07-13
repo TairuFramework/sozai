@@ -8,4 +8,6 @@ Previously `setup()` called logtape's `configureSync` unguarded, which throws `C
 
 Also adds `reset()`, which wraps logtape's `resetSync()`. It is the escape hatch for deliberate reconfiguration — `reset()` then `setup(config)` — and the way test suites clear logtape's process-global state between cases.
 
+Also adds `isSetup()`, which reports whether logging has been configured, so a consumer can check whether its `setup()` call won without importing `getConfig` from `@logtape/logtape` directly.
+
 This is the package's first release with tests.

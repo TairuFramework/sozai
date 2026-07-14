@@ -22,10 +22,20 @@ export function createOTelLogSink(): (record: LogRecord) => void {
       'log.category': record.category.join('.'),
     }
 
-    // logtape's rawMessage is a TemplateStringsArray for tagged-template call sites
-    // (logger.info`hello ${name}`) and a string otherwise. The OTel body takes a string.
+    // logtape's rawMessage is a string for method-call syntax (logger.info('Hello, {name}!', {
+    // name })), in which case the placeholders are left unsubstituted in the body and the
+    // values ride in `attributes` via record.properties instead. For tagged-template syntax
+    // (logger.info`hello ${name}!`), rawMessage is a TemplateStringsArray of literal segments
+    // only, and logtape leaves `properties` empty — so the body must be rendered from
+    // record.message, which interleaves the literal segments with the substituted values.
     const body =
-      typeof record.rawMessage === 'string' ? record.rawMessage : record.rawMessage.join('')
+      typeof record.rawMessage === 'string'
+        ? record.rawMessage
+        : record.message
+            .map((part, index) =>
+              index % 2 === 0 || typeof part === 'string' ? String(part) : JSON.stringify(part),
+            )
+            .join('')
 
     logger.emit({
       severityNumber: LEVEL_TO_SEVERITY[record.level],

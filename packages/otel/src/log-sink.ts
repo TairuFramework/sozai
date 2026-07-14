@@ -11,36 +11,19 @@ const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
   fatal: SeverityNumber.FATAL,
 }
 
-// Render one segment of `record.message` for a tagged-template log body. Literal
-// segments (even indices) and already-string values pass through as-is. Other
-// interpolated values are JSON-rendered — but JSON.stringify throws on a BigInt
-// or a circular structure, and logtape catches sink exceptions, meta-logs them,
-// and silently drops the record. This must never throw and must never silently
-// drop the value:
+// Renders one segment of `record.message` (odd indices are interpolated values).
 //
-// - If JSON.stringify throws (BigInt, a circular structure, a `toJSON` that
-//   throws), fall back to `String(part)` (e.g. `[object Object]` for a
-//   circular value, `'10'` for `10n`).
-// - JSON.stringify also *returns `undefined`* (not a string, despite the
-//   `: string` return type) for a symbol, a function, or `undefined` in an
-//   interpolated position. That is not a throw, so it must be checked for
-//   explicitly, or the value silently vanishes from the body. It falls
-//   through to the same `String(part)` path, which renders it visibly
-//   (`Symbol(x)`, the function source, `'undefined'`).
-// - `String(part)` can itself throw — a null-prototype object has no
-//   `Object.prototype.toString` to fall back to, and an object whose
-//   `toString`/`Symbol.toPrimitive` throws propagates that — so the fallback
-//   is guarded too, with `'[unrenderable]'` as the last-resort placeholder.
+// Must never throw and never drop a value: logtape catches sink exceptions and
+// silently discards the record, so one bad interpolation loses the whole log line.
+// Three ways that happens, all guarded below:
+//   - JSON.stringify throws on a BigInt, a circular structure, a throwing `toJSON`.
+//   - JSON.stringify *returns undefined* (not a string) for a symbol, a function,
+//     or `undefined` — no throw, so it needs an explicit check or the value vanishes.
+//   - String() throws on a null-prototype object, or a throwing toString/Symbol.toPrimitive.
 function renderMessagePart(part: unknown, index: number): string {
   if (typeof part === 'string') {
     return part
   }
-  // Literal template segments (even indices) are always strings from
-  // TemplateStringsArray, so JSON-rendering is only attempted for interpolated
-  // (odd-index) values — but that's not relied on for safety: an even-index
-  // value that somehow isn't a string still falls through to the guarded
-  // `String(part)`/`[unrenderable]` path below, so "must never throw" holds
-  // unconditionally rather than depending on that assumption.
   let rendered: string | undefined
   if (index % 2 !== 0) {
     try {
@@ -70,12 +53,9 @@ export function createOTelLogSink(): (record: LogRecord) => void {
       'log.category': record.category.join('.'),
     }
 
-    // logtape's rawMessage is a string for method-call syntax (logger.info('Hello, {name}!', {
-    // name })), in which case the placeholders are left unsubstituted in the body and the
-    // values ride in `attributes` via record.properties instead. For tagged-template syntax
-    // (logger.info`hello ${name}!`), rawMessage is a TemplateStringsArray of literal segments
-    // only, and logtape leaves `properties` empty — so the body must be rendered from
-    // record.message, which interleaves the literal segments with the substituted values.
+    // Method-call syntax keeps its placeholders in the body; the values ride in attributes.
+    // Tagged-template syntax can't: rawMessage holds the literal segments only and logtape
+    // leaves `properties` empty, so the values exist nowhere but record.message.
     const body =
       typeof record.rawMessage === 'string'
         ? record.rawMessage

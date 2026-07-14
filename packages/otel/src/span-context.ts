@@ -21,11 +21,11 @@ export function isValidSpanID(value: string): boolean {
 }
 
 /**
- * Build a remote `SpanContext` from parsed traceparent data. Returns undefined when
- * either ID is invalid, so an unparseable or all-zero remote context can never become
- * a parent that SDKs attach real spans to.
+ * Build a remote `SpanContext` from parsed traceparent data. Undefined when either ID is
+ * invalid, so an all-zero or garbage remote context can't become a parent that SDKs attach
+ * real spans to.
  *
- * The single place in the package where a remote `SpanContext` is constructed.
+ * The only place in the package that constructs a remote `SpanContext` — keep it that way.
  */
 export function toRemoteSpanContext(
   data: TraceparentData,

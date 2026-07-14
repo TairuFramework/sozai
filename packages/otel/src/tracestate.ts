@@ -3,12 +3,9 @@ import { logger } from './log.js'
 export type TracestateEntry = { key: string; value: string }
 
 const MAX_ENTRIES = 32
-// W3C Trace Context §3.3.3: vendors MUST propagate at least 512 characters of
-// tracestate and SHOULD truncate from the end when over the limit. This is
-// also OTel's own `TraceStateImpl` limit (`MAX_TRACE_STATE_LEN`): handing it a
-// header over 512 characters makes `_parse` bail out early and leave the
-// trace state *empty*, so a header we don't truncate ourselves is dropped
-// entirely downstream, not just clipped.
+// Also OTel's MAX_TRACE_STATE_LEN: hand TraceStateImpl a longer header and _parse bails
+// early, leaving the trace state *empty*. An untruncated header is dropped entirely
+// downstream, not clipped — so we truncate from the end ourselves (W3C §3.3.3).
 const MAX_HEADER_LENGTH = 512
 
 // Key: simple-key (lcalpha then up to 255 of lcalpha/DIGIT/_-*/) or
@@ -28,13 +25,11 @@ function isValidValue(value: string): boolean {
 }
 
 /**
- * Format a W3C tracestate header value. Drops members with invalid keys or
- * values, drops duplicate keys (keeping the first occurrence, matching
- * `parseTracestate`), caps at 32 entries, and preserves the given order.
- * Additionally caps the *serialized header* at 512 characters (W3C §3.3.3),
- * dropping whole trailing members that would push it over the limit — a
- * member is never truncated mid-value, so the result is always either empty
- * or a fully valid tracestate header. Never throws.
+ * Format a W3C tracestate header value. Drops invalid members and duplicate keys (first
+ * occurrence wins, matching `parseTracestate`), caps at 32 entries and 512 characters,
+ * preserves order. Never throws.
+ *
+ * Truncation drops whole members, never mid-value, so the result is always a valid header.
  */
 export function formatTracestate(entries: Array<TracestateEntry>): string {
   const out: Array<string> = []

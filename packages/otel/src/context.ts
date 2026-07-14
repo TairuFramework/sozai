@@ -12,16 +12,12 @@ import { formatTraceparent, parseTraceparent } from './traceparent.js'
 import { formatTracestate, parseTracestate } from './tracestate.js'
 
 /**
- * Stamp the active span's trace context onto a request's `_meta` record as W3C
- * `traceparent` (and `tracestate`, when the span carries one).
- *
- * Returns the record unchanged when there is no active span, or when the active
- * span cannot produce a valid header — which covers OTel's no-op spans, whose
- * all-zero IDs would otherwise be handed downstream as a parent. In that case
- * the returned value has no `traceparent`/`tracestate` properties; otherwise it
- * is `meta` plus `traceparent` (and `tracestate`, when the span carries one).
- *
+ * Stamp the active span onto a request's `_meta` as W3C `traceparent` (and `tracestate`).
  * The inject-side twin of `extractW3CTraceContext`.
+ *
+ * Returns `meta` unchanged when there is no active span, or when the span can't produce a
+ * valid header — which covers OTel's no-op spans, whose all-zero IDs would otherwise go
+ * downstream as a parent.
  */
 export function injectW3CTraceContext<T extends Record<string, unknown>>(
   meta: T,
@@ -40,14 +36,10 @@ export function injectW3CTraceContext<T extends Record<string, unknown>>(
     return meta
   }
   const serializedTraceState = spanContext.traceState?.serialize()
-  // OTel's `TraceStateImpl.set()` does not enforce the 512-character cap —
-  // only `_parse()` does — so a `TraceState` built or extended via `.set()`
-  // calls can serialize past 512 characters even though `formatTracestate`
-  // capped it on the way in. Re-run it through parse/format here so the
-  // write side gets the same cap as the read side: without this, an
-  // over-length header goes out uncapped and the *next* hop's
-  // `createTraceState` bails out on `_parse` and drops it entirely, which is
-  // the same silent-total-loss failure the 512 cap exists to prevent.
+  // Re-cap on the way out: OTel's TraceStateImpl.set() does NOT enforce the 512-char limit
+  // (only _parse does), so a vendor .set() can push a capped-on-input tracestate back over
+  // it. An over-length header isn't clipped downstream — the next hop's createTraceState
+  // drops it entirely.
   const tracestate = serializedTraceState
     ? formatTracestate(parseTracestate(serializedTraceState))
     : undefined

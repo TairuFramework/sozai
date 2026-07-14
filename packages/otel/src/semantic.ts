@@ -1,10 +1,9 @@
 export const ZERO_TRACE_ID = '00000000000000000000000000000000'
 
 /**
- * The all-zero span ID. W3C Trace Context declares it invalid, and OTel's no-op
- * spans carry it. Internal — not re-exported from the package index, because no
- * consumer has a use for it. `ZERO_TRACE_ID` is public only because it predates
- * this module.
+ * The all-zero span ID: invalid per W3C, and what OTel's no-op spans carry.
+ *
+ * Internal. Prefer `isValidSpanID` over comparing against this.
  */
 export const ZERO_SPAN_ID = '0000000000000000'
 

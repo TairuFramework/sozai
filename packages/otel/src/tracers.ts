@@ -7,10 +7,9 @@ import { isValidTraceID } from './span-context.js'
 /**
  * Build a tracer factory for a consuming package.
  *
- * `version` is the *consumer's* package version, not this package's: OTel defines the
- * instrumentation-scope version as the version of the instrumentation library, and the
- * tracer name (`prefix.name`) identifies the consumer. `undefined` is a legal scope
- * version, so the parameter is optional.
+ * `version` is the *consumer's* version, not this package's: the instrumentation-scope
+ * version means the version of the instrumentation library, and `prefix.name` identifies
+ * the consumer. Optional — `undefined` is a legal scope version.
  */
 export function createTracerFactory(prefix: string, version?: string): (name: string) => Tracer {
   return (name: string): Tracer => trace.getTracer(`${prefix}.${name}`, version)

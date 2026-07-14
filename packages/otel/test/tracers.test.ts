@@ -1,5 +1,5 @@
-import { SpanStatusCode } from '@opentelemetry/api'
-import { describe, expect, test } from 'vitest'
+import { context, type Span, SpanStatusCode, trace } from '@opentelemetry/api'
+import { describe, expect, test, vi } from 'vitest'
 
 import {
   createTracerFactory,
@@ -26,6 +26,22 @@ describe('createTracerFactory', () => {
 describe('getActiveTraceContext', () => {
   test('returns undefined when no span is active', () => {
     expect(getActiveTraceContext()).toBeUndefined()
+  })
+
+  test('returns undefined for a malformed but non-zero trace ID', () => {
+    // isValidTraceID rejects malformed-but-nonzero IDs, not just the all-zero
+    // no-op case. A real SDK never produces one, so this is only reachable via
+    // a fake span, but it pins the widened guard's behavior.
+    const fakeSpan = {
+      spanContext: () => ({
+        traceId: 'not-a-valid-trace-id',
+        spanId: '0000000000000001',
+        traceFlags: 1,
+      }),
+    } as unknown as Span
+    context.with(trace.setSpan(context.active(), fakeSpan), () => {
+      expect(getActiveTraceContext()).toBeUndefined()
+    })
   })
 })
 
@@ -123,6 +139,16 @@ describe('createTracerFactory version', () => {
     expect(tracer).toBeDefined()
     expect(typeof tracer.startSpan).toBe('function')
   })
+
+  test('forwards the version through to trace.getTracer', () => {
+    const spy = vi.spyOn(trace, 'getTracer')
+    try {
+      createTracerFactory('enkaku', '1.2.3')('client')
+      expect(spy).toHaveBeenCalledWith('enkaku.client', '1.2.3')
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 describe('span status', () => {
@@ -155,6 +181,38 @@ describe('span status', () => {
         throw new Error('boom')
       }),
     ).toThrow('boom')
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0].code).toBe(SpanStatusCode.ERROR)
+  })
+
+  test('withSpan leaves status UNSET on success rather than setting OK', async () => {
+    const tracer = createTracer('test')
+    const statuses: Array<unknown> = []
+    const result = await withSpan(tracer, 'test', {}, async (span) => {
+      const original = span.setStatus.bind(span)
+      span.setStatus = (status) => {
+        statuses.push(status)
+        return original(status)
+      }
+      return 'ok'
+    })
+    expect(result).toBe('ok')
+    expect(statuses).toEqual([])
+  })
+
+  test('withSpan still sets ERROR status when the callback rejects', async () => {
+    const tracer = createTracer('test')
+    const statuses: Array<{ code: number }> = []
+    await expect(
+      withSpan(tracer, 'test', {}, async (span) => {
+        const original = span.setStatus.bind(span)
+        span.setStatus = (status) => {
+          statuses.push(status as { code: number })
+          return original(status)
+        }
+        throw new Error('boom')
+      }),
+    ).rejects.toThrow('boom')
     expect(statuses).toHaveLength(1)
     expect(statuses[0].code).toBe(SpanStatusCode.ERROR)
   })

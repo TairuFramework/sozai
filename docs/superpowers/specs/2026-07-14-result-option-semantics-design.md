@@ -105,10 +105,19 @@ Consequences:
   check that contradicts the signature makes `Result<Error, E>` unrepresentable through `map`.
 - `AsyncResult.map` stops routing its fulfilled path through `Result.from` and adopts the sync
   semantic. **This is the one behavior change a consumer could observe at runtime.**
-- `mapError(fn)` returning a bare `OutE` still means "replacement error" — that is what its
-  signature (`(error: E) => OutE | Result<V, OutE>`) declares, not a runtime sniff. The
-  sync/async asymmetry the audit flagged here is only apparent: it falls out of the two
-  signatures, and both are correct.
+- `mapError(fn)` returning a bare `OutE` means "replacement error" — that is what the sync
+  signature (`(error: E) => OutE | Result<V, OutE>`) declares, not a runtime sniff.
+- **`AsyncResult.mapError` aligns to the sync meaning.** Today its callback type is
+  `(error: E) => MappedResult<V, OutE>` — a bare return is a *`V`* (recovery) — while its
+  implementation sniffs `instanceof Error` and turns a bare `Error` into a replacement error.
+  Two meanings from one overload, disambiguated at runtime. Rule A removes the sniff, so the
+  signature narrows to `(error: E) => OutE | Result<V, OutE> | PromiseLike<Result<V, OutE>> |
+  AsyncResult<V, OutE>`: a bare return is a replacement error, and recovery is explicit via
+  `Result.ok(v)` / `AsyncResult.ok(v)`. This keeps every existing
+  `.mapError(e => new WrappedError(e))` call meaning what it means today.
+
+The resulting rule is one line: **`map`'s bare return is a value, `mapError`'s bare return is an
+error; wrap in `Result.ok` / `Result.error` to say otherwise.**
 - `Option.map` keeps coercing `null`/`undefined` to `none`. For `Option`, absence *is* the type's
   meaning, so this is the signature speaking, not a runtime guess contradicting it.
 - `Result.from` keeps sniffing `instanceof Error`. It stays the coercion entry point for
@@ -147,8 +156,16 @@ The dead `static [Symbol.species] = Promise` is deleted from `AsyncResult` (it h
 
 - `execution.ts:267` — the `result.error as E | Interruption` cast is deleted; narrowing supplies
   the type.
-- `Result.toError` call sites (`execution.ts:106`, `:117`, `:230`) are re-checked against the new
-  factory arity.
+- `Result.toError` call sites (`execution.ts:106`, `:117`, `:230`) all pass a factory *and* rely
+  on today's rule that an `Error` cause bypasses it. Once the factory always wins, each must
+  re-state the pass-through explicitly to preserve current behavior:
+  `(cause) => cause instanceof Error ? (cause as E) : new AbortInterruption({ cause })` at `:106`,
+  and the equivalent with `new Error('Execution failed', { cause })` at `:117` and `:230`.
+  Without this, a user error thrown from `execute()` would get re-wrapped in
+  `Error('Execution failed')` instead of surfacing as itself — a silent regression.
+- `execution.ts:116`'s `.then(Result.from)` on the *fulfilled* path keeps sniffing: whether an
+  `Executable` returning an `Error` value means failure is `@sozai/execution`'s own semantic and
+  is out of scope here.
 
 Downstream repos take a breaking `0.2.0` via changeset.
 

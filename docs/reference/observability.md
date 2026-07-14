@@ -96,7 +96,7 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 |---|---|---|
 | `formatTraceparent` | function | `formatTraceparent(traceID, spanID, traceFlags)` → W3C `traceparent` string (`00-<traceID>-<spanID>-<flags>`), or `undefined` when the trace ID, span ID, or flags cannot produce a valid header (e.g. all-zero IDs or out-of-range flags). |
 | `parseTraceparent` | function | Parse a W3C `traceparent` string → `TraceparentData \| undefined`. Accepts version `00` and, per the spec's forward-compatibility rule, higher versions (parsing their first four fields and ignoring any trailing content); rejects version `ff` and all-zero trace/span IDs. |
-| `formatTracestate` | function | Serialize `Array<TracestateEntry>` → W3C `tracestate` string (drops invalid members, drops duplicate keys keeping the first occurrence, caps at 32 entries). |
+| `formatTracestate` | function | Serialize `Array<TracestateEntry>` → W3C `tracestate` string (drops invalid members, drops duplicate keys keeping the first occurrence, caps at 32 entries, caps the serialized header at 512 characters per W3C §3.3.3 by dropping whole trailing members). |
 | `parseTracestate` | function | Parse a W3C `tracestate` string → `Array<TracestateEntry>` (drops malformed members, drops duplicate keys keeping the first occurrence, caps at 32 entries). |
 | `TraceparentData` | type | `{ traceID: string; spanID: string; traceFlags: number }` |
 | `TracestateEntry` | type | `{ key: string; value: string }` |
@@ -107,6 +107,11 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 |---|---|---|
 | `AttributeKeys` | const | Predefined OTel semantic attribute-key strings for instrumenting spans consistently across the stack. |
 | `ZERO_TRACE_ID` | const | The all-zero trace ID (`'00000000000000000000000000000000'`); used to detect no-op spans. |
+
+#### ID validation
+
+| Symbol | Kind | Description |
+|---|---|---|
 | `isValidTraceID` | function | Whether a string is a valid W3C trace ID: 32 lowercase hex characters, not all-zero. |
 | `isValidSpanID` | function | Whether a string is a valid W3C span ID: 16 lowercase hex characters, not all-zero. |
 

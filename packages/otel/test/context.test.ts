@@ -1,4 +1,4 @@
-import { context, trace } from '@opentelemetry/api'
+import { context, createTraceState, ROOT_CONTEXT, trace } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -146,5 +146,42 @@ describe('injectW3CTraceContext', () => {
     const parentContext = extractW3CTraceContext({ traceparent })
     const meta = withActiveContext(parentContext, () => injectW3CTraceContext({}))
     expect(meta).not.toHaveProperty('tracestate')
+  })
+
+  test('caps an over-512-character tracestate on inject, and the emitted header survives createTraceState round-trip non-empty', () => {
+    // TraceStateImpl.set() does NOT enforce the 512-char cap (only _parse()
+    // does), so a TraceState built via chained .set() calls can exceed 512
+    // characters on serialize() even though it never went through a header
+    // string long enough to trip _parse's own bail-out. This is exactly the
+    // shape that reaches injectW3CTraceContext in practice: an inbound span
+    // whose tracestate a vendor then extends with .set().
+    let state = createTraceState()
+    for (let i = 0; i < 40; i++) {
+      state = state.set(`vendor${i}`, 'x'.repeat(20))
+    }
+    // Precondition: confirm the fixture actually exceeds the cap, so this
+    // test cannot pass merely because the built state was already short.
+    expect(state.serialize().length).toBeGreaterThan(512)
+
+    const spanContext = {
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: '00f067aa0ba902b7',
+      traceFlags: 1,
+      traceState: state,
+    }
+    const ctx = trace.setSpanContext(ROOT_CONTEXT, spanContext)
+
+    const meta = withActiveContext(ctx, () => injectW3CTraceContext({}))
+
+    expect(meta.tracestate).toBeDefined()
+    const tracestate = meta.tracestate as string
+    expect(tracestate.length).toBeLessThanOrEqual(512)
+    // The real proof: the emitted header must not just be short — it must
+    // survive the next hop's createTraceState(...).serialize() non-empty.
+    // OTel's TraceStateImpl._parse bails out and yields an empty trace state
+    // for any header over 512 chars, so a length assertion alone would not
+    // catch a cap that's off by even one character.
+    expect(createTraceState(tracestate).serialize()).not.toBe('')
+    expect(createTraceState(tracestate).serialize().length).toBeLessThanOrEqual(512)
   })
 })

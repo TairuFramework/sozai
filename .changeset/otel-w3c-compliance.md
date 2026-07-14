@@ -31,12 +31,20 @@ W3C Trace Context compliance.
 - `parseTraceparent` rejects version `ff` and parses the first four fields of a higher
   version, per the spec's forward-compatibility rule.
 - `formatTracestate` drops duplicate keys, matching `parseTracestate`.
+- Successful spans are left `Unset` rather than set to `Ok`, per OTel guidance (both
+  `withSpan` and `withSyncSpan`).
 - `formatTracestate` now also caps the *serialized header* at 512 characters (W3C
-  §3.3.3), dropping whole trailing members rather than truncating mid-value. Previously
-  a valid tracestate over 512 characters was dropped entirely: OTel's
-  `TraceStateImpl._parse` has its own 512-character limit and bails out leaving the
-  trace state empty when handed a longer header, so `injectW3CTraceContext` silently
-  omitted `tracestate` altogether instead of propagating a truncated one.
+  §3.3.3), dropping whole trailing members rather than truncating mid-value. This cap
+  applies on both the read path (`extractW3CTraceContext`, via `parseTracestate`) and
+  the write path (`injectW3CTraceContext`, which now re-runs the active span's
+  `traceState.serialize()` through `parseTracestate`/`formatTracestate` before
+  injecting). The write-side cap matters because OTel's `TraceStateImpl.set()` does
+  *not* enforce the 512-character limit — only `_parse()` does — so a `TraceState`
+  extended via `.set()` calls (e.g. a vendor appending an entry to an inbound
+  tracestate) can serialize past 512 characters even though it was under the cap on
+  the way in. Previously that over-length header went out uncapped, and the *next*
+  hop's `createTraceState` would bail out in `_parse` and drop the trace state
+  entirely, silently losing it rather than truncating it.
 - `traceLogger` now uses the same `isValidTraceID` check as `getActiveTraceContext`,
   instead of a separate all-zero-ID comparison — removing the last place in the package
   that duplicated the trace-ID validation `src/span-context.ts` exists to centralize.

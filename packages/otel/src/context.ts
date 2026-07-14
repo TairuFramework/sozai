@@ -39,7 +39,18 @@ export function injectW3CTraceContext<T extends Record<string, unknown>>(
   if (traceparent == null) {
     return meta
   }
-  const tracestate = spanContext.traceState?.serialize()
+  const serializedTraceState = spanContext.traceState?.serialize()
+  // OTel's `TraceStateImpl.set()` does not enforce the 512-character cap —
+  // only `_parse()` does — so a `TraceState` built or extended via `.set()`
+  // calls can serialize past 512 characters even though `formatTracestate`
+  // capped it on the way in. Re-run it through parse/format here so the
+  // write side gets the same cap as the read side: without this, an
+  // over-length header goes out uncapped and the *next* hop's
+  // `createTraceState` bails out on `_parse` and drops it entirely, which is
+  // the same silent-total-loss failure the 512 cap exists to prevent.
+  const tracestate = serializedTraceState
+    ? formatTracestate(parseTracestate(serializedTraceState))
+    : undefined
   return tracestate ? { ...meta, traceparent, tracestate } : { ...meta, traceparent }
 }
 

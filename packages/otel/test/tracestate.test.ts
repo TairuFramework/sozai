@@ -101,6 +101,44 @@ describe('formatTracestate', () => {
     expect(createTraceState(header).serialize().length).toBeLessThanOrEqual(512)
   })
 
+  test('keeps a header that is exactly 512 characters (comma included) intact', () => {
+    // Two members whose total length — INCLUDING the joining comma — is
+    // exactly 512: 'a=' + 253 x's (255 chars) + ',' (1) + 'b=' + 254 x's (256
+    // chars) = 512. The implementation's running-length check is
+    // `length + additional > MAX_HEADER_LENGTH`, so exactly 512 must survive
+    // (512 > 512 is false). A single-member header would never exercise the
+    // comma-accounting boundary, which is where an off-by-one is most likely
+    // to hide.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(253) },
+      { key: 'b', value: 'x'.repeat(254) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBe(512)
+    expect(header).toBe(`a=${'x'.repeat(253)},b=${'x'.repeat(254)}`)
+    expect(header).toContain('a=')
+    expect(header).toContain('b=')
+  })
+
+  test('truncates a header that would be 513 characters (comma included) by one over', () => {
+    // Same shape as the 512-exact case above but the second member's value is
+    // one character longer, pushing the comma-inclusive total to 513. The
+    // second member must be dropped entirely (513 > 512), leaving only the
+    // first — proving the cap trips at the correct byte, not one early or one
+    // late.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(253) },
+      { key: 'b', value: 'x'.repeat(255) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBe(255)
+    expect(header).toBe(`a=${'x'.repeat(253)}`)
+    expect(header).toContain('a=')
+    expect(header).not.toContain('b=')
+  })
+
   test('truncates from the end: a member after one that alone exceeds 512 characters is also dropped', () => {
     // A key can be up to 256 chars and a value up to 256 chars, so a single
     // member can itself exceed the 512-char header cap. Truncation is "from

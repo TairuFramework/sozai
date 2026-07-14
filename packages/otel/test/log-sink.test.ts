@@ -164,4 +164,89 @@ describe('createOTelLogSink', () => {
     // to String(part) rather than throw or silently drop the record.
     expect(getEmitted().body).toBe('payload: [object Object]')
   })
+
+  test('does not throw and still emits a body for a null-prototype circular value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // JSON.stringify throws (circular), and the naive String(part) fallback
+    // also throws here: a null-prototype object has no Object.prototype in
+    // its chain, so there is no toString/valueOf for ToPrimitive to fall
+    // back to, and String() throws a TypeError. The renderer must catch that
+    // too and emit a placeholder rather than propagate.
+    const circular: Record<string, unknown> = Object.create(null)
+    circular.self = circular
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', circular, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    expect(getEmitted().body).toBe('payload: [unrenderable]')
+  })
+
+  test('does not throw and still emits a body for a value whose toString/toJSON throw', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // toJSON throws, so JSON.stringify throws; toString also throws, so the
+    // String(part) fallback throws too. Both layers must be guarded.
+    const throwing = {
+      toJSON(): never {
+        throw new Error('toJSON boom')
+      },
+      toString(): never {
+        throw new Error('toString boom')
+      },
+    }
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', throwing, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    expect(getEmitted().body).toBe('payload: [unrenderable]')
+  })
+
+  test('renders an interpolated Symbol rather than dropping it from the body', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['s: ', ''], {
+      raw: ['s: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // JSON.stringify(Symbol(...)) returns `undefined` without throwing, so
+    // this is not caught by a try/catch around JSON.stringify — the
+    // `undefined` return must be checked for explicitly, or the value
+    // vanishes from the body (`.join('')` silently coerces `undefined` to
+    // `''`).
+    sink({
+      category: ['sozai'],
+      level: 'info',
+      message: ['s: ', Symbol('x'), ''],
+      rawMessage,
+      properties: {},
+      timestamp: Date.now(),
+    })
+
+    expect(getEmitted().body).toBe('s: Symbol(x)')
+  })
 })

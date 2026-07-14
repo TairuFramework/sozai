@@ -15,17 +15,39 @@ const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
 // segments (even indices) and already-string values pass through as-is. Other
 // interpolated values are JSON-rendered — but JSON.stringify throws on a BigInt
 // or a circular structure, and logtape catches sink exceptions, meta-logs them,
-// and silently drops the record. This must never throw: fall back to `String(part)`
-// (e.g. `[object Object]` for a circular value, `'10'` for `10n`) rather than lose
-// the record.
+// and silently drops the record. This must never throw and must never silently
+// drop the value:
+//
+// - If JSON.stringify throws (BigInt, a circular structure, a `toJSON` that
+//   throws), fall back to `String(part)` (e.g. `[object Object]` for a
+//   circular value, `'10'` for `10n`).
+// - JSON.stringify also *returns `undefined`* (not a string, despite the
+//   `: string` return type) for a symbol, a function, or `undefined` in an
+//   interpolated position. That is not a throw, so it must be checked for
+//   explicitly, or the value silently vanishes from the body. It falls
+//   through to the same `String(part)` path, which renders it visibly
+//   (`Symbol(x)`, the function source, `'undefined'`).
+// - `String(part)` can itself throw — a null-prototype object has no
+//   `Object.prototype.toString` to fall back to, and an object whose
+//   `toString`/`Symbol.toPrimitive` throws propagates that — so the fallback
+//   is guarded too, with `'[unrenderable]'` as the last-resort placeholder.
 function renderMessagePart(part: unknown, index: number): string {
   if (index % 2 === 0 || typeof part === 'string') {
     return String(part)
   }
+  let rendered: string | undefined
   try {
-    return JSON.stringify(part)
+    rendered = JSON.stringify(part)
   } catch {
+    rendered = undefined
+  }
+  if (rendered !== undefined) {
+    return rendered
+  }
+  try {
     return String(part)
+  } catch {
+    return '[unrenderable]'
   }
 }
 

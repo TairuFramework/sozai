@@ -89,7 +89,7 @@ function outgoingMeta(): Record<string, unknown> {
 
 **Key points:**
 - `createTracerFactory(prefix, version?)` returns a factory `(name: string) => Tracer` that registers a tracer as `<prefix>.<name>`; `version` is the *consuming* package's version, reported as the instrumentation-scope version. Build the factory once, call it per logical component, and reuse each `Tracer`.
-- `withSpan` / `withSyncSpan` automatically set `SpanStatusCode.OK` on success and `SpanStatusCode.ERROR` (with `recordException`) on throw.
+- `withSpan` / `withSyncSpan` leave the span status `Unset` on success, per OTel guidance, and set `SpanStatusCode.ERROR` (with `recordException`) on throw.
 - `extractW3CTraceContext` returns `undefined` when no valid `traceparent` is present — pass that `undefined` to `withActiveContext` and it falls back to the current active context with no overhead.
 - `getActiveTraceContext()` guards against no-op all-zero spans (e.g. when the SDK is not installed), returning `undefined` rather than a meaningless ID.
 

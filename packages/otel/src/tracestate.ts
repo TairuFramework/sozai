@@ -22,19 +22,27 @@ function isValidValue(value: string): boolean {
 
 /**
  * Format a W3C tracestate header value. Drops members with invalid keys or
- * values, caps at 32 entries, and preserves the given order. Never throws.
+ * values, drops duplicate keys (keeping the first occurrence, matching
+ * `parseTracestate`), caps at 32 entries, and preserves the given order.
+ * Never throws.
  */
 export function formatTracestate(entries: Array<TracestateEntry>): string {
   const out: Array<string> = []
+  const seen = new Set<string>()
   for (const entry of entries) {
     if (!isValidKey(entry.key) || !isValidValue(entry.value)) {
       logger.warn('dropping invalid tracestate member {key}', { key: entry.key })
+      continue
+    }
+    if (seen.has(entry.key)) {
+      logger.warn('dropping duplicate tracestate member {key}', { key: entry.key })
       continue
     }
     if (out.length >= MAX_ENTRIES) {
       logger.warn('tracestate exceeds 32 entries, dropping {key}', { key: entry.key })
       continue
     }
+    seen.add(entry.key)
     out.push(`${entry.key}=${entry.value}`)
   }
   return out.join(',')

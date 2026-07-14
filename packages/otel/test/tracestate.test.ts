@@ -46,6 +46,30 @@ describe('formatTracestate', () => {
       ]),
     ).toBe('keep=ok')
   })
+
+  test('drops duplicate keys, keeping the first occurrence', () => {
+    const result = formatTracestate([
+      { key: 'vendor', value: 'first' },
+      { key: 'other', value: 'kept' },
+      { key: 'vendor', value: 'second' },
+    ])
+    expect(result).toBe('vendor=first,other=kept')
+  })
+
+  test('dedupes before applying the 32-entry cap', () => {
+    // 40 duplicates of one key collapse to a single entry rather than
+    // tripping the cap and emitting a burst of drop warnings.
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      key: 'vendor',
+      value: `value${index}`,
+    }))
+    expect(formatTracestate(entries)).toBe('vendor=value0')
+  })
+
+  test('round-trips with parseTracestate', () => {
+    const header = 'vendor=first,other=kept'
+    expect(formatTracestate(parseTracestate(header))).toBe(header)
+  })
 })
 
 describe('parseTracestate', () => {

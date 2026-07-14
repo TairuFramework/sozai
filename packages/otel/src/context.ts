@@ -4,49 +4,46 @@ import {
   createTraceState,
   ROOT_CONTEXT,
   type Span,
-  type SpanContext,
-  TraceFlags,
   trace,
 } from '@opentelemetry/api'
 
-import { ZERO_TRACE_ID } from './semantic.js'
-import { parseTraceparent } from './traceparent.js'
+import { toRemoteSpanContext } from './span-context.js'
+import { formatTraceparent, parseTraceparent } from './traceparent.js'
 import { formatTracestate, parseTracestate } from './tracestate.js'
 
 /**
- * Inject the active span's trace context into a token header.
- * Adds `tid` (trace ID) and `sid` (span ID) fields.
- * Returns the header unchanged if no active span exists.
+ * Stamp the active span onto a request's `_meta` as W3C `traceparent` (and `tracestate`).
+ * The inject-side twin of `extractW3CTraceContext`.
+ *
+ * Returns `meta` unchanged when there is no active span, or when the span can't produce a
+ * valid header — which covers OTel's no-op spans, whose all-zero IDs would otherwise go
+ * downstream as a parent.
  */
-export function injectTraceContext<T extends Record<string, unknown>>(header: T): T {
+export function injectW3CTraceContext<T extends Record<string, unknown>>(
+  meta: T,
+): T & { traceparent?: string; tracestate?: string } {
   const span = trace.getSpan(context.active())
   if (span == null) {
-    return header
+    return meta
   }
-  const ctx = span.spanContext()
-  if (ctx.traceId === ZERO_TRACE_ID) {
-    return header
+  const spanContext = span.spanContext()
+  const traceparent = formatTraceparent(
+    spanContext.traceId,
+    spanContext.spanId,
+    spanContext.traceFlags,
+  )
+  if (traceparent == null) {
+    return meta
   }
-  return { ...header, tid: ctx.traceId, sid: ctx.spanId }
-}
-
-/**
- * Extract trace context from a token header and return an OTel Context
- * with a remote SpanContext. Returns undefined if no trace fields are present.
- */
-export function extractTraceContext(header: Record<string, unknown>): Context | undefined {
-  const tid = header.tid
-  const sid = header.sid
-  if (typeof tid !== 'string' || typeof sid !== 'string') {
-    return undefined
-  }
-  const remoteContext = trace.setSpanContext(ROOT_CONTEXT, {
-    traceId: tid,
-    spanId: sid,
-    isRemote: true,
-    traceFlags: TraceFlags.SAMPLED,
-  })
-  return remoteContext
+  const serializedTraceState = spanContext.traceState?.serialize()
+  // Re-cap on the way out: OTel's TraceStateImpl.set() does NOT enforce the 512-char limit
+  // (only _parse does), so a vendor .set() can push a capped-on-input tracestate back over
+  // it. An over-length header isn't clipped downstream — the next hop's createTraceState
+  // drops it entirely.
+  const tracestate = serializedTraceState
+    ? formatTracestate(parseTracestate(serializedTraceState))
+    : undefined
+  return tracestate ? { ...meta, traceparent, tracestate } : { ...meta, traceparent }
 }
 
 /**
@@ -64,17 +61,16 @@ export function extractW3CTraceContext(meta: Record<string, unknown>): Context |
   if (parsed == null) {
     return undefined
   }
-  const spanContext: SpanContext = {
-    traceId: parsed.traceID,
-    spanId: parsed.spanID,
-    traceFlags: parsed.traceFlags,
-    isRemote: true,
-  }
+  let traceState: ReturnType<typeof createTraceState> | undefined
   if (typeof meta.tracestate === 'string') {
     const formatted = formatTracestate(parseTracestate(meta.tracestate))
     if (formatted !== '') {
-      spanContext.traceState = createTraceState(formatted)
+      traceState = createTraceState(formatted)
     }
+  }
+  const spanContext = toRemoteSpanContext(parsed, traceState)
+  if (spanContext == null) {
+    return undefined
   }
   return trace.setSpanContext(ROOT_CONTEXT, spanContext)
 }

@@ -3,6 +3,10 @@ import { logger } from './log.js'
 export type TracestateEntry = { key: string; value: string }
 
 const MAX_ENTRIES = 32
+// Also OTel's MAX_TRACE_STATE_LEN: hand TraceStateImpl a longer header and _parse bails
+// early, leaving the trace state *empty*. An untruncated header is dropped entirely
+// downstream, not clipped — so we truncate from the end ourselves (W3C §3.3.3).
+const MAX_HEADER_LENGTH = 512
 
 // Key: simple-key (lcalpha then up to 255 of lcalpha/DIGIT/_-*/) or
 // multi-tenant tenant@system form.
@@ -21,23 +25,47 @@ function isValidValue(value: string): boolean {
 }
 
 /**
- * Format a W3C tracestate header value. Drops members with invalid keys or
- * values, caps at 32 entries, and preserves the given order. Never throws.
+ * Format a W3C tracestate header value. Drops invalid members and duplicate keys (first
+ * occurrence wins, matching `parseTracestate`), caps at 32 entries and 512 characters,
+ * preserves order. Never throws.
+ *
+ * Truncation drops whole members, never mid-value, so the result is always a valid header.
  */
 export function formatTracestate(entries: Array<TracestateEntry>): string {
   const out: Array<string> = []
+  const seen = new Set<string>()
   for (const entry of entries) {
     if (!isValidKey(entry.key) || !isValidValue(entry.value)) {
       logger.warn('dropping invalid tracestate member {key}', { key: entry.key })
+      continue
+    }
+    if (seen.has(entry.key)) {
+      logger.warn('dropping duplicate tracestate member {key}', { key: entry.key })
       continue
     }
     if (out.length >= MAX_ENTRIES) {
       logger.warn('tracestate exceeds 32 entries, dropping {key}', { key: entry.key })
       continue
     }
+    seen.add(entry.key)
     out.push(`${entry.key}=${entry.value}`)
   }
-  return out.join(',')
+
+  let length = 0
+  const capped: Array<string> = []
+  for (const member of out) {
+    const additional = member.length + (capped.length > 0 ? 1 : 0)
+    if (length + additional > MAX_HEADER_LENGTH) {
+      logger.warn('tracestate header exceeds 512 characters, truncating from {key}', {
+        key: member.slice(0, member.indexOf('=')),
+      })
+      break
+    }
+    capped.push(member)
+    length += additional
+  }
+
+  return capped.join(',')
 }
 
 /**

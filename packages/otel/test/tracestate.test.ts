@@ -1,3 +1,4 @@
+import { createTraceState } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
 import { formatTracestate, parseTracestate } from '../src/tracestate.js'
@@ -45,6 +46,110 @@ describe('formatTracestate', () => {
         { key: 'keep', value: 'ok' },
       ]),
     ).toBe('keep=ok')
+  })
+
+  test('drops duplicate keys, keeping the first occurrence', () => {
+    const result = formatTracestate([
+      { key: 'vendor', value: 'first' },
+      { key: 'other', value: 'kept' },
+      { key: 'vendor', value: 'second' },
+    ])
+    expect(result).toBe('vendor=first,other=kept')
+  })
+
+  test('dedupes before applying the 32-entry cap', () => {
+    // 40 duplicates of one key collapse to a single entry rather than
+    // tripping the cap and emitting a burst of drop warnings.
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      key: 'vendor',
+      value: `value${index}`,
+    }))
+    expect(formatTracestate(entries)).toBe('vendor=value0')
+  })
+
+  test('round-trips with parseTracestate', () => {
+    const header = 'vendor=first,other=kept'
+    expect(formatTracestate(parseTracestate(header))).toBe(header)
+  })
+
+  test('caps the serialized header at 512 characters, dropping whole trailing members', () => {
+    // Three ~252-char members: the first two fit within 512 (252 + 1 + 252 =
+    // 505), the third does not (505 + 1 + 252 = 758) and must be dropped
+    // entirely, not truncated mid-value.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(250) },
+      { key: 'b', value: 'x'.repeat(250) },
+      { key: 'c', value: 'x'.repeat(250) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBeLessThanOrEqual(512)
+    expect(header).toContain('a=')
+    expect(header).toContain('b=')
+    expect(header).not.toContain('c=')
+    // No half-member: every member present is a complete, valid `key=value`.
+    for (const member of header.split(',')) {
+      expect(member).toMatch(/^[a-z]=x+$/)
+    }
+
+    // This is the actual bug (W3C §3.3.3 / OTel's own 512-char limit): a
+    // tracestate header over 512 chars makes OTel's TraceStateImpl._parse
+    // bail out early and leave the trace state empty, so serialize() would
+    // yield '' and injectW3CTraceContext would omit tracestate entirely.
+    // Verify the truncated header survives that round-trip non-empty.
+    expect(createTraceState(header).serialize()).not.toBe('')
+    expect(createTraceState(header).serialize().length).toBeLessThanOrEqual(512)
+  })
+
+  test('keeps a header that is exactly 512 characters (comma included) intact', () => {
+    // Two members whose total length — INCLUDING the joining comma — is
+    // exactly 512: 'a=' + 253 x's (255 chars) + ',' (1) + 'b=' + 254 x's (256
+    // chars) = 512. The implementation's running-length check is
+    // `length + additional > MAX_HEADER_LENGTH`, so exactly 512 must survive
+    // (512 > 512 is false). A single-member header would never exercise the
+    // comma-accounting boundary, which is where an off-by-one is most likely
+    // to hide.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(253) },
+      { key: 'b', value: 'x'.repeat(254) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBe(512)
+    expect(header).toBe(`a=${'x'.repeat(253)},b=${'x'.repeat(254)}`)
+    expect(header).toContain('a=')
+    expect(header).toContain('b=')
+  })
+
+  test('truncates a header that would be 513 characters (comma included) by one over', () => {
+    // Same shape as the 512-exact case above but the second member's value is
+    // one character longer, pushing the comma-inclusive total to 513. The
+    // second member must be dropped entirely (513 > 512), leaving only the
+    // first — proving the cap trips at the correct byte, not one early or one
+    // late.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(253) },
+      { key: 'b', value: 'x'.repeat(255) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBe(255)
+    expect(header).toBe(`a=${'x'.repeat(253)}`)
+    expect(header).toContain('a=')
+    expect(header).not.toContain('b=')
+  })
+
+  test('truncates from the end: a member after one that alone exceeds 512 characters is also dropped', () => {
+    // A key can be up to 256 chars and a value up to 256 chars, so a single
+    // member can itself exceed the 512-char header cap. Truncation is "from
+    // the end" of the sequence — once a member doesn't fit, it and everything
+    // after it is dropped, even if a later member would fit on its own.
+    const entries = [
+      { key: 'a'.repeat(256), value: 'x'.repeat(256) },
+      { key: 'keep', value: 'ok' },
+    ]
+    const header = formatTracestate(entries)
+    expect(header).toBe('')
   })
 })
 

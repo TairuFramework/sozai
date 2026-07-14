@@ -16,15 +16,15 @@ export {
   parseBaggage,
 } from './baggage.js'
 export {
-  extractTraceContext,
   extractW3CTraceContext,
-  injectTraceContext,
+  injectW3CTraceContext,
   setSpanOnContext,
   withActiveContext,
 } from './context.js'
 export { createOTelLogSink } from './log-sink.js'
 export { traceLogger } from './logger.js'
 export { AttributeKeys, ZERO_TRACE_ID } from './semantic.js'
+export { isValidSpanID, isValidTraceID } from './span-context.js'
 export { formatTraceparent, parseTraceparent, type TraceparentData } from './traceparent.js'
 export {
   createTracerFactory,

@@ -1,7 +1,7 @@
 import { context, trace } from '@opentelemetry/api'
 import type { Logger } from '@sozai/log'
 
-import { ZERO_TRACE_ID } from './semantic.js'
+import { isValidTraceID } from './span-context.js'
 
 export function traceLogger(logger: Logger): Logger {
   const span = trace.getSpan(context.active())
@@ -9,7 +9,7 @@ export function traceLogger(logger: Logger): Logger {
     return logger
   }
   const ctx = span.spanContext()
-  if (ctx.traceId === ZERO_TRACE_ID) {
+  if (!isValidTraceID(ctx.traceId)) {
     return logger
   }
   return logger.with({ traceID: ctx.traceId, spanID: ctx.spanId })

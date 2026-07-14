@@ -42,7 +42,7 @@ slogger.debug('subsystem ready')
 
 ```ts
 import {
-  createTracer,
+  createTracerFactory,
   extractW3CTraceContext,
   formatTraceparent,
   getActiveTraceContext,
@@ -51,7 +51,7 @@ import {
   withSyncSpan,
 } from '@sozai/otel'
 
-const tracer = createTracer('myapp')
+const tracer = createTracerFactory('myapp')('worker')
 
 // --- Instrument an async operation ---
 async function processItem(id: string): Promise<void> {
@@ -88,8 +88,8 @@ function outgoingMeta(): Record<string, unknown> {
 ```
 
 **Key points:**
-- `createTracer(name)` registers a tracer as `sozai.<name>`. Create one per logical component, reuse it.
-- `withSpan` / `withSyncSpan` automatically set `SpanStatusCode.OK` on success and `SpanStatusCode.ERROR` (with `recordException`) on throw.
+- `createTracerFactory(prefix, version?)` returns a factory `(name: string) => Tracer` that registers a tracer as `<prefix>.<name>`; `version` is the *consuming* package's version, reported as the instrumentation-scope version. Build the factory once, call it per logical component, and reuse each `Tracer`.
+- `withSpan` / `withSyncSpan` leave the span status `Unset` on success, per OTel guidance, and set `SpanStatusCode.ERROR` (with `recordException`) on throw.
 - `extractW3CTraceContext` returns `undefined` when no valid `traceparent` is present — pass that `undefined` to `withActiveContext` and it falls back to the current active context with no overhead.
 - `getActiveTraceContext()` guards against no-op all-zero spans (e.g. when the SDK is not installed), returning `undefined` rather than a meaningless ID.
 
@@ -101,7 +101,7 @@ Wire `createOTelLogSink` as a LogTape sink so log records are emitted as OTel lo
 
 ```ts
 import { getConsoleSink, getLogger, setup } from '@sozai/log'
-import { createOTelLogSink, createTracer, traceLogger, withSpan } from '@sozai/otel'
+import { createOTelLogSink, createTracerFactory, traceLogger, withSpan } from '@sozai/otel'
 
 // At startup:
 setup({
@@ -114,7 +114,7 @@ setup({
   ],
 })
 
-const tracer = createTracer('myapp')
+const tracer = createTracerFactory('myapp')('worker')
 const baseLogger = getLogger(['myapp'])
 
 // Inside a span, stamp the logger with trace/span IDs:

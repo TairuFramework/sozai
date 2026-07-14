@@ -1,23 +1,45 @@
 import { context, trace } from '@opentelemetry/api'
-import { type LogAttributes, logs, type SeverityNumber } from '@opentelemetry/api-logs'
+import { type LogAttributes, logs, SeverityNumber } from '@opentelemetry/api-logs'
+import type { LogLevel, LogRecord } from '@sozai/log'
 
-type LogRecord = {
-  category: ReadonlyArray<string>
-  level: string
-  message: ReadonlyArray<string | (() => unknown)>
-  rawMessage: string
-  properties: Record<string, unknown>
-  timestamp: number
+const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
+  trace: SeverityNumber.TRACE,
+  debug: SeverityNumber.DEBUG,
+  info: SeverityNumber.INFO,
+  warning: SeverityNumber.WARN,
+  error: SeverityNumber.ERROR,
+  fatal: SeverityNumber.FATAL,
 }
 
-const LEVEL_TO_SEVERITY: Record<string, SeverityNumber> = {
-  trace: 1,
-  debug: 5,
-  info: 9,
-  warning: 13,
-  warn: 13,
-  error: 17,
-  fatal: 21,
+// Renders one segment of `record.message` (odd indices are interpolated values).
+//
+// Must never throw and never drop a value: logtape catches sink exceptions and
+// silently discards the record, so one bad interpolation loses the whole log line.
+// Three ways that happens, all guarded below:
+//   - JSON.stringify throws on a BigInt, a circular structure, a throwing `toJSON`.
+//   - JSON.stringify *returns undefined* (not a string) for a symbol, a function,
+//     or `undefined` — no throw, so it needs an explicit check or the value vanishes.
+//   - String() throws on a null-prototype object, or a throwing toString/Symbol.toPrimitive.
+function renderMessagePart(part: unknown, index: number): string {
+  if (typeof part === 'string') {
+    return part
+  }
+  let rendered: string | undefined
+  if (index % 2 !== 0) {
+    try {
+      rendered = JSON.stringify(part)
+    } catch {
+      rendered = undefined
+    }
+  }
+  if (rendered !== undefined) {
+    return rendered
+  }
+  try {
+    return String(part)
+  } catch {
+    return '[unrenderable]'
+  }
 }
 
 export function createOTelLogSink(): (record: LogRecord) => void {
@@ -31,10 +53,18 @@ export function createOTelLogSink(): (record: LogRecord) => void {
       'log.category': record.category.join('.'),
     }
 
+    // Method-call syntax keeps its placeholders in the body; the values ride in attributes.
+    // Tagged-template syntax can't: rawMessage holds the literal segments only and logtape
+    // leaves `properties` empty, so the values exist nowhere but record.message.
+    const body =
+      typeof record.rawMessage === 'string'
+        ? record.rawMessage
+        : record.message.map(renderMessagePart).join('')
+
     logger.emit({
-      severityNumber: (LEVEL_TO_SEVERITY[record.level] ?? 9) as SeverityNumber,
+      severityNumber: LEVEL_TO_SEVERITY[record.level],
       severityText: record.level,
-      body: record.rawMessage,
+      body,
       attributes,
       timestamp: record.timestamp,
       context: activeSpan ? context.active() : undefined,

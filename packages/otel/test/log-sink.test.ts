@@ -1,24 +1,252 @@
-import { describe, expect, test } from 'vitest'
+import type { Logger, LogRecord as OTelLogRecord } from '@opentelemetry/api-logs'
+import { logs, SeverityNumber } from '@opentelemetry/api-logs'
+import type { LogLevel } from '@sozai/log'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { createOTelLogSink } from '../src/log-sink.js'
 
+/** Spies on logs.getLogger() and returns the emitted OTel record captured via emit(). */
+function spyOnEmit(): { getEmitted: () => OTelLogRecord } {
+  let emitted: OTelLogRecord | undefined
+  const logger: Logger = {
+    emit: (record) => {
+      emitted = record
+    },
+    enabled: () => true,
+  }
+  vi.spyOn(logs, 'getLogger').mockReturnValue(logger)
+  return {
+    getEmitted: () => {
+      if (emitted == null) {
+        throw new Error('No log record was emitted')
+      }
+      return emitted
+    },
+  }
+}
+
 describe('createOTelLogSink', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   test('returns a function (Sink type)', () => {
     const sink = createOTelLogSink()
     expect(typeof sink).toBe('function')
   })
 
-  test('accepts a log record without throwing', () => {
+  test('renders a tagged-template body from record.message, interleaving substituted values', () => {
+    const { getEmitted } = spyOnEmit()
     const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['hello ', '!'], {
+      raw: ['hello ', '!'],
+    }) as unknown as TemplateStringsArray
+
+    sink({
+      category: ['sozai', 'server'],
+      level: 'info',
+      message: ['hello ', 'Alice', '!'],
+      rawMessage,
+      properties: {},
+      timestamp: Date.now(),
+    })
+
+    expect(getEmitted().body).toBe('hello Alice!')
+  })
+
+  test('leaves a method-call body unsubstituted, with values in attributes', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+
+    sink({
+      category: ['sozai', 'server'],
+      level: 'info',
+      message: ['Hello, ', 'Alice', '!'],
+      rawMessage: 'Hello, {name}!',
+      properties: { name: 'Alice' },
+      timestamp: Date.now(),
+    })
+
+    const emitted = getEmitted()
+    expect(emitted.body).toBe('Hello, {name}!')
+    expect(emitted.attributes).toMatchObject({ name: 'Alice' })
+  })
+
+  test('maps every logtape level to the matching OTel SeverityNumber', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const expectations: Array<[LogLevel, SeverityNumber]> = [
+      ['trace', SeverityNumber.TRACE],
+      ['debug', SeverityNumber.DEBUG],
+      ['info', SeverityNumber.INFO],
+      ['warning', SeverityNumber.WARN],
+      ['error', SeverityNumber.ERROR],
+      ['fatal', SeverityNumber.FATAL],
+    ]
+
+    for (const [level, severityNumber] of expectations) {
+      sink({
+        category: ['sozai'],
+        level,
+        message: ['msg'],
+        rawMessage: 'msg',
+        properties: {},
+        timestamp: Date.now(),
+      })
+      expect(getEmitted().severityNumber).toBe(severityNumber)
+    }
+  })
+
+  test('renders a non-string interpolated value as JSON, not [object Object]', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    sink({
+      category: ['sozai'],
+      level: 'info',
+      message: ['payload: ', { a: 1 }, ''],
+      rawMessage,
+      properties: {},
+      timestamp: Date.now(),
+    })
+
+    expect(getEmitted().body).toBe('payload: {"a":1}')
+  })
+
+  test('does not throw and still emits a body for a BigInt interpolated value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['count: ', ''], {
+      raw: ['count: ', ''],
+    }) as unknown as TemplateStringsArray
+
     expect(() =>
       sink({
-        category: ['sozai', 'server'],
+        category: ['sozai'],
         level: 'info',
-        message: ['server started'],
-        rawMessage: 'server started',
-        properties: { serverID: 'test-id' },
+        message: ['count: ', BigInt(10), ''],
+        rawMessage,
+        properties: {},
         timestamp: Date.now(),
       }),
     ).not.toThrow()
+
+    // JSON.stringify throws on BigInt; the sink must fall back rather than
+    // throw or silently drop the record.
+    expect(getEmitted().body).toBe('count: 10')
+  })
+
+  test('does not throw and still emits a body for a circular interpolated value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    const circular: Record<string, unknown> = { a: 1 }
+    circular.self = circular
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', circular, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    // JSON.stringify throws on a circular structure; the sink must fall back
+    // to String(part) rather than throw or silently drop the record.
+    expect(getEmitted().body).toBe('payload: [object Object]')
+  })
+
+  test('does not throw and still emits a body for a null-prototype circular value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // JSON.stringify throws (circular), and the naive String(part) fallback
+    // also throws here: a null-prototype object has no Object.prototype in
+    // its chain, so there is no toString/valueOf for ToPrimitive to fall
+    // back to, and String() throws a TypeError. The renderer must catch that
+    // too and emit a placeholder rather than propagate.
+    const circular: Record<string, unknown> = Object.create(null)
+    circular.self = circular
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', circular, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    expect(getEmitted().body).toBe('payload: [unrenderable]')
+  })
+
+  test('does not throw and still emits a body for a value whose toString/toJSON throw', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // toJSON throws, so JSON.stringify throws; toString also throws, so the
+    // String(part) fallback throws too. Both layers must be guarded.
+    const throwing = {
+      toJSON(): never {
+        throw new Error('toJSON boom')
+      },
+      toString(): never {
+        throw new Error('toString boom')
+      },
+    }
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', throwing, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    expect(getEmitted().body).toBe('payload: [unrenderable]')
+  })
+
+  test('renders an interpolated Symbol rather than dropping it from the body', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['s: ', ''], {
+      raw: ['s: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    // JSON.stringify(Symbol(...)) returns `undefined` without throwing, so
+    // this is not caught by a try/catch around JSON.stringify — the
+    // `undefined` return must be checked for explicitly, or the value
+    // vanishes from the body (`.join('')` silently coerces `undefined` to
+    // `''`).
+    sink({
+      category: ['sozai'],
+      level: 'info',
+      message: ['s: ', Symbol('x'), ''],
+      rawMessage,
+      properties: {},
+      timestamp: Date.now(),
+    })
+
+    expect(getEmitted().body).toBe('s: Symbol(x)')
   })
 })

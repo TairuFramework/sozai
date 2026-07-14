@@ -1,3 +1,4 @@
+import { SpanStatusCode } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -107,5 +108,54 @@ describe('withActiveBaggage', () => {
 
   test('accepts empty entries', () => {
     expect(withActiveBaggage([], () => 'ok')).toBe('ok')
+  })
+})
+
+describe('createTracerFactory version', () => {
+  test('accepts a caller-supplied version', () => {
+    const tracer = createTracerFactory('enkaku', '1.2.3')('client')
+    expect(tracer).toBeDefined()
+    expect(typeof tracer.startSpan).toBe('function')
+  })
+
+  test('works without a version', () => {
+    const tracer = createTracerFactory('enkaku')('client')
+    expect(tracer).toBeDefined()
+    expect(typeof tracer.startSpan).toBe('function')
+  })
+})
+
+describe('span status', () => {
+  test('leaves status UNSET on success rather than setting OK', () => {
+    // OTel reserves Ok for an explicit application override; instrumentation
+    // leaves the status Unset, which backends read as success.
+    const tracer = createTracer('test')
+    const statuses: Array<unknown> = []
+    withSyncSpan(tracer, 'test', {}, (span) => {
+      const original = span.setStatus.bind(span)
+      span.setStatus = (status) => {
+        statuses.push(status)
+        return original(status)
+      }
+      return 'ok'
+    })
+    expect(statuses).toEqual([])
+  })
+
+  test('still sets ERROR status when the callback throws', () => {
+    const tracer = createTracer('test')
+    const statuses: Array<{ code: number }> = []
+    expect(() =>
+      withSyncSpan(tracer, 'test', {}, (span) => {
+        const original = span.setStatus.bind(span)
+        span.setStatus = (status) => {
+          statuses.push(status as { code: number })
+          return original(status)
+        }
+        throw new Error('boom')
+      }),
+    ).toThrow('boom')
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0].code).toBe(SpanStatusCode.ERROR)
   })
 })

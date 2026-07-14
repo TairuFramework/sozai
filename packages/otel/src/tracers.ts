@@ -2,12 +2,18 @@ import type { Context, SpanOptions, Tracer } from '@opentelemetry/api'
 import { context, propagation, type Span, SpanStatusCode, trace } from '@opentelemetry/api'
 
 import { type BaggageEntry, baggageToEntries, entriesToBaggage } from './baggage.js'
-import { ZERO_TRACE_ID } from './semantic.js'
+import { isValidTraceID } from './span-context.js'
 
-const OTEL_PACKAGE_VERSION = '0.1.0'
-
-export function createTracerFactory(prefix: string): (name: string) => Tracer {
-  return (name: string): Tracer => trace.getTracer(`${prefix}.${name}`, OTEL_PACKAGE_VERSION)
+/**
+ * Build a tracer factory for a consuming package.
+ *
+ * `version` is the *consumer's* package version, not this package's: OTel defines the
+ * instrumentation-scope version as the version of the instrumentation library, and the
+ * tracer name (`prefix.name`) identifies the consumer. `undefined` is a legal scope
+ * version, so the parameter is optional.
+ */
+export function createTracerFactory(prefix: string, version?: string): (name: string) => Tracer {
+  return (name: string): Tracer => trace.getTracer(`${prefix}.${name}`, version)
 }
 
 export type TraceContext = {
@@ -26,8 +32,8 @@ export function getActiveTraceContext(): TraceContext | undefined {
     return undefined
   }
   const ctx = span.spanContext()
-  // Check for valid (non-zero) trace ID — no-op spans have all-zero IDs
-  if (ctx.traceId === ZERO_TRACE_ID) {
+  // No-op spans carry all-zero IDs; they are not a real trace context.
+  if (!isValidTraceID(ctx.traceId)) {
     return undefined
   }
   return {
@@ -57,9 +63,7 @@ export function withSyncSpan<T>(
   const span = tracer.startSpan(name, options, ctx)
   const spanCtx = trace.setSpan(ctx, span)
   try {
-    const result = context.with(spanCtx, () => fn(span))
-    span.setStatus({ code: SpanStatusCode.OK })
-    return result
+    return context.with(spanCtx, () => fn(span))
   } catch (error) {
     span.setStatus({
       code: SpanStatusCode.ERROR,
@@ -82,9 +86,7 @@ export async function withSpan<T>(
   const ctx = parentContext ?? context.active()
   return tracer.startActiveSpan(name, options, ctx, async (span) => {
     try {
-      const result = await fn(span)
-      span.setStatus({ code: SpanStatusCode.OK })
-      return result
+      return await fn(span)
     } catch (error) {
       span.setStatus({
         code: SpanStatusCode.ERROR,

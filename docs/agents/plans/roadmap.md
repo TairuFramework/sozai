@@ -37,6 +37,11 @@ folded in next to the otel work. Each is a self-contained unit (target: one PR).
 8. [log — setup() double-configuration guard + first tests](next/log-setup-guard.md) — small crash, pairs with otel.
 9. [infra — LICENSE files + changesets fixed-group decision](next/infra-license-and-versioning.md) — ship-blockers.
 
+## New packages (not audit-derived)
+
+- ✅ **Done** — [lock — cross-process file mutex](completed/2026-07-13-lock-package.complete.md).
+  New filesystem-based `@sozai/lock`, requested by kokuin. Follow-up: rebase `@tejika/process` onto it.
+
 ## Deferred (no freeze dependency)
 
 - [infra hygiene — turbo, test scripts, READMEs, keywords](backlog/infra-hygiene.md).

@@ -1,6 +1,6 @@
 ---
 name: sozai:runtime
-description: Platform runtime abstraction (fetch, randomness) and Expo binding
+description: Platform runtime abstraction (fetch, randomness), Expo binding, and cross-process file lock
 ---
 
 # Sozai Runtime
@@ -10,6 +10,8 @@ description: Platform runtime abstraction (fetch, randomness) and Expo binding
 **Platform-agnostic runtime**: `@sozai/runtime`
 
 **Expo / React Native binding**: `@sozai/runtime-expo`
+
+**Filesystem-based cross-process mutex**: `@sozai/lock`
 
 ## Key Patterns
 
@@ -117,6 +119,8 @@ const nonce = withHeaders.getRandomValues(new Uint8Array(32))
 - Add `polyfill()` at app startup to shim missing globals
 - Pass `expoRuntime` or `createRuntime()` where a `Runtime` is required
 - Pin to your Expo SDK version — the package follows the Expo SDK major and may update independently of the core
+
+**Use `@sozai/lock`** when two processes may touch the same resource and the store underneath has no compare-and-swap — e.g. a keystore whose write API is an unconditional upsert.
 
 ## Related Domains
 

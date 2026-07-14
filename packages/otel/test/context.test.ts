@@ -1,10 +1,11 @@
-import { trace } from '@opentelemetry/api'
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+import { type Context, context, ROOT_CONTEXT, trace } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
 import {
-  extractTraceContext,
   extractW3CTraceContext,
-  injectTraceContext,
+  injectW3CTraceContext,
   setSpanOnContext,
   withActiveContext,
 } from '../src/context.js'
@@ -12,58 +13,44 @@ import { createTracerFactory } from '../src/tracers.js'
 
 const createTracer = createTracerFactory('test')
 
-describe('injectTraceContext', () => {
-  test('returns header unchanged when no active span', () => {
-    const header = { typ: 'JWT', alg: 'none' as const }
-    const result = injectTraceContext(header)
-    expect(result).toEqual(header)
-    expect(result).not.toHaveProperty('tid')
-    expect(result).not.toHaveProperty('sid')
-  })
+// `@opentelemetry/api`'s default NoopContextManager makes `context.with()` a
+// pass-through and `context.active()` always return ROOT_CONTEXT — without a
+// ContextManager registered, activation never actually propagates. No package
+// in this repo registers one (that's a real SDK's job at startup), so the
+// round-trip and tracestate tests below need a minimal one to make
+// `withActiveContext` observably "activate" its argument. This uses Node's
+// core `async_hooks` directly rather than pulling in an OTel SDK package or
+// tracer/exporter — it is scoped to this test file only.
+class TestContextManager {
+  #storage = new AsyncLocalStorage<Context>()
 
-  test('preserves existing header properties', () => {
-    const header = { typ: 'JWT', alg: 'none' as const, custom: 'value' }
-    const result = injectTraceContext(header)
-    expect(result.custom).toBe('value')
-  })
-})
+  active(): Context {
+    return this.#storage.getStore() ?? ROOT_CONTEXT
+  }
 
-describe('extractTraceContext', () => {
-  test('returns undefined when header has no trace fields', () => {
-    const header = { typ: 'JWT', alg: 'none' }
-    expect(extractTraceContext(header)).toBeUndefined()
-  })
+  with<A extends Array<unknown>, F extends (...args: A) => ReturnType<F>>(
+    ctx: Context,
+    fn: F,
+    thisArg?: ThisParameterType<F>,
+    ...args: A
+  ): ReturnType<F> {
+    return this.#storage.run(ctx, () => fn.apply(thisArg, args))
+  }
 
-  test('returns undefined when tid is missing', () => {
-    const header = { typ: 'JWT', alg: 'none', sid: '1234567890abcdef' }
-    expect(extractTraceContext(header)).toBeUndefined()
-  })
+  bind<T>(_ctx: Context, target: T): T {
+    return target
+  }
 
-  test('returns undefined when sid is missing', () => {
-    const header = { typ: 'JWT', alg: 'none', tid: '0af7651916cd43dd8448eb211c80319c' }
-    expect(extractTraceContext(header)).toBeUndefined()
-  })
+  enable(): this {
+    return this
+  }
 
-  test('returns context when both tid and sid are present', () => {
-    const header = {
-      typ: 'JWT',
-      alg: 'none',
-      tid: '0af7651916cd43dd8448eb211c80319c',
-      sid: '00f067aa0ba902b7',
-    }
-    const result = extractTraceContext(header)
-    expect(result).toBeDefined()
+  disable(): this {
+    return this
+  }
+}
 
-    // Verify the span context extracted from the returned OTel Context
-    const otelContext = result as NonNullable<typeof result>
-    const span = trace.getSpan(otelContext)
-    expect(span).toBeDefined()
-    const spanCtx = (span as NonNullable<typeof span>).spanContext()
-    expect(spanCtx.traceId).toBe('0af7651916cd43dd8448eb211c80319c')
-    expect(spanCtx.spanId).toBe('00f067aa0ba902b7')
-    expect(spanCtx.isRemote).toBe(true)
-  })
-})
+context.setGlobalContextManager(new TestContextManager())
 
 describe('withActiveContext', () => {
   test('executes function and returns its result', () => {
@@ -120,5 +107,73 @@ describe('extractW3CTraceContext', () => {
     const ctx = extractW3CTraceContext({ traceparent, tracestate: 'vendor=value' })
     const span = trace.getSpan(ctx as NonNullable<typeof ctx>)
     expect((span as NonNullable<typeof span>).spanContext().traceState?.get('vendor')).toBe('value')
+  })
+
+  test('returns undefined for an all-zero trace ID', () => {
+    expect(
+      extractW3CTraceContext({
+        traceparent: `00-${'0'.repeat(32)}-00f067aa0ba902b7-01`,
+      }),
+    ).toBeUndefined()
+  })
+
+  test('returns undefined for an all-zero span ID', () => {
+    expect(
+      extractW3CTraceContext({
+        traceparent: `00-0af7651916cd43dd8448eb211c80319c-${'0'.repeat(16)}-01`,
+      }),
+    ).toBeUndefined()
+  })
+})
+
+describe('injectW3CTraceContext', () => {
+  test('returns meta unchanged when no span is active', () => {
+    const meta = { procedure: 'test' }
+    const result = injectW3CTraceContext(meta)
+    expect(result).toEqual(meta)
+    expect(result).not.toHaveProperty('traceparent')
+  })
+
+  test('returns meta unchanged for a no-op span with all-zero IDs', () => {
+    // Without an SDK registered, startSpan produces a no-op span. Stamping its
+    // all-zero IDs would hand a downstream service an invalid parent.
+    const tracer = createTracer('test')
+    const span = tracer.startSpan('test')
+    const meta = withActiveContext(setSpanOnContext(undefined, span), () =>
+      injectW3CTraceContext({ procedure: 'test' }),
+    )
+    span.end()
+    expect(meta).not.toHaveProperty('traceparent')
+  })
+
+  test('preserves existing meta properties', () => {
+    const result = injectW3CTraceContext({ procedure: 'test', requestID: 'abc' })
+    expect(result.procedure).toBe('test')
+    expect(result.requestID).toBe('abc')
+  })
+
+  test('round-trips through extractW3CTraceContext', () => {
+    const traceparent = '00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01'
+    const parentContext = extractW3CTraceContext({ traceparent })
+    const meta = withActiveContext(parentContext, () =>
+      injectW3CTraceContext<Record<string, unknown>>({}),
+    )
+    expect(meta.traceparent).toBe(traceparent)
+  })
+
+  test('stamps tracestate when the active span carries one', () => {
+    const traceparent = '00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01'
+    const parentContext = extractW3CTraceContext({ traceparent, tracestate: 'vendor=value' })
+    const meta = withActiveContext(parentContext, () =>
+      injectW3CTraceContext<Record<string, unknown>>({}),
+    )
+    expect(meta.tracestate).toBe('vendor=value')
+  })
+
+  test('omits tracestate when the active span has none', () => {
+    const traceparent = '00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01'
+    const parentContext = extractW3CTraceContext({ traceparent })
+    const meta = withActiveContext(parentContext, () => injectW3CTraceContext({}))
+    expect(meta).not.toHaveProperty('tracestate')
   })
 })

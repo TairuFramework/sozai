@@ -41,11 +41,14 @@ limit, not a surprise. It bites two populations:
 
 Recorded here so they are not rediscovered as bugs:
 
-- **`reapLockFile` has a residual TOCTOU window.** The inode guard is `statSync` then `rmSync` — two
-  syscalls — so two waiters that both classify the same stale inode can interleave such that the
-  second unlinks the first's *fresh* lock. POSIX has no unlink-if-inode, so it cannot be closed with
-  name operations; it is narrowed by jittering before a reap so waiters released by one stale lock do
-  not reap in lockstep.
+- **`reapLockFile` has a residual TOCTOU window.** The guard reads the lockfile and then unlinks it —
+  two syscalls — so two waiters that both classify the same stale lock can interleave such that the
+  second unlinks the first's *fresh* lock. POSIX has no unlink-if-identity, so it cannot be closed
+  with name operations; it is narrowed by jittering before a reap so waiters released by one stale
+  lock do not reap in lockstep. (The identity compared is the record's per-claim **nonce**, not the
+  inode: inode numbers are recycled on unlink — routinely on linux — so an inode-only guard let a
+  reaper unlink the very lock that had just replaced the stale one it was reaping. CI on Linux
+  caught this; macOS/APFS never recycles an inode number, so it was green locally.)
 - **A pid recycled within a single boot wedges the lock.** A SIGKILLed holder whose lockfile outlives
   the pid space wrapping probes as alive and is never reaped. Availability-only — it fails loud
   (acquire throws) rather than silently, and a `maxHoldTime` outer bound was rejected because it

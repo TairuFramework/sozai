@@ -64,8 +64,9 @@ event loop for minutes (an OS keychain prompt). Everywhere else, the `staleTimeo
   it strands the process here permanently).
 - **A pid recycled within one boot wedges the lock** until a reboot or a manual `rm`. Availability
   failure, not an exclusion one; the deliberate price of never bounding hold time.
-- Reaping a stale lock is inode-guarded but not atomic (`statSync` then `rmSync`), so a rare
-  crash-only interleaving can have one waiter unlink another's fresh lock. Jitter before reaping
-  narrows it; POSIX has no unlink-if-inode, so it isn't closed.
+- Reaping a stale lock is guarded (the lockfile must still carry the record that was classified
+  stale) but not atomic — the read and the unlink are separate syscalls — so a rare interleaving can
+  still have one waiter unlink another's fresh lock. Jitter before reaping narrows it; POSIX has no
+  unlink-if-identity, so it isn't closed.
 - The exit hook runs on `process.exit()` and event-loop drain, not on a default-handled
   `SIGINT`/`SIGTERM`. Benign: the next waiter finds the pid dead and reaps immediately.

@@ -1,6 +1,6 @@
 import { onAbort, raceSignal, ScheduledTimeout, TimeoutInterruption } from '@sozai/async'
 
-import { claimLockFile, reapLockFile } from './file.js'
+import { claimLockFile, type LockEntry, reapLockFile } from './file.js'
 import { isStale } from './liveness.js'
 import { enterQueue } from './queue.js'
 import { createLockRecord, retryBootIDRead } from './record.js'
@@ -30,7 +30,7 @@ export type FileLockOptions = {
 
 export type FileLock = Disposable & {
   readonly path: string
-  /** Unlink the lockfile, but only while it still holds the inode we linked. Idempotent. */
+  /** Unlink the lockfile, but only while it is still the one we claimed. Idempotent. */
   release(): void
 }
 
@@ -45,18 +45,19 @@ const DEFAULT_MAX_RETRY_DELAY = 250
  * skips `'exit'`, and SIGKILL always does. That's fine: a signalled process's pid is
  * gone, so the next waiter's probe returns `'dead'` and reaps at once, no TTL wait.
  */
-const heldLocks = new Set<{ path: string; inode: number }>()
+type HeldLock = { path: string; entry: LockEntry }
+
+const heldLocks = new Set<HeldLock>()
 let exitHookInstalled = false
 
-function trackHeldLock(entry: { path: string; inode: number }): void {
-  heldLocks.add(entry)
+function trackHeldLock(held: HeldLock): void {
+  heldLocks.add(held)
   if (!exitHookInstalled) {
     exitHookInstalled = true
     process.on('exit', () => {
-      for (const held of heldLocks) {
-        // Inode-guarded, like `release()` — see `reapLockFile` for the residual window
-        // this cannot close.
-        reapLockFile(held.path, held.inode)
+      for (const { path, entry } of heldLocks) {
+        // Guarded, like `release()` — see `reapLockFile` for the residual window this cannot close.
+        reapLockFile(path, entry)
       }
     })
   }
@@ -151,8 +152,8 @@ export async function acquireFileLock(
       controller.signal.throwIfAborted()
 
       const result = claimLockFile(lockPath, record)
-      if ('inode' in result) {
-        const held = { path: lockPath, inode: result.inode }
+      if ('held' in result) {
+        const held = { path: lockPath, entry: result.held }
         trackHeldLock(held)
 
         let released = false
@@ -162,7 +163,7 @@ export async function acquireFileLock(
           }
           released = true
           heldLocks.delete(held)
-          reapLockFile(lockPath, held.inode)
+          reapLockFile(lockPath, held.entry)
           slot.release()
         }
         return { path: lockPath, release, [Symbol.dispose]: release }
@@ -171,12 +172,12 @@ export async function acquireFileLock(
       const entry = result.conflict
       if (entry.inode != null && isStale(entry, staleTimeout)) {
         if (!tryLock) {
-          // Desynchronize before reaping: `reapLockFile` is inode-guarded but not atomic,
-          // and lockstep reaping by multiple waiters is exactly what a stale lock
-          // produces. A try-lock skips this and accepts the odds.
+          // Desynchronize before reaping: `reapLockFile` is guarded but not atomic, and
+          // lockstep reaping by multiple waiters is exactly what a stale lock produces.
+          // A try-lock skips this and accepts the odds.
           await sleepFor(Math.random() * retryDelay, controller.signal)
         }
-        if (reapLockFile(lockPath, entry.inode)) {
+        if (reapLockFile(lockPath, entry)) {
           // The holder is gone and its file with it. Claim again immediately.
           continue
         }

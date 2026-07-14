@@ -22,7 +22,7 @@ export type LockEntry = {
   mtimeMs: number | null
 }
 
-export type ClaimResult = { inode: number } | { conflict: LockEntry }
+export type ClaimResult = { held: LockEntry } | { conflict: LockEntry }
 
 /** Old enough that no claim can still be mid-flight. */
 const TEMP_RECORD_MAX_AGE_MS = 10_000
@@ -59,10 +59,16 @@ export function readLockEntry(lockPath: string): LockEntry {
 }
 
 /** Write the record to a fresh sibling file, complete before it has a name a reader could look up. */
-function writeTempRecord(lockPath: string, record: LockRecord): { tmpPath: string; inode: number } {
+function writeTempRecord(
+  lockPath: string,
+  record: LockRecord,
+): { tmpPath: string; entry: LockEntry } {
   const tmpPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   writeFileSync(tmpPath, JSON.stringify(record), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-  return { tmpPath, inode: statSync(tmpPath).ino }
+  // `linkSync` gives the lockfile this same inode, and hard-linking touches ctime, not mtime,
+  // so this identity is exactly what a later `readLockEntry(lockPath)` reads back.
+  const stats = statSync(tmpPath)
+  return { tmpPath, entry: { record, inode: stats.ino, mtimeMs: stats.mtimeMs } }
 }
 
 /**
@@ -107,12 +113,12 @@ export function sweepTempRecords(lockPath: string): void {
  * zero-byte file visible for a moment; a racer reading it there concludes "nobody home"
  * and reaps the winner's fresh lock.)
  *
- * The winner gets the inode it linked, which it must present to release the lock.
+ * The winner gets the entry it linked, which it must present to release the lock.
  * Losers get the conflicting entry and must unlink nothing.
  */
 export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult {
   mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 })
-  const { tmpPath, inode } = writeTempRecord(lockPath, record)
+  const { tmpPath, entry } = writeTempRecord(lockPath, record)
 
   try {
     linkSync(tmpPath, lockPath)
@@ -134,38 +140,46 @@ export function claimLockFile(lockPath: string, record: LockRecord): ClaimResult
   // tidy up the temp files its crash may have orphaned.
   sweepTempRecords(lockPath)
 
-  return { inode }
-}
-
-function inodeOf(lockPath: string): number | null {
-  try {
-    return statSync(lockPath).ino
-  } catch {
-    return null
-  }
+  return { held: entry }
 }
 
 /**
- * Unlink the lockfile only if its inode still matches `expectedInode`. Required: an
- * unguarded unlink removes whatever now sits at the path, which — after any await — may
- * be a different holder's live lock. Read the inode with `readLockEntry` at the same
- * moment you read the record you are classifying, and present it here.
+ * Is the lockfile at the path still the one `expected` was read from?
  *
- * Returns whether the file was removed. Losing this race is not an error: the winner's
- * lock is simply left alone.
- *
- * GUARDED, NOT ATOMIC: `statSync` and `rmSync` are two syscalls, and POSIX offers no
- * unlink-if-inode, so a residual window remains where two waiters reaping the same stale
- * lock in lockstep can both believe they won it. `acquireFileLock` jitters before reaping
- * so N waiters released by one stale lock do not step through that window together — a
- * probabilistic mitigation, not a proof. This is the one place this package's exclusion
- * is not absolute.
+ * The inode alone does NOT answer this: the kernel recycles an inode number as soon as the file
+ * is unlinked, so on linux the lock claimed right after a stale one is reaped routinely lands on
+ * the very inode the reaper is holding as its "stale" identity. The record's nonce is per-claim
+ * and cannot be recycled. A record we cannot parse has no nonce, so an unidentifiable holder is
+ * dated by mtime instead — and must still be unparseable now, or it is not the file we read.
  */
-export function reapLockFile(lockPath: string, expectedInode: number): boolean {
-  if (inodeOf(lockPath) !== expectedInode) {
+function isSameLockFile(current: LockEntry, expected: LockEntry): boolean {
+  if (current.inode == null || current.inode !== expected.inode) {
     return false
   }
+  return expected.record == null
+    ? current.record == null && current.mtimeMs === expected.mtimeMs
+    : current.record?.nonce === expected.record.nonce
+}
+
+/**
+ * Unlink the lockfile only while it is still the file `expected` was read from — otherwise an
+ * unlink removes whatever now sits at the path, which after any await may be another holder's
+ * live lock. Present the entry `readLockEntry` (or `claimLockFile`) gave you.
+ *
+ * Returns whether the file was removed. Losing this race is not an error: the winner's lock is
+ * simply left alone.
+ *
+ * GUARDED, NOT ATOMIC: the read and the `rmSync` are separate syscalls, and POSIX offers no
+ * unlink-if-inode, so a residual window remains where two waiters reaping the same stale lock in
+ * lockstep can both believe they won it. `acquireFileLock` jitters before reaping so N waiters
+ * released by one stale lock do not step through that window together — a probabilistic
+ * mitigation, not a proof. This is the one place this package's exclusion is not absolute.
+ */
+export function reapLockFile(lockPath: string, expected: LockEntry): boolean {
   try {
+    if (!isSameLockFile(readLockEntry(lockPath), expected)) {
+      return false
+    }
     rmSync(lockPath)
     return true
   } catch {

@@ -235,12 +235,15 @@ is an availability failure, not an exclusion failure: it fails in the safe direc
 two processes into the critical section. It is the deliberate price of rejecting a `maxHoldTime`
 outer bound, which would re-open the reap-a-live-holder hole the rest of the design exists to close.
 
-Reaping a stale lock is inode-guarded, not provably atomic: the guard is `statSync` then `rmSync`,
-two syscalls, so a residual window remains where two waiters classifying the same stale lock in
-lockstep can have one unlink the other's freshly-claimed live lock. POSIX has no unlink-if-inode, so
-this can't be closed with name operations; a jitter before reaping (uniform in `[0, retryDelay)`,
-skipped by a try-lock) desynchronizes waiters released together so this doesn't happen in practice —
-a mitigation, not a proof, and the one place this package's exclusion is probabilistic.
+Reaping a stale lock is guarded, not provably atomic: the reaper unlinks the lockfile only while it
+still carries the record it classified stale — identified by a per-claim **nonce**, never by the
+inode, because an inode number is recycled the moment the file is unlinked (routinely on linux) and
+so names a slot, not a file. Reading and unlinking are still two syscalls, so a residual window
+remains where two waiters classifying the same stale lock in lockstep can have one unlink the
+other's freshly-claimed live lock. POSIX has no unlink-if-identity, so this can't be closed with name
+operations; a jitter before reaping (uniform in `[0, retryDelay)`, skipped by a try-lock)
+desynchronizes waiters released together so this doesn't happen in practice — a mitigation, not a
+proof, and the one place this package's exclusion is probabilistic.
 
 The exit-cleanup hook releases held locks on `process.exit()` and a natural event-loop drain only —
 a default-handled `SIGINT`/`SIGTERM` terminates Node without emitting `'exit'`, so it does not run

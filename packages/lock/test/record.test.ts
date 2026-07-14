@@ -15,6 +15,7 @@ function validRecord() {
   return {
     pid: 123,
     hostname: 'host-a',
+    nonce: 'a1b2c3d4e5f60718',
     bootID: 'e6f0c1a2-0000-4000-8000-000000000000',
     bootAt: 1_000,
     startedAt: 2_000,
@@ -139,17 +140,22 @@ describe('isLockRecord()', () => {
     ['missing hostname', { pid: 1, bootAt: 1, startedAt: 1 }],
     ['empty hostname', { ...validRecord(), hostname: '' }],
     ['non-string hostname', { ...validRecord(), hostname: 42 }],
+    // The nonce is what tells a fresh lock from the reaped one whose inode it inherited. A record
+    // without one cannot be reaped safely, and an empty one would match another empty one.
+    ['missing nonce', { ...validRecord(), nonce: undefined }],
+    ['empty nonce', { ...validRecord(), nonce: '' }],
+    ['non-string nonce', { ...validRecord(), nonce: 42 }],
     // `undefined` is not `null`: a record with no bootID FIELD is not one this package wrote, and
     // guessing which boot it came from is exactly what must not be guessed.
-    ['missing bootID', { pid: 1, hostname: 'h', bootAt: 1, startedAt: 1, uptimeAt: 1 }],
+    ['missing bootID', { ...validRecord(), bootID: undefined }],
     ['non-string, non-null bootID', { ...validRecord(), bootID: 42 }],
     // An empty boot ID would compare EQUAL to another empty one, manufacturing a "same boot" proof
     // out of two failed reads. Both sides write null instead; refuse the empty string here.
     ['empty bootID', { ...validRecord(), bootID: '' }],
     ['non-finite bootAt', { ...validRecord(), bootAt: Number.POSITIVE_INFINITY }],
-    ['missing startedAt', { pid: 1, hostname: 'h', bootAt: 1, uptimeAt: 1 }],
+    ['missing startedAt', { ...validRecord(), startedAt: undefined }],
     ['non-finite startedAt', { ...validRecord(), startedAt: Number.NaN }],
-    ['missing uptimeAt', { pid: 1, hostname: 'h', bootAt: 1, startedAt: 1 }],
+    ['missing uptimeAt', { ...validRecord(), uptimeAt: undefined }],
     ['non-finite uptimeAt', { ...validRecord(), uptimeAt: Number.POSITIVE_INFINITY }],
     ['non-number uptimeAt', { ...validRecord(), uptimeAt: '3000' }],
     // Uptime cannot run backwards from the boot: a negative one is not a record we wrote.

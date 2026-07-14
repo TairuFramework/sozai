@@ -54,6 +54,7 @@ function localRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   return {
     pid: process.pid,
     hostname: hostname(),
+    nonce: 'b2c3d4e5f6071829',
     bootID: ourBootID.value,
     bootAt: getBootAt(),
     startedAt: Date.now(),

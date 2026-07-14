@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { hostname, platform, uptime } from 'node:os'
 
@@ -9,6 +10,12 @@ import { hostname, platform, uptime } from 'node:os'
 export type LockRecord = {
   pid: number
   hostname: string
+  /**
+   * Identifies THIS claim. Load-bearing: an inode number is recycled the moment the file is
+   * unlinked — routinely, on linux — so it names a slot, not a file, and cannot tell a
+   * freshly-claimed lock from the reaped one that occupied the slot before it. See `reapLockFile`.
+   */
+  nonce: string
   /** OS-provided boot identity, or `null` where the platform publishes none. See `checkLiveness`. */
   bootID: string | null
   /** Host boot time in ms since epoch — fallback for `bootID`, clock-step-vulnerable. See `checkLiveness`. */
@@ -133,6 +140,7 @@ export function createLockRecord(): LockRecord {
   return {
     pid: process.pid,
     hostname: hostname(),
+    nonce: randomBytes(8).toString('hex'),
     bootID: getBootID(),
     bootAt: getBootAt(),
     startedAt: Date.now(),
@@ -154,6 +162,10 @@ export function isLockRecord(value: unknown): value is LockRecord {
     record.pid > 0 &&
     typeof record.hostname === 'string' &&
     record.hostname !== '' &&
+    // An empty nonce would compare EQUAL to another empty one, faking a same-claim match on a
+    // recycled inode — the one thing the nonce exists to rule out.
+    typeof record.nonce === 'string' &&
+    record.nonce !== '' &&
     // `null` is legitimate (no boot ID on this platform). An empty string is not — it would
     // fake a "same boot" match between two failed reads.
     (record.bootID === null || (typeof record.bootID === 'string' && record.bootID !== '')) &&

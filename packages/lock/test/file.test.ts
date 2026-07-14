@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import {
   mkdirSync,
   mkdtempSync,
@@ -33,6 +34,7 @@ function foreignRecord(overrides: Partial<LockRecord> = {}): LockRecord {
   return {
     pid: 999_999,
     hostname: 'other-host',
+    nonce: randomBytes(8).toString('hex'),
     bootID: 'a3e1f0d2-0000-4000-8000-otherhost',
     bootAt: 1_000,
     startedAt: 2_000,
@@ -46,7 +48,8 @@ describe('claimLockFile()', () => {
     const record = createLockRecord()
     const result = claimLockFile(lockPath, record)
 
-    expect(result).toEqual({ inode: statSync(lockPath).ino })
+    const stats = statSync(lockPath)
+    expect(result).toEqual({ held: { record, inode: stats.ino, mtimeMs: stats.mtimeMs } })
     expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(record)
   })
 
@@ -146,11 +149,11 @@ describe('readLockEntry()', () => {
 })
 
 describe('reapLockFile()', () => {
-  test('unlinks the file when the inode still matches', () => {
+  test('unlinks the file it was given', () => {
     claimLockFile(lockPath, foreignRecord())
-    const { inode } = readLockEntry(lockPath)
+    const entry = readLockEntry(lockPath)
 
-    expect(reapLockFile(lockPath, inode as number)).toBe(true)
+    expect(reapLockFile(lockPath, entry)).toBe(true)
     expect(readLockEntry(lockPath).record).toBeNull()
   })
 
@@ -158,18 +161,46 @@ describe('reapLockFile()', () => {
   // await may be a different holder's live lock. This is the test that pins that down.
   test('refuses to unlink when the file has been replaced under it', () => {
     claimLockFile(lockPath, foreignRecord())
-    const staleInode = readLockEntry(lockPath).inode as number
+    const stale = readLockEntry(lockPath)
 
     rmSync(lockPath)
     const newHolder = foreignRecord({ pid: 4242 })
     claimLockFile(lockPath, newHolder)
 
-    expect(reapLockFile(lockPath, staleInode)).toBe(false)
+    expect(reapLockFile(lockPath, stale)).toBe(false)
     expect(readLockEntry(lockPath).record).toEqual(newHolder)
   })
 
+  // The test above only bites where the kernel hands the freed inode number back — which linux
+  // does and APFS does not. Force the collision so the nonce is what has to catch it.
+  test('refuses to unlink a replacement that inherited the reaped file’s inode', () => {
+    const stale = foreignRecord()
+    const newHolder = foreignRecord({ pid: 4242 })
+    claimLockFile(lockPath, newHolder)
+    const current = readLockEntry(lockPath)
+
+    expect(reapLockFile(lockPath, { ...current, record: stale })).toBe(false)
+    expect(readLockEntry(lockPath).record).toEqual(newHolder)
+  })
+
+  // An unparseable holder has no nonce, so its identity is the inode plus the mtime it was read
+  // with. Same forced collision, and the mtime is what has to catch it.
+  test('refuses to unlink an unparseable file that is not the one it read', () => {
+    claimLockFile(lockPath, foreignRecord())
+    writeFileSync(lockPath, 'garbage')
+    utimesSync(lockPath, new Date(1_000), new Date(1_000))
+    const corrupt = readLockEntry(lockPath)
+
+    rmSync(lockPath)
+    writeFileSync(lockPath, 'different garbage')
+    const current = readLockEntry(lockPath)
+
+    expect(reapLockFile(lockPath, { ...corrupt, inode: current.inode })).toBe(false)
+    expect(readFileSync(lockPath, 'utf8')).toBe('different garbage')
+  })
+
   test('returns false for a missing file', () => {
-    expect(reapLockFile(lockPath, 12_345)).toBe(false)
+    expect(reapLockFile(lockPath, { record: null, inode: 12_345, mtimeMs: 1 })).toBe(false)
   })
 })
 

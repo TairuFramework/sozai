@@ -9,7 +9,9 @@ returns a `Disposable` handle. Acquisition blocks with jittered backoff and **th
 `TimeoutInterruption` when it cannot be taken within `timeout` (default 10s) — it never falls
 through and runs the section unlocked. `timeout: 0` is a deterministic try-lock. The lock is claimed
 by `link()`-ing a fully-written temp file into place, so no racer can read a half-written lockfile
-and conclude nobody holds it.
+and conclude nobody holds it. Reap and release are guarded on the record's per-claim nonce, not on
+the lockfile's inode: an inode number is recycled the moment the file is unlinked, so it names a
+slot rather than a file and cannot tell a fresh lock from the reaped one it replaced.
 
 Stale-lock recovery proves liveness rather than assuming it: a holder on this host, from this boot,
 whose pid answers `kill(pid, 0)` is never reaped, however long it holds — a critical section can
@@ -26,6 +28,7 @@ Known limits, all documented in the README:
   — so a live holder held past `staleTimeout` can be reaped by a >30s clock step or a hostname
   change.
 - A pid recycled within one boot wedges the lock (availability, not exclusion).
-- Reaping is inode-guarded but not atomic; POSIX has no unlink-if-inode.
+- Reaping is guarded but not atomic (the read and the unlink are separate syscalls); POSIX has no
+  unlink-if-identity.
 - `lockPath` must be on a local filesystem and must not be shared across hosts or containers.
 - Not reentrant. Acquisition can reject with `EACCES`/`EISDIR`, not only `TimeoutInterruption`.

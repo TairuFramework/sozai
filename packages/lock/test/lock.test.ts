@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,6 +61,7 @@ function unprovableHolder(startedAt: number): LockRecord {
   return {
     pid: 999_999,
     hostname: hostname(),
+    nonce: randomBytes(8).toString('hex'),
     bootID: 'f1c0de00-0000-4000-8000-notourboot',
     bootAt: getBootAt() - 10 * 60 * 60 * 1000,
     startedAt,
@@ -143,6 +145,7 @@ describe('acquireFileLock()', () => {
     claimLockFile(lockPath, {
       pid: 999_999,
       hostname: hostname(),
+      nonce: randomBytes(8).toString('hex'),
       bootID: getBootID(),
       bootAt: getBootAt(),
       startedAt: Date.now(),

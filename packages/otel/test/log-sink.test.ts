@@ -115,4 +115,53 @@ describe('createOTelLogSink', () => {
 
     expect(getEmitted().body).toBe('payload: {"a":1}')
   })
+
+  test('does not throw and still emits a body for a BigInt interpolated value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['count: ', ''], {
+      raw: ['count: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['count: ', BigInt(10), ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    // JSON.stringify throws on BigInt; the sink must fall back rather than
+    // throw or silently drop the record.
+    expect(getEmitted().body).toBe('count: 10')
+  })
+
+  test('does not throw and still emits a body for a circular interpolated value', () => {
+    const { getEmitted } = spyOnEmit()
+    const sink = createOTelLogSink()
+    const rawMessage = Object.assign(['payload: ', ''], {
+      raw: ['payload: ', ''],
+    }) as unknown as TemplateStringsArray
+
+    const circular: Record<string, unknown> = { a: 1 }
+    circular.self = circular
+
+    expect(() =>
+      sink({
+        category: ['sozai'],
+        level: 'info',
+        message: ['payload: ', circular, ''],
+        rawMessage,
+        properties: {},
+        timestamp: Date.now(),
+      }),
+    ).not.toThrow()
+
+    // JSON.stringify throws on a circular structure; the sink must fall back
+    // to String(part) rather than throw or silently drop the record.
+    expect(getEmitted().body).toBe('payload: [object Object]')
+  })
 })

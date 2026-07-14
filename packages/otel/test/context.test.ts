@@ -1,7 +1,5 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
-
-import { type Context, context, ROOT_CONTEXT, trace } from '@opentelemetry/api'
-import { afterAll, describe, expect, test } from 'vitest'
+import { context, trace } from '@opentelemetry/api'
+import { describe, expect, test } from 'vitest'
 
 import {
   extractW3CTraceContext,
@@ -10,66 +8,16 @@ import {
   withActiveContext,
 } from '../src/context.js'
 import { createTracerFactory } from '../src/tracers.js'
+import { useTestContextManager } from './helpers/context-manager.js'
 
 const createTracer = createTracerFactory('test')
 
-// `@opentelemetry/api`'s default NoopContextManager makes `context.with()` a
-// pass-through and `context.active()` always return ROOT_CONTEXT — without a
-// ContextManager registered, activation never actually propagates. No package
-// in this repo registers one (that's a real SDK's job at startup), so the
-// round-trip and tracestate tests below need a minimal one to make
-// `withActiveContext` observably "activate" its argument. This uses Node's
-// core `async_hooks` directly rather than pulling in an OTel SDK package or
-// tracer/exporter — it is scoped to this test file only.
-class TestContextManager {
-  #storage = new AsyncLocalStorage<Context>()
-
-  active(): Context {
-    return this.#storage.getStore() ?? ROOT_CONTEXT
-  }
-
-  with<A extends Array<unknown>, F extends (...args: A) => ReturnType<F>>(
-    ctx: Context,
-    fn: F,
-    thisArg?: ThisParameterType<F>,
-    ...args: A
-  ): ReturnType<F> {
-    return this.#storage.run(ctx, () => fn.apply(thisArg, args))
-  }
-
-  // Deliberately unimplemented: no test here crosses an async boundary that
-  // would need a context snapshot bound to it (e.g. an event emitter callback
-  // or a timer), so a no-op pass-through is correct for everything exercised
-  // in this file today. If a future test adds such a boundary, this must
-  // actually snapshot `ctx` and re-enter it when `target` runs, or that test
-  // will silently see the wrong active context.
-  bind<T>(_ctx: Context, target: T): T {
-    return target
-  }
-
-  enable(): this {
-    return this
-  }
-
-  disable(): this {
-    return this
-  }
-}
-
-// This registration mutates OTel's process-global registry with no automatic
-// teardown, which is only safe because vitest defaults to `isolate: true`
-// (fresh process per test file) and this repo pins no vitest config that
-// overrides that. It exists because, without it, `NoopContextManager` (the
+// Without a registered ContextManager, `NoopContextManager` (the
 // `@opentelemetry/api` default) discards whatever is passed to
 // `context.with()` and `context.active()` always returns `ROOT_CONTEXT` — the
-// context-activation tests below would then pass vacuously (see the comment
-// above `TestContextManager`). `afterAll` below disables it so the mutation
-// doesn't outlive this file even under a runner that reuses the process.
-context.setGlobalContextManager(new TestContextManager())
-
-afterAll(() => {
-  context.disable()
-})
+// context-activation tests below would then pass vacuously. See
+// `test/helpers/context-manager.ts` for details.
+useTestContextManager()
 
 describe('withActiveContext', () => {
   test('executes function and returns its result', () => {

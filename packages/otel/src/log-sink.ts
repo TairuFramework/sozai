@@ -11,6 +11,24 @@ const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
   fatal: SeverityNumber.FATAL,
 }
 
+// Render one segment of `record.message` for a tagged-template log body. Literal
+// segments (even indices) and already-string values pass through as-is. Other
+// interpolated values are JSON-rendered — but JSON.stringify throws on a BigInt
+// or a circular structure, and logtape catches sink exceptions, meta-logs them,
+// and silently drops the record. This must never throw: fall back to `String(part)`
+// (e.g. `[object Object]` for a circular value, `'10'` for `10n`) rather than lose
+// the record.
+function renderMessagePart(part: unknown, index: number): string {
+  if (index % 2 === 0 || typeof part === 'string') {
+    return String(part)
+  }
+  try {
+    return JSON.stringify(part)
+  } catch {
+    return String(part)
+  }
+}
+
 export function createOTelLogSink(): (record: LogRecord) => void {
   const logger = logs.getLogger('sozai')
 
@@ -31,11 +49,7 @@ export function createOTelLogSink(): (record: LogRecord) => void {
     const body =
       typeof record.rawMessage === 'string'
         ? record.rawMessage
-        : record.message
-            .map((part, index) =>
-              index % 2 === 0 || typeof part === 'string' ? String(part) : JSON.stringify(part),
-            )
-            .join('')
+        : record.message.map(renderMessagePart).join('')
 
     logger.emit({
       severityNumber: LEVEL_TO_SEVERITY[record.level],

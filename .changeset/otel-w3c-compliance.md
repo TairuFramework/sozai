@@ -31,8 +31,20 @@ W3C Trace Context compliance.
 - `parseTraceparent` rejects version `ff` and parses the first four fields of a higher
   version, per the spec's forward-compatibility rule.
 - `formatTracestate` drops duplicate keys, matching `parseTracestate`.
-- Successful spans are left `Unset` rather than set to `Ok`, per OTel guidance (both
-  `withSpan` and `withSyncSpan`).
+- `formatTracestate` now also caps the *serialized header* at 512 characters (W3C
+  §3.3.3), dropping whole trailing members rather than truncating mid-value. Previously
+  a valid tracestate over 512 characters was dropped entirely: OTel's
+  `TraceStateImpl._parse` has its own 512-character limit and bails out leaving the
+  trace state empty when handed a longer header, so `injectW3CTraceContext` silently
+  omitted `tracestate` altogether instead of propagating a truncated one.
+- `traceLogger` now uses the same `isValidTraceID` check as `getActiveTraceContext`,
+  instead of a separate all-zero-ID comparison — removing the last place in the package
+  that duplicated the trace-ID validation `src/span-context.ts` exists to centralize.
+- The OTel log sink's body renderer for tagged-template log calls is now total: it no
+  longer throws on a `BigInt` or a circular value in an interpolated position (logtape
+  catches sink exceptions and meta-logs them, so the process survived, but the log
+  record was silently dropped). It now falls back to `String(part)` when
+  `JSON.stringify` would throw.
 - The OTel log sink now renders interpolated values into the log body for
   tagged-template log calls. The sink carried a hand-copied `LogRecord` type that had
   drifted from logtape's: logtape's `rawMessage` for a tagged-template call
@@ -42,5 +54,8 @@ W3C Trace Context compliance.
   `record.message`, so `` logger.info`hello ${name}!` `` emits `'hello Alice!'`.
   Method-call syntax (`logger.info('Hello, {name}!', { name })`) is unchanged:
   placeholders stay in the body, values ride in `attributes`, which is idiomatic OTel.
+- `isValidTraceID` and `isValidSpanID` are now exported from the package root, alongside
+  `ZERO_TRACE_ID`, so consumers needing to validate an ID no longer have to re-implement
+  the all-zero check by hand. `ZERO_SPAN_ID` and `toRemoteSpanContext` remain internal.
 
 **`@sozai/log`:** re-exports logtape's `LogRecord` type.

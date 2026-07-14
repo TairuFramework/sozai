@@ -10,6 +10,14 @@ import {
   withSpan,
   withSyncSpan,
 } from '../src/tracers.js'
+import { useTestContextManager } from './helpers/context-manager.js'
+
+// A real ContextManager is required so `context.with()` genuinely activates
+// its argument — see `test/helpers/context-manager.ts`. Without it, spans
+// and baggage set via `context.with()` are silently discarded and several
+// guards below (e.g. `getActiveTraceContext`'s `isValidTraceID` check) would
+// never actually run.
+useTestContextManager()
 
 const createTracer = createTracerFactory('test')
 
@@ -31,7 +39,9 @@ describe('getActiveTraceContext', () => {
   test('returns undefined for a malformed but non-zero trace ID', () => {
     // isValidTraceID rejects malformed-but-nonzero IDs, not just the all-zero
     // no-op case. A real SDK never produces one, so this is only reachable via
-    // a fake span, but it pins the widened guard's behavior.
+    // a fake span. A real ContextManager is registered (see the top of this
+    // file), so the fake span genuinely becomes the active span here — this
+    // exercises `isValidTraceID` itself, not the `span == null` early return.
     const fakeSpan = {
       spanContext: () => ({
         traceId: 'not-a-valid-trace-id',
@@ -40,6 +50,9 @@ describe('getActiveTraceContext', () => {
       }),
     } as unknown as Span
     context.with(trace.setSpan(context.active(), fakeSpan), () => {
+      // Precondition: the fake span really is active, so a failure below can
+      // only come from the `isValidTraceID` guard, not from `span == null`.
+      expect(trace.getSpan(context.active())).toBe(fakeSpan)
       expect(getActiveTraceContext()).toBeUndefined()
     })
   })
@@ -82,8 +95,10 @@ describe('getActiveSpan', () => {
 
 describe('getActiveBaggage', () => {
   test('returns undefined when no baggage is active', () => {
-    // No ContextManager is registered in tests, so the active context is ROOT
-    // (empty). This is also the real-world "no SDK / no baggage" case.
+    // A real ContextManager is registered (see the top of this file), but
+    // this test never enters a `context.with()` that sets baggage, so the
+    // active context here is still ROOT (empty) — the real-world
+    // "no SDK / no baggage" case too.
     expect(getActiveBaggage()).toBeUndefined()
   })
 })
@@ -114,9 +129,6 @@ describe('withSyncSpan', () => {
 })
 
 describe('withActiveBaggage', () => {
-  // No ContextManager is registered in tests, so context.active() inside fn is
-  // still ROOT; we assert the wrapper returns fn's result (matching withSpan).
-  // Activation correctness is covered by the entriesToBaggage round-trip tests.
   test('executes the function and returns its result', () => {
     const result = withActiveBaggage([{ key: 'userId', value: 'alice' }], () => 42)
     expect(result).toBe(42)
@@ -124,6 +136,18 @@ describe('withActiveBaggage', () => {
 
   test('accepts empty entries', () => {
     expect(withActiveBaggage([], () => 'ok')).toBe('ok')
+  })
+
+  test('actually activates the given baggage for the duration of fn', () => {
+    // With a real ContextManager registered (see the top of this file),
+    // `getActiveBaggage()` inside `fn` must observe the entries passed in —
+    // this is the activation behavior the two tests above don't exercise.
+    const observed = withActiveBaggage([{ key: 'userId', value: 'alice' }], () =>
+      getActiveBaggage(),
+    )
+    expect(observed).toEqual([{ key: 'userId', value: 'alice' }])
+    // Outside fn, activation must not leak.
+    expect(getActiveBaggage()).toBeUndefined()
   })
 })
 

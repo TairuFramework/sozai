@@ -1,3 +1,4 @@
+import { createTraceState } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
 import { formatTracestate, parseTracestate } from '../src/tracestate.js'
@@ -69,6 +70,48 @@ describe('formatTracestate', () => {
   test('round-trips with parseTracestate', () => {
     const header = 'vendor=first,other=kept'
     expect(formatTracestate(parseTracestate(header))).toBe(header)
+  })
+
+  test('caps the serialized header at 512 characters, dropping whole trailing members', () => {
+    // Three ~252-char members: the first two fit within 512 (252 + 1 + 252 =
+    // 505), the third does not (505 + 1 + 252 = 758) and must be dropped
+    // entirely, not truncated mid-value.
+    const entries = [
+      { key: 'a', value: 'x'.repeat(250) },
+      { key: 'b', value: 'x'.repeat(250) },
+      { key: 'c', value: 'x'.repeat(250) },
+    ]
+    const header = formatTracestate(entries)
+
+    expect(header.length).toBeLessThanOrEqual(512)
+    expect(header).toContain('a=')
+    expect(header).toContain('b=')
+    expect(header).not.toContain('c=')
+    // No half-member: every member present is a complete, valid `key=value`.
+    for (const member of header.split(',')) {
+      expect(member).toMatch(/^[a-z]=x+$/)
+    }
+
+    // This is the actual bug (W3C §3.3.3 / OTel's own 512-char limit): a
+    // tracestate header over 512 chars makes OTel's TraceStateImpl._parse
+    // bail out early and leave the trace state empty, so serialize() would
+    // yield '' and injectW3CTraceContext would omit tracestate entirely.
+    // Verify the truncated header survives that round-trip non-empty.
+    expect(createTraceState(header).serialize()).not.toBe('')
+    expect(createTraceState(header).serialize().length).toBeLessThanOrEqual(512)
+  })
+
+  test('truncates from the end: a member after one that alone exceeds 512 characters is also dropped', () => {
+    // A key can be up to 256 chars and a value up to 256 chars, so a single
+    // member can itself exceed the 512-char header cap. Truncation is "from
+    // the end" of the sequence — once a member doesn't fit, it and everything
+    // after it is dropped, even if a later member would fit on its own.
+    const entries = [
+      { key: 'a'.repeat(256), value: 'x'.repeat(256) },
+      { key: 'keep', value: 'ok' },
+    ]
+    const header = formatTracestate(entries)
+    expect(header).toBe('')
   })
 })
 

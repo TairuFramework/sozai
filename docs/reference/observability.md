@@ -106,8 +106,9 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 | Symbol | Kind | Description |
 |---|---|---|
 | `AttributeKeys` | const | Predefined OTel semantic attribute-key strings for instrumenting spans consistently across the stack. |
-| `SpanNames` | const | Canonical span-name strings for consistent span naming across the stack. |
 | `ZERO_TRACE_ID` | const | The all-zero trace ID (`'00000000000000000000000000000000'`); used to detect no-op spans. |
+| `isValidTraceID` | function | Whether a string is a valid W3C trace ID: 32 lowercase hex characters, not all-zero. |
+| `isValidSpanID` | function | Whether a string is a valid W3C span ID: 16 lowercase hex characters, not all-zero. |
 
 #### Bridge (`@sozai/log` ↔ OTel)
 

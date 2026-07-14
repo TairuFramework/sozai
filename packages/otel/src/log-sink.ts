@@ -1,23 +1,14 @@
 import { context, trace } from '@opentelemetry/api'
-import { type LogAttributes, logs, type SeverityNumber } from '@opentelemetry/api-logs'
+import { type LogAttributes, logs, SeverityNumber } from '@opentelemetry/api-logs'
+import type { LogLevel, LogRecord } from '@sozai/log'
 
-type LogRecord = {
-  category: ReadonlyArray<string>
-  level: string
-  message: ReadonlyArray<string | (() => unknown)>
-  rawMessage: string
-  properties: Record<string, unknown>
-  timestamp: number
-}
-
-const LEVEL_TO_SEVERITY: Record<string, SeverityNumber> = {
-  trace: 1,
-  debug: 5,
-  info: 9,
-  warning: 13,
-  warn: 13,
-  error: 17,
-  fatal: 21,
+const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
+  trace: SeverityNumber.TRACE,
+  debug: SeverityNumber.DEBUG,
+  info: SeverityNumber.INFO,
+  warning: SeverityNumber.WARN,
+  error: SeverityNumber.ERROR,
+  fatal: SeverityNumber.FATAL,
 }
 
 export function createOTelLogSink(): (record: LogRecord) => void {
@@ -31,10 +22,15 @@ export function createOTelLogSink(): (record: LogRecord) => void {
       'log.category': record.category.join('.'),
     }
 
+    // logtape's rawMessage is a TemplateStringsArray for tagged-template call sites
+    // (logger.info`hello ${name}`) and a string otherwise. The OTel body takes a string.
+    const body =
+      typeof record.rawMessage === 'string' ? record.rawMessage : record.rawMessage.join('')
+
     logger.emit({
-      severityNumber: (LEVEL_TO_SEVERITY[record.level] ?? 9) as SeverityNumber,
+      severityNumber: LEVEL_TO_SEVERITY[record.level],
       severityText: record.level,
-      body: record.rawMessage,
+      body,
       attributes,
       timestamp: record.timestamp,
       context: activeSpan ? context.active() : undefined,

@@ -17,11 +17,15 @@ import { formatTracestate, parseTracestate } from './tracestate.js'
  *
  * Returns the record unchanged when there is no active span, or when the active
  * span cannot produce a valid header — which covers OTel's no-op spans, whose
- * all-zero IDs would otherwise be handed downstream as a parent.
+ * all-zero IDs would otherwise be handed downstream as a parent. In that case
+ * the returned value has no `traceparent`/`tracestate` properties; otherwise it
+ * is `meta` plus `traceparent` (and `tracestate`, when the span carries one).
  *
  * The inject-side twin of `extractW3CTraceContext`.
  */
-export function injectW3CTraceContext<T extends Record<string, unknown>>(meta: T): T {
+export function injectW3CTraceContext<T extends Record<string, unknown>>(
+  meta: T,
+): T & { traceparent?: string; tracestate?: string } {
   const span = trace.getSpan(context.active())
   if (span == null) {
     return meta

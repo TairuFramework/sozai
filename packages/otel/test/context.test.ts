@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { type Context, context, ROOT_CONTEXT, trace } from '@opentelemetry/api'
-import { describe, expect, test } from 'vitest'
+import { afterAll, describe, expect, test } from 'vitest'
 
 import {
   extractW3CTraceContext,
@@ -37,6 +37,12 @@ class TestContextManager {
     return this.#storage.run(ctx, () => fn.apply(thisArg, args))
   }
 
+  // Deliberately unimplemented: no test here crosses an async boundary that
+  // would need a context snapshot bound to it (e.g. an event emitter callback
+  // or a timer), so a no-op pass-through is correct for everything exercised
+  // in this file today. If a future test adds such a boundary, this must
+  // actually snapshot `ctx` and re-enter it when `target` runs, or that test
+  // will silently see the wrong active context.
   bind<T>(_ctx: Context, target: T): T {
     return target
   }
@@ -50,7 +56,20 @@ class TestContextManager {
   }
 }
 
+// This registration mutates OTel's process-global registry with no automatic
+// teardown, which is only safe because vitest defaults to `isolate: true`
+// (fresh process per test file) and this repo pins no vitest config that
+// overrides that. It exists because, without it, `NoopContextManager` (the
+// `@opentelemetry/api` default) discards whatever is passed to
+// `context.with()` and `context.active()` always returns `ROOT_CONTEXT` — the
+// context-activation tests below would then pass vacuously (see the comment
+// above `TestContextManager`). `afterAll` below disables it so the mutation
+// doesn't outlive this file even under a runner that reuses the process.
 context.setGlobalContextManager(new TestContextManager())
+
+afterAll(() => {
+  context.disable()
+})
 
 describe('withActiveContext', () => {
   test('executes function and returns its result', () => {
@@ -130,7 +149,7 @@ describe('injectW3CTraceContext', () => {
   test('returns meta unchanged when no span is active', () => {
     const meta = { procedure: 'test' }
     const result = injectW3CTraceContext(meta)
-    expect(result).toEqual(meta)
+    expect(result).toBe(meta)
     expect(result).not.toHaveProperty('traceparent')
   })
 
@@ -139,9 +158,14 @@ describe('injectW3CTraceContext', () => {
     // all-zero IDs would hand a downstream service an invalid parent.
     const tracer = createTracer('test')
     const span = tracer.startSpan('test')
-    const meta = withActiveContext(setSpanOnContext(undefined, span), () =>
-      injectW3CTraceContext({ procedure: 'test' }),
-    )
+    const meta = withActiveContext(setSpanOnContext(undefined, span), () => {
+      // Precondition: the span really is active. Without this, a regression
+      // in ContextManager registration would make this test pass for the
+      // wrong reason again — "skipped because no span was active" rather than
+      // "skipped because the IDs were invalid".
+      expect(trace.getSpan(context.active())).toBeDefined()
+      return injectW3CTraceContext({ procedure: 'test' })
+    })
     span.end()
     expect(meta).not.toHaveProperty('traceparent')
   })
@@ -152,21 +176,20 @@ describe('injectW3CTraceContext', () => {
     expect(result.requestID).toBe('abc')
   })
 
-  test('round-trips through extractW3CTraceContext', () => {
+  test('round-trips through extractW3CTraceContext, preserving existing keys', () => {
     const traceparent = '00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01'
     const parentContext = extractW3CTraceContext({ traceparent })
     const meta = withActiveContext(parentContext, () =>
-      injectW3CTraceContext<Record<string, unknown>>({}),
+      injectW3CTraceContext({ procedure: 'test' }),
     )
     expect(meta.traceparent).toBe(traceparent)
+    expect(meta.procedure).toBe('test')
   })
 
   test('stamps tracestate when the active span carries one', () => {
     const traceparent = '00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01'
     const parentContext = extractW3CTraceContext({ traceparent, tracestate: 'vendor=value' })
-    const meta = withActiveContext(parentContext, () =>
-      injectW3CTraceContext<Record<string, unknown>>({}),
-    )
+    const meta = withActiveContext(parentContext, () => injectW3CTraceContext({}))
     expect(meta.tracestate).toBe('vendor=value')
   })
 

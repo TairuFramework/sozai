@@ -33,8 +33,11 @@ W3C Trace Context compliance.
 - `formatTracestate` drops duplicate keys, matching `parseTracestate`.
 - Successful spans are left `Unset` rather than set to `Ok`, per OTel guidance (both
   `withSpan` and `withSyncSpan`).
-- `formatTracestate` now also caps the *serialized header* at 512 characters (W3C
-  §3.3.3), dropping whole trailing members rather than truncating mid-value. This cap
+- `formatTracestate` now also caps the *serialized header* at 512 characters, dropping
+  whole trailing members from the end rather than truncating mid-value (W3C §3.3.3 also
+  requires removing oversized list-members first, largest first, before dropping from
+  the end; we do not do that — this is drop-from-the-end only, safe and strictly better
+  than the previous total-drop, but not full §3.3.3 conformance). This cap
   applies on both the read path (`extractW3CTraceContext`, via `parseTracestate`) and
   the write path (`injectW3CTraceContext`, which now re-runs the active span's
   `traceState.serialize()` through `parseTracestate`/`formatTracestate` before
@@ -52,7 +55,12 @@ W3C Trace Context compliance.
   longer throws on a `BigInt` or a circular value in an interpolated position (logtape
   catches sink exceptions and meta-logs them, so the process survived, but the log
   record was silently dropped). It now falls back to `String(part)` when
-  `JSON.stringify` would throw.
+  `JSON.stringify` would throw or return `undefined` (which it does for a symbol,
+  a function, or `undefined` in an interpolated position — those previously vanished
+  from the body silently; they now render as `Symbol(x)`, the function source, and
+  `'undefined'` respectively). If even `String(part)` throws (e.g. a null-prototype
+  object), the renderer falls back to the literal placeholder `[unrenderable]`, which
+  can therefore appear in production log bodies.
 - The OTel log sink now renders interpolated values into the log body for
   tagged-template log calls. The sink carried a hand-copied `LogRecord` type that had
   drifted from logtape's: logtape's `rawMessage` for a tagged-template call

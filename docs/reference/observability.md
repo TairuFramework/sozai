@@ -96,7 +96,7 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 |---|---|---|
 | `formatTraceparent` | function | `formatTraceparent(traceID, spanID, traceFlags)` → W3C `traceparent` string (`00-<traceID>-<spanID>-<flags>`), or `undefined` when the trace ID, span ID, or flags cannot produce a valid header (e.g. all-zero IDs or out-of-range flags). |
 | `parseTraceparent` | function | Parse a W3C `traceparent` string → `TraceparentData \| undefined`. Accepts version `00` and, per the spec's forward-compatibility rule, higher versions (parsing their first four fields and ignoring any trailing content); rejects version `ff` and all-zero trace/span IDs. |
-| `formatTracestate` | function | Serialize `Array<TracestateEntry>` → W3C `tracestate` string (drops invalid members, drops duplicate keys keeping the first occurrence, caps at 32 entries, caps the serialized header at 512 characters per W3C §3.3.3 by dropping whole trailing members). |
+| `formatTracestate` | function | Serialize `Array<TracestateEntry>` → W3C `tracestate` string (drops invalid members, drops duplicate keys keeping the first occurrence, caps at 32 entries, caps the serialized header at 512 characters by dropping whole trailing members from the end — not full W3C §3.3.3 conformance, which would first drop oversized list-members, largest first). |
 | `parseTracestate` | function | Parse a W3C `tracestate` string → `Array<TracestateEntry>` (drops malformed members, drops duplicate keys keeping the first occurrence, caps at 32 entries). |
 | `TraceparentData` | type | `{ traceID: string; spanID: string; traceFlags: number }` |
 | `TracestateEntry` | type | `{ key: string; value: string }` |
@@ -119,7 +119,7 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 
 | Symbol | Kind | Description |
 |---|---|---|
-| `createOTelLogSink` | function | Return a LogTape sink that emits records via the OTel Logs API, attaching the active span context so log records correlate with traces. Tagged-template calls (`` logger.info`hello ${name}!` ``) render the body from `record.message`, interpolated values included; method-call calls (`logger.info('hello {name}!', { name })`) keep placeholders in the body and carry values in `attributes`, as before. |
+| `createOTelLogSink` | function | Return a LogTape sink that emits records via the OTel Logs API, attaching the active span context so log records correlate with traces. Tagged-template calls (`` logger.info`hello ${name}!` ``) render the body from `record.message`, interpolated values included; method-call calls (`logger.info('hello {name}!', { name })`) keep placeholders in the body and carry values in `attributes`, as before. An interpolated value that cannot be rendered any other way falls back to the literal placeholder `[unrenderable]` in the body, rather than throwing or silently dropping the log record. |
 | `traceLogger` | function | `traceLogger(logger)` — return a `Logger` pre-bound with `{ traceID, spanID }` from the active span. Useful for per-request loggers. Returns the original logger unchanged when no real span is active. |
 
 #### Re-exports from `@opentelemetry/api`

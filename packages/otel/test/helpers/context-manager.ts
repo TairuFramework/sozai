@@ -55,7 +55,16 @@ export class TestContextManager {
  * config that overrides that. Call once at the top level of a test file.
  */
 export function useTestContextManager(): void {
-  context.setGlobalContextManager(new TestContextManager())
+  // `setGlobalContextManager` returns `false` (and only `diag.error`s, which is
+  // a no-op with no diag logger installed) if a manager is already registered.
+  // A silently-refused registration would fall back to the default
+  // `NoopContextManager`, making every activation-dependent test in this
+  // package vacuous — so a refusal must be loud, not swallowed.
+  if (!context.setGlobalContextManager(new TestContextManager())) {
+    throw new Error(
+      'TestContextManager registration refused — a global ContextManager is already registered',
+    )
+  }
 
   afterAll(() => {
     context.disable()

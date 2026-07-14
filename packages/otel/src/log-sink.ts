@@ -32,14 +32,22 @@ const LEVEL_TO_SEVERITY: Record<LogLevel, SeverityNumber> = {
 //   `toString`/`Symbol.toPrimitive` throws propagates that — so the fallback
 //   is guarded too, with `'[unrenderable]'` as the last-resort placeholder.
 function renderMessagePart(part: unknown, index: number): string {
-  if (index % 2 === 0 || typeof part === 'string') {
-    return String(part)
+  if (typeof part === 'string') {
+    return part
   }
+  // Literal template segments (even indices) are always strings from
+  // TemplateStringsArray, so JSON-rendering is only attempted for interpolated
+  // (odd-index) values — but that's not relied on for safety: an even-index
+  // value that somehow isn't a string still falls through to the guarded
+  // `String(part)`/`[unrenderable]` path below, so "must never throw" holds
+  // unconditionally rather than depending on that assumption.
   let rendered: string | undefined
-  try {
-    rendered = JSON.stringify(part)
-  } catch {
-    rendered = undefined
+  if (index % 2 !== 0) {
+    try {
+      rendered = JSON.stringify(part)
+    } catch {
+      rendered = undefined
+    }
   }
   if (rendered !== undefined) {
     return rendered

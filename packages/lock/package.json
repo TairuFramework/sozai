@@ -2,7 +2,7 @@
   "name": "@sozai/lock",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Cross-process file mutex (Node.js only)",
+  "description": "Filesystem-based cross-process mutex",
   "keywords": [],
   "repository": {
     "type": "git",

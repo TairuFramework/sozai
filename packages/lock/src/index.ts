@@ -1,5 +1,5 @@
 /**
- * Cross-process file mutex for Node.js.
+ * Filesystem-based cross-process mutex.
  *
  * ## Installation
  *

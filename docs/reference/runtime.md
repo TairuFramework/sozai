@@ -1,7 +1,7 @@
 # Runtime
 
 Platform-agnostic runtime primitives (`fetch`, random ID, random bytes), their Expo binding, and a
-Node-only cross-process file mutex.
+filesystem-based cross-process mutex.
 
 ## Packages
 
@@ -9,7 +9,7 @@ Node-only cross-process file mutex.
 |---|---|
 | `@sozai/runtime` | Platform-agnostic `Runtime` abstraction and `createRuntime` factory |
 | `@sozai/runtime-expo` | Expo / React Native binding; independently versioned per `runtime-<env>` pattern |
-| `@sozai/lock` | Cross-process file mutex; Node-only (`node:fs`) |
+| `@sozai/lock` | Filesystem-based cross-process mutex (`node:fs`) |
 
 ---
 
@@ -115,8 +115,8 @@ const bytes = customRuntime.getRandomValues(new Uint8Array(32))
 
 ## @sozai/lock
 
-> **Node-only.** The only package in sozai that is not environment-agnostic. `lockPath` must be on
-> a local filesystem — `link()` atomicity is not guaranteed on NFS.
+> **Filesystem-based.** The only package in sozai that is not environment-agnostic. `lockPath` must
+> be on a local filesystem — `link()` atomicity is not guaranteed on NFS.
 
 ### Exports
 

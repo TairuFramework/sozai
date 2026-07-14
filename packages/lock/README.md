@@ -1,6 +1,6 @@
 # @sozai/lock
 
-Cross-process file mutex. **Node.js only.**
+Filesystem-based cross-process mutex.
 
 ## Installation
 

@@ -40,7 +40,7 @@ folded in next to the otel work. Each is a self-contained unit (target: one PR).
 ## New packages (not audit-derived)
 
 - ✅ **Done** — [lock — cross-process file mutex](completed/2026-07-13-lock-package.complete.md).
-  New Node-only `@sozai/lock`, requested by kokuin. Follow-up: rebase `@tejika/process` onto it.
+  New filesystem-based `@sozai/lock`, requested by kokuin. Follow-up: rebase `@tejika/process` onto it.
 
 ## Deferred (no freeze dependency)
 

@@ -2,7 +2,7 @@
 "@sozai/lock": minor
 ---
 
-First release of `@sozai/lock`: a blocking cross-process file mutex for Node.js.
+First release of `@sozai/lock`: a blocking, filesystem-based cross-process mutex.
 
 `withFileLock(lockPath, fn)` runs a critical section under an exclusive lock; `acquireFileLock`
 returns a `Disposable` handle. Acquisition blocks with jittered backoff and **throws**

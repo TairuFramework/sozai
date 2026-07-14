@@ -11,7 +11,7 @@ description: Platform runtime abstraction (fetch, randomness), Expo binding, and
 
 **Expo / React Native binding**: `@sozai/runtime-expo`
 
-**Cross-process file mutex (Node-only)**: `@sozai/lock`
+**Filesystem-based cross-process mutex**: `@sozai/lock`
 
 ## Key Patterns
 

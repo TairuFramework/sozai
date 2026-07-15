@@ -446,7 +446,7 @@ describe('AsyncResult', () => {
       test('recovers from error to success value', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => 'recovered value')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('recovered value'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('recovered value')
@@ -454,7 +454,7 @@ describe('AsyncResult', () => {
 
       test('returns AsyncResult.ok for AsyncResult.ok', async () => {
         const asyncResult = AsyncResult.ok('test')
-        const mapped = asyncResult.mapError(() => 'fallback value')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('fallback value'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('test')
@@ -463,7 +463,9 @@ describe('AsyncResult', () => {
       test('handles function returning Promise', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => Promise.resolve('async recovered value'))
+        const mapped = asyncResult.mapError(() =>
+          Promise.resolve(Result.ok('async recovered value')),
+        )
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('async recovered value')
@@ -522,7 +524,7 @@ describe('AsyncResult', () => {
       test('handles complex recovery transformation', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => 'recovered complex value')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('recovered complex value'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('recovered complex value')
@@ -530,7 +532,7 @@ describe('AsyncResult', () => {
 
       test('preserves value when mapping ok result', async () => {
         const asyncResult = AsyncResult.ok('test value')
-        const mapped = asyncResult.mapError(() => 'fallback value')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('fallback value'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('test value')
@@ -539,7 +541,9 @@ describe('AsyncResult', () => {
       test('handles async function with same return type', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => Promise.resolve('async recovered value'))
+        const mapped = asyncResult.mapError(() =>
+          Promise.resolve(Result.ok('async recovered value')),
+        )
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('async recovered value')
@@ -548,7 +552,7 @@ describe('AsyncResult', () => {
       test('handles error recovery with same value type', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => 'recovered string value')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('recovered string value'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('recovered string value')
@@ -557,7 +561,9 @@ describe('AsyncResult', () => {
       test('handles async error recovery with same value type', async () => {
         const originalError = new Error('original error')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError(() => Promise.resolve('async recovered string'))
+        const mapped = asyncResult.mapError(() =>
+          Promise.resolve(Result.ok('async recovered string')),
+        )
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('async recovered string')
@@ -566,7 +572,7 @@ describe('AsyncResult', () => {
       test('uses error information in recovery', async () => {
         const originalError = new Error('database connection failed')
         const asyncResult = AsyncResult.error<string>(originalError)
-        const mapped = asyncResult.mapError((error) => `fallback: ${error.message}`)
+        const mapped = asyncResult.mapError((error) => AsyncResult.ok(`fallback: ${error.message}`))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('fallback: database connection failed')
@@ -575,7 +581,7 @@ describe('AsyncResult', () => {
       test('handles null error recovery', async () => {
         // @ts-expect-error - null is not an error
         const asyncResult = AsyncResult.error<string>(null)
-        const mapped = asyncResult.mapError(() => 'recovered from null error')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('recovered from null error'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('recovered from null error')
@@ -584,7 +590,7 @@ describe('AsyncResult', () => {
       test('handles undefined error recovery', async () => {
         // @ts-expect-error - undefined is not an error
         const asyncResult = AsyncResult.error<string>(undefined)
-        const mapped = asyncResult.mapError(() => 'recovered from undefined error')
+        const mapped = asyncResult.mapError(() => AsyncResult.ok('recovered from undefined error'))
         const result = await mapped
         expect(result.isOK()).toBe(true)
         expect(result.value).toBe('recovered from undefined error')
@@ -604,7 +610,7 @@ describe('AsyncResult', () => {
         const asyncResult = AsyncResult.error<string>(originalError)
         const mapped = asyncResult.mapError((error) => {
           const customError = error as CustomError
-          return `error ${customError.code}: ${customError.message}`
+          return AsyncResult.ok(`error ${customError.code}: ${customError.message}`)
         })
         const result = await mapped
         expect(result.isOK()).toBe(true)
@@ -724,10 +730,57 @@ describe('AsyncResult', () => {
       expect(result.isError()).toBe(true)
       expect(result.error).toBe(error)
     })
+  })
+})
 
-    test('Symbol.species behavior', () => {
-      const asyncResult = AsyncResult.ok('test')
-      expect((asyncResult.constructor as PromiseConstructor)[Symbol.species]).toBe(Promise)
+describe('AsyncResult semantics', () => {
+  test('a non-Error thrown in map becomes a normalized Error', async () => {
+    const result = await AsyncResult.ok<number>(1).map(() => {
+      throw 'oops'
     })
+    expect(result.isError()).toBe(true)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error?.cause).toBe('oops')
+  })
+
+  test('a non-Error thrown in mapError stays an error', async () => {
+    const result = await AsyncResult.error<number>(new Error('first')).mapError(() => {
+      throw 'oops'
+    })
+    expect(result.isOK()).toBe(false)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error?.cause).toBe('oops')
+  })
+
+  test('map returning a bare Error keeps it as an OK value, like the sync Result', async () => {
+    const value = new Error('carried')
+    const result = await AsyncResult.ok<number>(1).map(() => value)
+    // Previously this routed through Result.from and became an error Result.
+    expect(result.isOK()).toBe(true)
+    expect(result.value).toBe(value)
+  })
+
+  test('mapError returning a bare Error replaces the error', async () => {
+    const replacement = new TypeError('replaced')
+    const result = await AsyncResult.error<number>(new Error('first')).mapError(() => replacement)
+    expect(result.isError()).toBe(true)
+    expect(result.error).toBe(replacement)
+  })
+
+  test('mapError recovers when the callback returns AsyncResult.ok', async () => {
+    const result = await AsyncResult.error<number>(new Error('first')).mapError(() =>
+      AsyncResult.ok<number>(2),
+    )
+    expect(result.isOK()).toBe(true)
+    expect(result.value).toBe(2)
+  })
+
+  test('all() normalizes non-Error rejection reasons', async () => {
+    const results = await AsyncResult.all<number>([Promise.resolve(1), Promise.reject('oops')])
+    expect(results.value[0].isOK()).toBe(true)
+    const errored = results.value[1]
+    expect(errored.isError()).toBe(true)
+    expect(errored.error).toBeInstanceOf(Error)
+    expect(errored.error?.cause).toBe('oops')
   })
 })

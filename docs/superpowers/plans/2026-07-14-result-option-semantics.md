@@ -46,7 +46,7 @@ describe('Option narrowing', () => {
   test('the false branch of isSome() is NoneOption, not never', () => {
     const option = Option.of<number>(undefined)
     if (option.isSome()) {
-      const value: number = option.value
+      const value: number = option.orThrow
       expect(value).toBeDefined()
     } else {
       // Before the fix this line does not compile: `option` narrows to `never`,

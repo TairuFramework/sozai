@@ -66,7 +66,7 @@ export const Option = {
     return new SomeOption<V>(value)
   },
   of<V>(value?: V | null): Option<V> {
-    return value == null ? Option.none<V>() : Option.some(value as V)
+    return value == null ? Option.none<V>() : Option.some(value)
   },
   is<V>(value: unknown): value is Option<V> {
     return value instanceof OptionBase

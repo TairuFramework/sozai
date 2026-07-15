@@ -328,6 +328,27 @@ describe('Execution', () => {
       expect(execution.signal.reason).toBe(interruption)
     })
 
+    test('aborting with an Error reason surfaces that Error unchanged (no re-wrap)', async () => {
+      const error = new Error('boom')
+      const execution = new Execution(() => Promise.resolve('test'))
+      execution.abort(error)
+
+      const result = await execution.execute()
+      expect(result.isError()).toBe(true)
+      // The toError factory must pass an Error cause through, not re-wrap it in AbortInterruption.
+      expect(result.error).toBe(error)
+    })
+
+    test('aborting with a non-Error reason settles as an AbortInterruption', async () => {
+      const execution = new Execution(() => Promise.resolve('test'))
+      execution.abort('string reason')
+
+      const result = await execution.execute()
+      expect(result.isError()).toBe(true)
+      expect(result.error).toBeInstanceOf(AbortInterruption)
+      expect(result.error?.cause).toBe('string reason')
+    })
+
     test('abort() after successful completion is a no-op', async () => {
       const execution = new Execution(() => Promise.resolve('ok'))
       const result = await execution

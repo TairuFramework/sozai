@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { Option } from '../src/option.js'
+import { NoneOption, Option, SomeOption } from '../src/option.js'
 
 describe('Option', () => {
   describe('static methods', () => {
@@ -310,5 +310,39 @@ describe('Option', () => {
       expect(Option.of(false).isSome()).toBe(true)
       expect(Option.of(Number.NaN).isSome()).toBe(true)
     })
+  })
+})
+
+describe('Option narrowing', () => {
+  test('the false branch of isSome() is NoneOption, not never', () => {
+    const option = Option.of<number>(undefined)
+    if (option.isSome()) {
+      const value: number = option.orThrow
+      expect(value).toBeDefined()
+    } else {
+      // Before the fix this line does not compile: `option` narrows to `never`,
+      // so `test:types` is what actually guards this behavior.
+      const none: NoneOption<number> = option
+      expect(none.orNull).toBeNull()
+    }
+  })
+
+  test('the true branch of isSome() is SomeOption', () => {
+    const option = Option.of(1)
+    if (option.isSome()) {
+      const some: SomeOption<number> = option
+      expect(some.orNull).toBe(1)
+    } else {
+      throw new Error('expected some')
+    }
+  })
+
+  test('isNone() narrows to NoneOption', () => {
+    const option = Option.of<string>(null)
+    if (option.isNone()) {
+      expect(option.orNull).toBeNull()
+    } else {
+      throw new Error('expected none')
+    }
   })
 })

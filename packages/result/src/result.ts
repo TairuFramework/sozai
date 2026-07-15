@@ -123,13 +123,15 @@ export const Result = {
         ? Result.error<V, E>(value as E)
         : Result.ok<V, E>(value as V)
   },
-  toError<V, E extends Error = Error>(cause: unknown, createError?: () => E): ErrorResult<V, E> {
-    const error =
-      cause instanceof Error
+  toError<V, E extends Error = Error>(
+    cause: unknown,
+    createError?: (cause: unknown) => E,
+  ): ErrorResult<V, E> {
+    const error = createError
+      ? createError(cause)
+      : cause instanceof Error
         ? cause
-        : createError
-          ? createError()
-          : new Error('Unknown error', { cause })
+        : new Error('Unknown error', { cause })
     return Result.error<V, E>(error as E)
   },
 }

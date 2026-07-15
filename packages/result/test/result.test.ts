@@ -722,3 +722,39 @@ describe('Result throw normalization', () => {
     expect(result.value).toBe(2)
   })
 })
+
+describe('Result.toError factory', () => {
+  class DomainError extends Error {}
+
+  test('the factory runs for an Error cause and receives it', () => {
+    const cause = new TypeError('underlying')
+    const result = Result.toError<number, DomainError>(
+      cause,
+      (received) => new DomainError('wrapped', { cause: received }),
+    )
+    // Before the fix the factory was skipped entirely for Error causes.
+    expect(result.error).toBeInstanceOf(DomainError)
+    expect(result.error.cause).toBe(cause)
+  })
+
+  test('the factory runs for a non-Error cause and receives it', () => {
+    const result = Result.toError<number, DomainError>(
+      'oops',
+      (received) => new DomainError('wrapped', { cause: received }),
+    )
+    expect(result.error).toBeInstanceOf(DomainError)
+    expect(result.error.cause).toBe('oops')
+  })
+
+  test('without a factory, an Error cause passes through', () => {
+    const cause = new TypeError('underlying')
+    expect(Result.toError(cause).error).toBe(cause)
+  })
+
+  test('without a factory, a non-Error cause is wrapped', () => {
+    const result = Result.toError('oops')
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error.message).toBe('Unknown error')
+    expect(result.error.cause).toBe('oops')
+  })
+})

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { NoneOption, Option, SomeOption } from '../src/option.js'
+import { type NoneOption, Option, type SomeOption } from '../src/option.js'
 
 describe('Option', () => {
   describe('static methods', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { ErrorResult, OKResult, Result } from '../src/result.js'
+import { type ErrorResult, type OKResult, Result } from '../src/result.js'
 
 describe('Result', () => {
   describe('static methods', () => {

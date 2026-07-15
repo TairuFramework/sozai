@@ -11,8 +11,6 @@ export type MappedResult<V, E extends Error = Error> =
   | AsyncResult<V, E>
 
 export class AsyncResult<V, E extends Error = Error> implements PromiseLike<Result<V, E>> {
-  static [Symbol.species] = Promise
-
   static all<V, E extends Error = Error>(
     values: Iterable<V | PromiseLike<V>>,
   ): AsyncResult<Array<Result<V, E>>, never> {
@@ -21,7 +19,7 @@ export class AsyncResult<V, E extends Error = Error> implements PromiseLike<Resu
       return results.map((result) => {
         return result.status === 'fulfilled'
           ? Result.ok<V, E>(result.value)
-          : Result.error<V, E>(result.reason as E)
+          : Result.toError<V, E>(result.reason)
       })
     })
     return AsyncResult.resolve(promise)
@@ -94,14 +92,16 @@ export class AsyncResult<V, E extends Error = Error> implements PromiseLike<Resu
           return self as unknown as Result<OutV, E | OutE>
         }
         return toPromise(() => fn(self.value))
-          .then(Result.from<OutV, OutE>)
+          .then((result) =>
+            Result.is<OutV, OutE>(result) ? result : Result.ok<OutV, OutE>(result as OutV),
+          )
           .catch(Result.toError<OutV, OutE>)
       }),
     )
   }
 
   mapError<OutE extends Error = Error>(
-    fn: (error: E) => MappedResult<V, OutE>,
+    fn: (error: E) => OutE | Result<V, OutE> | PromiseLike<Result<V, OutE>> | AsyncResult<V, OutE>,
   ): AsyncResult<V, E | OutE> {
     return new AsyncResult(
       this.#promise.then((self) => {
@@ -109,8 +109,10 @@ export class AsyncResult<V, E extends Error = Error> implements PromiseLike<Resu
           return self as unknown as Result<V, E | OutE>
         }
         return toPromise(() => fn(self.error as E))
-          .then(Result.from<V, E | OutE>)
-          .catch(Result.toError<V, E | OutE>)
+          .then((result) =>
+            Result.is<V, OutE>(result) ? result : Result.error<V, OutE>(result as OutE),
+          )
+          .catch(Result.toError<V, OutE>)
       }),
     )
   }

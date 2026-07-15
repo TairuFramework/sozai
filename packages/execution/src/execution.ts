@@ -103,9 +103,8 @@ export class Execution<V, E extends Error = Error>
 
       unsubscribeAbort = onAbort(signal, () => {
         settle(
-          Result.toError<V, E | Interruption>(
-            signal.reason,
-            () => new AbortInterruption({ cause: signal.reason }),
+          Result.toError<V, E | Interruption>(signal.reason, (cause) =>
+            cause instanceof Error ? (cause as E) : new AbortInterruption({ cause }),
           ),
         )
       })
@@ -114,9 +113,10 @@ export class Execution<V, E extends Error = Error>
       if (!signal.aborted) {
         toPromise(() => ctx.execute(signal))
           .then(Result.from<V, E | Interruption>, (cause) => {
-            return Result.toError<V, E | Interruption>(
-              cause,
-              () => new Error('Execution failed', { cause }) as E,
+            return Result.toError<V, E | Interruption>(cause, (received) =>
+              received instanceof Error
+                ? (received as E)
+                : (new Error('Execution failed', { cause: received }) as E),
             )
           })
           .then(settle)
@@ -227,9 +227,10 @@ export class Execution<V, E extends Error = Error>
       try {
         executable = fn(result)
       } catch (cause) {
-        const errored = Result.toError<V | OutV, E | OutE | Interruption>(
-          cause,
-          () => new Error('Execution failed', { cause }) as OutE,
+        const errored = Result.toError<V | OutV, E | OutE | Interruption>(cause, (received) =>
+          received instanceof Error
+            ? (received as OutE)
+            : (new Error('Execution failed', { cause: received }) as OutE),
         )
         return {
           cleanup: () => this.#cleanup?.(),
@@ -264,7 +265,7 @@ export class Execution<V, E extends Error = Error>
   ifError<OutV, OutE extends Error = Error>(
     fn: (error: E | Interruption) => Executable<OutV, OutE> | null,
   ): Execution<V | OutV, E | OutE> {
-    return this.next((result) => (result.isError() ? fn(result.error as E | Interruption) : null))
+    return this.next((result) => (result.isError() ? fn(result.error) : null))
   }
 
   ifOK<OutV, OutE extends Error = Error>(

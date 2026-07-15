@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { Result } from '../src/result.js'
+import { type ErrorResult, type OKResult, Result } from '../src/result.js'
 
 describe('Result', () => {
   describe('static methods', () => {
@@ -637,5 +637,124 @@ describe('Result', () => {
       expect(customResult.isError()).toBe(true)
       expect(() => customResult.value).toThrow('custom error')
     })
+  })
+})
+
+describe('Result narrowing', () => {
+  test('the false branch of isOK() is ErrorResult, with a non-nullable error', () => {
+    const result = Result.from<number, TypeError>(new TypeError('boom'))
+    if (result.isOK()) {
+      throw new Error('expected an error result')
+    }
+    // Before the fix `result.error` is `TypeError | null` here, so this line does
+    // not compile — `test:types` is what guards it.
+    const error: TypeError = result.error
+    expect(error.message).toBe('boom')
+    const errored: ErrorResult<number, TypeError> = result
+    expect(errored.isError()).toBe(true)
+  })
+
+  test('the true branch of isOK() is OKResult, with a null error', () => {
+    const result = Result.from<number, TypeError>(1)
+    if (result.isError()) {
+      throw new Error('expected an OK result')
+    }
+    const ok: OKResult<number, TypeError> = result
+    const value: number = ok.value
+    const error: null = ok.error
+    expect(value).toBe(1)
+    expect(error).toBeNull()
+  })
+
+  test('accessing value on an ErrorResult throws the error', () => {
+    const error = new TypeError('boom')
+    const result = Result.error<number, TypeError>(error)
+    expect(() => result.value).toThrow(error)
+  })
+})
+
+describe('Result throw normalization', () => {
+  test('a non-Error thrown in map becomes a normalized Error', () => {
+    const result = Result.ok<number>(1).map(() => {
+      throw 'oops'
+    })
+    expect(result.isError()).toBe(true)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error?.cause).toBe('oops')
+  })
+
+  test('a non-Error thrown in mapError stays an error and does not become OK', () => {
+    const result = Result.error<number>(new Error('first')).mapError(() => {
+      throw 'oops'
+    })
+    // Regression: this used to route through Result.from and yield isOK() === true.
+    expect(result.isOK()).toBe(false)
+    expect(result.isError()).toBe(true)
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error?.cause).toBe('oops')
+  })
+
+  test('an Error thrown in map is preserved as-is', () => {
+    const thrown = new TypeError('boom')
+    const result = Result.ok<number>(1).map(() => {
+      throw thrown
+    })
+    expect(result.error).toBe(thrown)
+  })
+
+  test('map returning a bare Error keeps it as an OK value', () => {
+    const value = new Error('carried')
+    const result = Result.ok<number>(1).map(() => value)
+    expect(result.isOK()).toBe(true)
+    expect(result.value).toBe(value)
+  })
+
+  test('mapError returning a bare Error replaces the error', () => {
+    const replacement = new TypeError('replaced')
+    const result = Result.error<number>(new Error('first')).mapError(() => replacement)
+    expect(result.isError()).toBe(true)
+    expect(result.error).toBe(replacement)
+  })
+
+  test('mapError recovers when the callback returns Result.ok', () => {
+    const result = Result.error<number>(new Error('first')).mapError(() => Result.ok<number>(2))
+    expect(result.isOK()).toBe(true)
+    expect(result.value).toBe(2)
+  })
+})
+
+describe('Result.toError factory', () => {
+  class DomainError extends Error {}
+
+  test('the factory runs for an Error cause and receives it', () => {
+    const cause = new TypeError('underlying')
+    const result = Result.toError<number, DomainError>(
+      cause,
+      (received) => new DomainError('wrapped', { cause: received }),
+    )
+    // Before the fix the factory was skipped entirely for Error causes.
+    expect(result.error).toBeInstanceOf(DomainError)
+    expect(result.error.cause).toBe(cause)
+  })
+
+  test('the factory runs for a non-Error cause and receives it', () => {
+    const result = Result.toError<number, DomainError>(
+      'oops',
+      (received) => new DomainError('wrapped', { cause: received }),
+    )
+    expect(result.error).toBeInstanceOf(DomainError)
+    expect(result.error.cause).toBe('oops')
+  })
+
+  test('without a factory, an Error cause passes through', () => {
+    const cause = new TypeError('underlying')
+    expect(Result.toError(cause).error).toBe(cause)
+  })
+
+  test('without a factory, a non-Error cause is wrapped', () => {
+    const result = Result.toError('oops')
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error.message).toBe('Unknown error')
+    expect(result.error.cause).toBe('oops')
   })
 })

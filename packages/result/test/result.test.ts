@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { Result } from '../src/result.js'
+import { ErrorResult, OKResult, Result } from '../src/result.js'
 
 describe('Result', () => {
   describe('static methods', () => {
@@ -637,5 +637,38 @@ describe('Result', () => {
       expect(customResult.isError()).toBe(true)
       expect(() => customResult.value).toThrow('custom error')
     })
+  })
+})
+
+describe('Result narrowing', () => {
+  test('the false branch of isOK() is ErrorResult, with a non-nullable error', () => {
+    const result = Result.from<number, TypeError>(new TypeError('boom'))
+    if (result.isOK()) {
+      throw new Error('expected an error result')
+    }
+    // Before the fix `result.error` is `TypeError | null` here, so this line does
+    // not compile — `test:types` is what guards it.
+    const error: TypeError = result.error
+    expect(error.message).toBe('boom')
+    const errored: ErrorResult<number, TypeError> = result
+    expect(errored.isError()).toBe(true)
+  })
+
+  test('the true branch of isOK() is OKResult, with a null error', () => {
+    const result = Result.from<number, TypeError>(1)
+    if (result.isError()) {
+      throw new Error('expected an OK result')
+    }
+    const ok: OKResult<number, TypeError> = result
+    const value: number = ok.value
+    const error: null = ok.error
+    expect(value).toBe(1)
+    expect(error).toBeNull()
+  })
+
+  test('accessing value on an ErrorResult throws the error', () => {
+    const error = new TypeError('boom')
+    const result = Result.error<number, TypeError>(error)
+    expect(() => result.value).toThrow(error)
   })
 })

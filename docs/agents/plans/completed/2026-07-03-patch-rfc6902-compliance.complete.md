@@ -78,4 +78,4 @@ whole-branch review clean (no Critical/Important).
 
 ## Follow-ups
 
-Non-blocking deferrals extracted to [backlog/patch-followups](../backlog/patch-followups.md).
+Non-blocking deferrals extracted to [backlog/patch-followups](../backlog/2026-07-03-patch-followups.md).

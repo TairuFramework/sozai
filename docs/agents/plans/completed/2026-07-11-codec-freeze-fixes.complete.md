@@ -117,7 +117,7 @@ lying.
 
 ## Follow-ups
 
-- [canonicalize nested-function bug](../backlog/codec-canonicalize-nested-undefined.md) —
+- [canonicalize nested-function bug](../backlog/2026-07-11-codec-canonicalize-nested-undefined.md) —
   blocked on upstream.
 - [base64 non-canonical encodings](../backlog/2026-07-11-codec-non-canonical-base64.md) —
   accepted for now, documented.

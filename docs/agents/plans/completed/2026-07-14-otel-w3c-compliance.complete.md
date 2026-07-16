@@ -121,7 +121,7 @@ round's fixes had left.
 
 ## Follow-on
 
-- [otel-span-id-validation-gap](../backlog/otel-span-id-validation-gap.md) — `traceLogger` and
+- [otel-span-id-validation-gap](../backlog/2026-07-14-otel-span-id-validation-gap.md) — `traceLogger` and
   `getActiveTraceContext` validate the trace ID but not the span ID. Pre-existing, consistent across
   both sites, unreachable with a real SDK. Deliberately out of scope here.
 

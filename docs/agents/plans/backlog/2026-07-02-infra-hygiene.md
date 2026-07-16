@@ -3,15 +3,18 @@
 **Status:** open · backlog · no freeze dependency
 **Source:** [audit 2026-07-02 — repo / infrastructure](../completed/2026-07-02-repo-audit.complete.md#repo--infrastructure)
 
-Infra findings that don't block the freeze. Legal/release-correctness infra lives in
-[next/infra-license-and-versioning](../next/infra-license-and-versioning.md).
+Infra findings that don't block the freeze. Legal/release-correctness infra shipped separately:
+[completed/2026-07-11-infra-license-and-versioning](../completed/2026-07-11-infra-license-and-versioning.complete.md).
 
 ## Build orchestration
 
 - **`turbo.json` `clean` task is orphaned:** packages define `build:clean`, not `clean`, so
-  `build:js`'s `dependsOn: ["^clean"]` matches nothing. Rename one side. Also `build:types`
-  runs via `pnpm run -r` instead of Turbo, losing caching — a `build:types` task with
-  `dependsOn: ["^build:types"]` preserves the topological order already relied on.
+  `build:js`'s `dependsOn: ["^clean"]` matches nothing. Rename one side.
+- **The root `build:types` script bypasses Turbo.** The `build:types` *task* now exists in
+  `turbo.json` with `dependsOn: ["^build:types"]` (added by the result/option work), but the root
+  script is still `"build:types": "pnpm run -r build:types"`, so `pnpm run build` runs it outside
+  Turbo and gets no caching. Point the script at `turbo run build:types` — the task already
+  preserves the topological order the `-r` run relies on.
 
 ## Test scripts
 

@@ -6,4 +6,4 @@
 - **Conventions & development:** the kigu `conventions` and `development` skills (auto-loaded via the kigu plugin)
 - **Architecture:** [agents/architecture.md](./agents/architecture.md)
 - **Reference:** [reference/](./reference/)
-- **Planning:** [roadmap](./agents/plans/roadmap.md) · [next/](./agents/plans/next/) · [backlog/](./agents/plans/backlog/)
+- **Planning:** [roadmap](./agents/plans/roadmap.md) · [backlog/](./agents/plans/backlog/) · [completed/](./agents/plans/completed/)

@@ -21,6 +21,18 @@ export function isValidSpanID(value: string): boolean {
 }
 
 /**
+ * Whether `ctx` is a real span context: both IDs well-formed and non-zero.
+ *
+ * The trace ID alone is not enough. OTel's no-op spans zero both IDs, so a trace-ID-only
+ * check catches them — but a hand-constructed or malformed context can pair a valid trace
+ * ID with an all-zero span ID, and that must not be stamped onto logs or handed out as a
+ * trace context.
+ */
+export function isValidSpanContext(ctx: SpanContext): boolean {
+  return isValidTraceID(ctx.traceId) && isValidSpanID(ctx.spanId)
+}
+
+/**
  * Build a remote `SpanContext` from parsed traceparent data. Undefined when either ID is
  * invalid, so an all-zero or garbage remote context can't become a parent that SDKs attach
  * real spans to.

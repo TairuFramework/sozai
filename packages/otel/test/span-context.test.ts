@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
 
-import { isValidSpanID, isValidTraceID, toRemoteSpanContext } from '../src/span-context.js'
+import type { SpanContext } from '@opentelemetry/api'
+
+import {
+  isValidSpanContext,
+  isValidSpanID,
+  isValidTraceID,
+  toRemoteSpanContext,
+} from '../src/span-context.js'
 
 describe('isValidTraceID', () => {
   test('accepts 32 lowercase hex characters', () => {
@@ -41,6 +48,33 @@ describe('isValidSpanID', () => {
   test('rejects uppercase hex and non-hex characters', () => {
     expect(isValidSpanID('00F067AA0BA902B7')).toBe(false)
     expect(isValidSpanID('00f067aa0ba902bz')).toBe(false)
+  })
+})
+
+describe('isValidSpanContext', () => {
+  const valid = {
+    traceId: '0af7651916cd43dd8448eb211c80319c',
+    spanId: '00f067aa0ba902b7',
+    traceFlags: 1,
+  } as SpanContext
+
+  test('accepts a context with both IDs valid', () => {
+    expect(isValidSpanContext(valid)).toBe(true)
+  })
+
+  test('rejects an all-zero trace ID', () => {
+    expect(
+      isValidSpanContext({ ...valid, traceId: '00000000000000000000000000000000' }),
+    ).toBe(false)
+  })
+
+  test('rejects an all-zero span ID paired with a valid trace ID', () => {
+    // The gap this predicate closes: the trace ID alone passed the old guards.
+    expect(isValidSpanContext({ ...valid, spanId: '0000000000000000' })).toBe(false)
+  })
+
+  test('rejects a malformed span ID', () => {
+    expect(isValidSpanContext({ ...valid, spanId: 'not-a-span-id' })).toBe(false)
   })
 })
 

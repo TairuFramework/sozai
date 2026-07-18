@@ -89,4 +89,26 @@ describe('traceLogger', () => {
     expect(result).toBe(mockLogger)
     expect(withSpy).not.toHaveBeenCalled()
   })
+
+  test('returns the same logger for a valid trace ID paired with an all-zero span ID', () => {
+    // The trace ID is well-formed, so the trace-ID-only guard would let this
+    // through and stamp spanID: '0000000000000000' onto every log line. See the
+    // spy rationale in the all-zero-trace-ID test above.
+    const withSpy = vi.fn()
+    const mockLogger = { with: withSpy } as unknown as Logger
+    const fakeSpan = {
+      spanContext: () => ({
+        traceId: '0af7651916cd43dd8448eb211c80319c',
+        spanId: '0000000000000000',
+        traceFlags: 1,
+      }),
+    } as unknown as Span
+
+    const result = context.with(trace.setSpan(context.active(), fakeSpan), () =>
+      traceLogger(mockLogger),
+    )
+
+    expect(result).toBe(mockLogger)
+    expect(withSpy).not.toHaveBeenCalled()
+  })
 })

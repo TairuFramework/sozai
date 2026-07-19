@@ -15,7 +15,7 @@ import { useTestContextManager } from './helpers/context-manager.js'
 // A real ContextManager is required so `context.with()` genuinely activates
 // its argument — see `test/helpers/context-manager.ts`. Without it, spans
 // and baggage set via `context.with()` are silently discarded and several
-// guards below (e.g. `getActiveTraceContext`'s `isValidTraceID` check) would
+// guards below (e.g. `getActiveTraceContext`'s `isValidSpanContext` check) would
 // never actually run.
 useTestContextManager()
 

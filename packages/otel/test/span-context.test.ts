@@ -1,6 +1,5 @@
-import { describe, expect, test } from 'vitest'
-
 import type { SpanContext } from '@opentelemetry/api'
+import { describe, expect, test } from 'vitest'
 
 import {
   isValidSpanContext,
@@ -63,9 +62,9 @@ describe('isValidSpanContext', () => {
   })
 
   test('rejects an all-zero trace ID', () => {
-    expect(
-      isValidSpanContext({ ...valid, traceId: '00000000000000000000000000000000' }),
-    ).toBe(false)
+    expect(isValidSpanContext({ ...valid, traceId: '00000000000000000000000000000000' })).toBe(
+      false,
+    )
   })
 
   test('rejects an all-zero span ID paired with a valid trace ID', () => {

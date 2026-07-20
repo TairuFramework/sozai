@@ -15,7 +15,7 @@ import { useTestContextManager } from './helpers/context-manager.js'
 // A real ContextManager is required so `context.with()` genuinely activates
 // its argument — see `test/helpers/context-manager.ts`. Without it, spans
 // and baggage set via `context.with()` are silently discarded and several
-// guards below (e.g. `getActiveTraceContext`'s `isValidTraceID` check) would
+// guards below (e.g. `getActiveTraceContext`'s `isValidSpanContext` check) would
 // never actually run.
 useTestContextManager()
 
@@ -52,6 +52,26 @@ describe('getActiveTraceContext', () => {
     context.with(trace.setSpan(context.active(), fakeSpan), () => {
       // Precondition: the fake span really is active, so a failure below can
       // only come from the `isValidTraceID` guard, not from `span == null`.
+      expect(trace.getSpan(context.active())).toBe(fakeSpan)
+      expect(getActiveTraceContext()).toBeUndefined()
+    })
+  })
+
+  test('returns undefined for a valid trace ID paired with an all-zero span ID', () => {
+    // The trace-ID-only guard would let this through and return
+    // spanID: '0000000000000000' as if it were a real trace context. A real
+    // ContextManager is registered (see the top of this file), so the fake span
+    // genuinely becomes active here.
+    const fakeSpan = {
+      spanContext: () => ({
+        traceId: '0af7651916cd43dd8448eb211c80319c',
+        spanId: '0000000000000000',
+        traceFlags: 1,
+      }),
+    } as unknown as Span
+    context.with(trace.setSpan(context.active(), fakeSpan), () => {
+      // Precondition: the fake span really is active, so a failure below can
+      // only come from the span-context guard, not from `span == null`.
       expect(trace.getSpan(context.active())).toBe(fakeSpan)
       expect(getActiveTraceContext()).toBeUndefined()
     })

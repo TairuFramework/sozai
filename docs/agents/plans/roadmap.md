@@ -22,9 +22,6 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 1. Quick wins — one small PR each, or one batched PR
 
-- [otel — span ID validation gap](backlog/2026-07-14-otel-span-id-validation-gap.md). One line at each of
-  two call sites plus a test; `isValidSpanID` already exists and is exported. Unreachable with a
-  real OTel SDK — worth it for symmetry.
 - [disposer — macrotask fallback reason latch](backlog/2026-07-14-disposer-macrotask-fallback-reason-latch.md).
   Decide whether the two platforms should agree, pin it with a test that stubs `queueMicrotask`,
   say what the guarantee is in the JSDoc. No in-repo consumer affected.

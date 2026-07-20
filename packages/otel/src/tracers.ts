@@ -2,7 +2,7 @@ import type { Context, SpanOptions, Tracer } from '@opentelemetry/api'
 import { context, propagation, type Span, SpanStatusCode, trace } from '@opentelemetry/api'
 
 import { type BaggageEntry, baggageToEntries, entriesToBaggage } from './baggage.js'
-import { isValidTraceID } from './span-context.js'
+import { isValidSpanContext } from './span-context.js'
 
 /**
  * Build a tracer factory for a consuming package.
@@ -31,8 +31,9 @@ export function getActiveTraceContext(): TraceContext | undefined {
     return undefined
   }
   const ctx = span.spanContext()
-  // No-op spans carry all-zero IDs; they are not a real trace context.
-  if (!isValidTraceID(ctx.traceId)) {
+  // No-op spans carry all-zero IDs; they are not a real trace context. Both IDs are
+  // checked — a valid trace ID paired with an all-zero span ID is not one either.
+  if (!isValidSpanContext(ctx)) {
     return undefined
   }
   return {

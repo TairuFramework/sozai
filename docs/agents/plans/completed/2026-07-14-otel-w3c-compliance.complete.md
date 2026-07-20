@@ -121,9 +121,10 @@ round's fixes had left.
 
 ## Follow-on
 
-- [otel-span-id-validation-gap](../backlog/2026-07-14-otel-span-id-validation-gap.md) — `traceLogger` and
-  `getActiveTraceContext` validate the trace ID but not the span ID. Pre-existing, consistent across
-  both sites, unreachable with a real SDK. Deliberately out of scope here.
+- `traceLogger` and `getActiveTraceContext` validated the trace ID but not the span ID.
+  Pre-existing, consistent across both sites, unreachable with a real SDK, so deliberately out of
+  scope here. Fixed on 2026-07-19 —
+  [span ID validation](2026-07-19-otel-span-id-validation.complete.md).
 
 Also noted during the docs sweep and left alone as pre-existing: `docs/reference/observability.md`
 documented a `SpanNames` const that does not exist (removed), and `docs/skills/observability.skill.md`

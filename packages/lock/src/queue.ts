@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-
 import { defer } from '@sozai/async'
 
 export type QueueSlot = {

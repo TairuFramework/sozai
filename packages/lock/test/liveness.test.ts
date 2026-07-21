@@ -199,18 +199,18 @@ describe('checkLiveness()', () => {
     // With no boot ID on either side the hostname is the only machine identity there is, so it
     // gates the probe on darwin too: a renamed darwin host whose boot ID could not be read DOES
     // lose its holder's liveness proof.
-    test.each([
-      'darwin',
-      'linux',
-    ] as const)('%s fallback: no boot ID plus a different hostname is not probed', (platform) => {
-      ourPlatform.value = platform
-      ourBootID.value = null
-      const kill = vi.spyOn(process, 'kill')
-      const record = localRecord({ bootID: null, hostname: 'some-other-host' })
+    test.each(['darwin', 'linux'] as const)(
+      '%s fallback: no boot ID plus a different hostname is not probed',
+      (platform) => {
+        ourPlatform.value = platform
+        ourBootID.value = null
+        const kill = vi.spyOn(process, 'kill')
+        const record = localRecord({ bootID: null, hostname: 'some-other-host' })
 
-      expect(checkLiveness(record)).toBe('unknown')
-      expect(kill).not.toHaveBeenCalled()
-    })
+        expect(checkLiveness(record)).toBe('unknown')
+        expect(kill).not.toHaveBeenCalled()
+      },
+    )
   })
 
   describe('the bootAt fallback, where no boot ID is available', () => {
@@ -221,29 +221,35 @@ describe('checkLiveness()', () => {
       ['the record has no boot ID', OUR_BOOT_ID, null],
       ['this process has no boot ID', null, PREVIOUS_BOOT_ID],
       ['neither side has one', null, null],
-    ])('%s: a boot time outside the tolerance is unknown, and the pid is not probed', (_label, processBootID, recordBootID) => {
-      ourBootID.value = processBootID
-      const kill = vi.spyOn(process, 'kill')
-      const record = localRecord({
-        bootID: recordBootID,
-        bootAt: getBootAt() - BOOT_TOLERANCE_MS - 1_000,
-      })
-      expect(checkLiveness(record)).toBe('unknown')
-      expect(kill).not.toHaveBeenCalled()
-    })
+    ])(
+      '%s: a boot time outside the tolerance is unknown, and the pid is not probed',
+      (_label, processBootID, recordBootID) => {
+        ourBootID.value = processBootID
+        const kill = vi.spyOn(process, 'kill')
+        const record = localRecord({
+          bootID: recordBootID,
+          bootAt: getBootAt() - BOOT_TOLERANCE_MS - 1_000,
+        })
+        expect(checkLiveness(record)).toBe('unknown')
+        expect(kill).not.toHaveBeenCalled()
+      },
+    )
 
     test.each([
       ['the record has no boot ID', OUR_BOOT_ID, null],
       ['this process has no boot ID', null, PREVIOUS_BOOT_ID],
       ['neither side has one', null, null],
-    ])('%s: a boot time inside the tolerance is probed (clock drift is not a reboot)', (_label, processBootID, recordBootID) => {
-      ourBootID.value = processBootID
-      const record = localRecord({
-        bootID: recordBootID,
-        bootAt: getBootAt() - (BOOT_TOLERANCE_MS - 5_000),
-      })
-      expect(checkLiveness(record)).toBe('alive')
-    })
+    ])(
+      '%s: a boot time inside the tolerance is probed (clock drift is not a reboot)',
+      (_label, processBootID, recordBootID) => {
+        ourBootID.value = processBootID
+        const record = localRecord({
+          bootID: recordBootID,
+          bootAt: getBootAt() - (BOOT_TOLERANCE_MS - 5_000),
+        })
+        expect(checkLiveness(record)).toBe('alive')
+      },
+    )
   })
 
   /**

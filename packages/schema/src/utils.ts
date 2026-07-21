@@ -19,10 +19,10 @@ export function resolveReference(root: Schema, ref: string): Schema {
     let key: string
     try {
       key = unescapePointer(decodeURIComponent(segment))
-    } catch {
+    } catch (cause) {
       // A malformed percent-escape (e.g. a lone `%`) makes decodeURIComponent
       // throw a raw URIError; surface the traversal's own error shape instead.
-      throw new Error(`Invalid reference segment: ${segment}`)
+      throw new Error(`Invalid reference segment: ${segment}`, { cause })
     }
     if (current == null || typeof current !== 'object') {
       throw new Error(`Invalid reference path: ${ref}`)

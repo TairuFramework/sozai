@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+
 import { parsePath } from '../src/apply.js'
 import { applyPatches, PatchError } from '../src/index.js'
 

@@ -598,12 +598,11 @@ describe('AsyncResult', () => {
 
       test('handles custom error types in recovery', async () => {
         class CustomError extends Error {
-          constructor(
-            message: string,
-            public code: number,
-          ) {
+          code: number
+          constructor(message: string, code: number) {
             super(message)
             this.name = 'CustomError'
+            this.code = code
           }
         }
         const originalError = new CustomError('custom error', 404)

@@ -45,7 +45,7 @@ export type HandlersRecord<
   Events extends Record<string, unknown> = Record<string, never>,
 > = {
   // biome-ignore lint/suspicious/noExplicitAny: needed for type inference
-  [K: string]: Handler<State, any, Events>
+  [k: string]: Handler<State, any, Events>
 }
 
 export type HandlerEvents<H> =

@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type { ErrorObject } from 'ajv'
-import type { Schema } from './types.js'
 
+import type { Schema } from './types.js'
 import { unescapePointer } from './utils.js'
 
 /**

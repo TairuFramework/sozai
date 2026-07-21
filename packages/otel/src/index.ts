@@ -7,6 +7,7 @@ export {
   TraceFlags,
   type Tracer,
 } from '@opentelemetry/api'
+
 export {
   type BaggageEntry,
   type BaggageProperty,

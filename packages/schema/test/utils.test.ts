@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+
 import type { Schema } from '../src/types.js'
 import { resolveReference, resolveSchema } from '../src/utils.js'
 

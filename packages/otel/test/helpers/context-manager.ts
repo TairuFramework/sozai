@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-
 import { type Context, context, ROOT_CONTEXT } from '@opentelemetry/api'
 import { afterAll } from 'vitest'
 

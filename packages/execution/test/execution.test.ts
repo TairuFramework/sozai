@@ -541,7 +541,7 @@ describe('Execution', () => {
     })
 
     test('executes chain steps in order', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -1305,12 +1305,11 @@ describe('Execution', () => {
 
     test('handles custom error types in error handler', async () => {
       class CustomError extends Error {
-        constructor(
-          message: string,
-          public code: number,
-        ) {
+        code: number
+        constructor(message: string, code: number) {
           super(message)
           this.name = 'CustomError'
+          this.code = code
         }
       }
 
@@ -1376,7 +1375,7 @@ describe('Execution', () => {
     })
 
     test('handles complex error recovery scenario', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -1425,7 +1424,7 @@ describe('Execution', () => {
     })
 
     test('handles mixed next and ifError calls', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -1912,7 +1911,10 @@ describe('Execution', () => {
 
     test('handles custom value types in ok handler', async () => {
       class CustomValue {
-        constructor(public data: string) {}
+        data: string
+        constructor(data: string) {
+          this.data = data
+        }
       }
       const customValue = new CustomValue('custom')
       const firstExecute = vi.fn(() => Promise.resolve(customValue))
@@ -1966,7 +1968,7 @@ describe('Execution', () => {
     })
 
     test('handles complex ok chaining scenario', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -2007,7 +2009,7 @@ describe('Execution', () => {
     })
 
     test('handles mixed chain and ifOK calls', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -2346,12 +2348,11 @@ describe('Execution', () => {
 
     test('handles custom error types', async () => {
       class CustomError extends Error {
-        constructor(
-          message: string,
-          public code: number,
-        ) {
+        code: number
+        constructor(message: string, code: number) {
           super(message)
           this.name = 'CustomError'
+          this.code = code
         }
       }
 
@@ -2367,12 +2368,11 @@ describe('Execution', () => {
 
     test('handles Result.error with custom error types', async () => {
       class CustomError extends Error {
-        constructor(
-          message: string,
-          public code: number,
-        ) {
+        code: number
+        constructor(message: string, code: number) {
           super(message)
           this.name = 'CustomError'
+          this.code = code
         }
       }
 
@@ -2904,7 +2904,7 @@ describe('Execution', () => {
     })
 
     test('yields results from complex nested chains', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')
@@ -3081,12 +3081,11 @@ describe('Execution', () => {
 
     test('yields results with custom error types in chain', async () => {
       class CustomError extends Error {
-        constructor(
-          message: string,
-          public code: number,
-        ) {
+        code: number
+        constructor(message: string, code: number) {
           super(message)
           this.name = 'CustomError'
+          this.code = code
         }
       }
 
@@ -3422,12 +3421,11 @@ describe('Execution', () => {
 
     test('generates AsyncIterable with custom error types', async () => {
       class CustomError extends Error {
-        constructor(
-          message: string,
-          public code: number,
-        ) {
+        code: number
+        constructor(message: string, code: number) {
           super(message)
           this.name = 'CustomError'
+          this.code = code
         }
       }
 
@@ -3833,7 +3831,7 @@ describe('Execution', () => {
     })
 
     test('generates AsyncIterable with complex mixed chains', async () => {
-      const executionOrder: string[] = []
+      const executionOrder: Array<string> = []
 
       const firstExecute = vi.fn(() => {
         executionOrder.push('first')

@@ -21,7 +21,7 @@ catalog:
   '@kigu/dev': ^0.1.4
   '@logtape/logtape': ^2.2.4
   '@opentelemetry/api': ^1.9.1
-  '@opentelemetry/api-logs': ^0.220.0
+  '@opentelemetry/api-logs': ^0.221.0
   '@standard-schema/spec': ^1.1.0
   ajv: ^8.20.0
   ajv-formats: ^3.0.1

@@ -34,7 +34,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@sozai/async": "workspace:^"
+    "@sozai/async": "workspace:^",
+    "@sozai/log": "workspace:^"
   },
   "devDependencies": {
     "@sozai/stream": "workspace:^"

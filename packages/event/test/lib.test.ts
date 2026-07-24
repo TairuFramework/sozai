@@ -1,6 +1,7 @@
 import { createArraySink } from '@sozai/stream'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
+import type { EventsSink, EventsSource } from '../src/index.js'
 import { EventEmitter } from '../src/index.js'
 
 describe('EventEmitter', () => {
@@ -369,5 +370,123 @@ describe('EventEmitter', () => {
       await writer.write(4)
       await expect(items).resolves.toEqual([1, 2])
     })
+  })
+
+  test('fire() returns undefined synchronously and dispatches to listeners', async () => {
+    type Events = { ping: string }
+    const emitter = new EventEmitter<Events>()
+    const received: Array<string> = []
+    emitter.on('ping', (data) => {
+      received.push(data)
+    })
+
+    const result = emitter.fire('ping', 'hello')
+    expect(result).toBeUndefined()
+
+    // Listener runs on the microtask queue, not synchronously.
+    await Promise.resolve()
+    expect(received).toEqual(['hello'])
+  })
+
+  test('fire() dataless overload dispatches', async () => {
+    type Events = { tick: undefined }
+    const emitter = new EventEmitter<Events>()
+    let called = false
+    emitter.on('tick', () => {
+      called = true
+    })
+
+    emitter.fire('tick')
+    await Promise.resolve()
+    expect(called).toBe(true)
+  })
+
+  test('fire() swallows listener rejections without throwing or rejecting', async () => {
+    type Events = { boom: string }
+    const emitter = new EventEmitter<Events>()
+    emitter.on('boom', () => {
+      throw new Error('listener failed')
+    })
+
+    const unhandled: Array<unknown> = []
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      expect(() => emitter.fire('boom', 'x')).not.toThrow()
+      // Flush microtasks and a macrotask so any unhandled rejection would surface.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  test('fire() reports listener failures via the constructor logger', async () => {
+    type Events = { boom: string }
+    const warn = vi.fn()
+    const logger = { warn } as unknown as import('@sozai/log').Logger
+    const emitter = new EventEmitter<Events>({ logger })
+    const error = new Error('listener failed')
+    emitter.on('boom', () => {
+      throw error
+    })
+
+    emitter.fire('boom', 'x')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('Event listener failed during fire()', {
+      name: 'boom',
+      error,
+    })
+  })
+
+  test('fire() does not call the logger when all listeners succeed', async () => {
+    type Events = { ping: string }
+    const warn = vi.fn()
+    const logger = { warn } as unknown as import('@sozai/log').Logger
+    const emitter = new EventEmitter<Events>({ logger })
+    emitter.on('ping', () => {})
+
+    emitter.fire('ping', 'ok')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  test('type: EventEmitter is assignable to EventsSource and EventsSink', () => {
+    type Events = { ping: undefined; msg: string }
+    const emitter = new EventEmitter<Events>()
+
+    // Positive: the class satisfies both views.
+    const source: EventsSource<Events> = emitter
+    const sink: EventsSink<Events> = emitter
+
+    // Source can listen but not emit.
+    source.on('msg', () => {})
+    void source.once('msg')
+    source.readable('msg')
+    // @ts-expect-error - emit is not on EventsSource
+    source.emit('msg', 'x')
+    // @ts-expect-error - fire is not on EventsSource
+    source.fire('msg', 'x')
+    // @ts-expect-error - writable is not on EventsSource
+    source.writable('msg')
+
+    // Sink can emit but not listen.
+    void sink.emit('msg', 'x')
+    void sink.emit('ping')
+    sink.fire('msg', 'x')
+    sink.fire('ping')
+    sink.writable('msg')
+    // @ts-expect-error - on is not on EventsSink
+    sink.on('msg', () => {})
+    // @ts-expect-error - once is not on EventsSink
+    void sink.once('msg')
+    // @ts-expect-error - readable is not on EventsSink
+    sink.readable('msg')
+
+    expect(emitter).toBeInstanceOf(EventEmitter)
   })
 })

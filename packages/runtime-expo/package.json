@@ -25,8 +25,9 @@
     "build:js": "swc src -d ./lib --config-file ../../node_modules/@kigu/dev/swc.json --strip-leading-paths",
     "build:types": "tsc --emitDeclarationOnly --skipLibCheck",
     "prepublishOnly": "pnpm run build",
-    "test": "pnpm run test:types",
-    "test:types": "tsc --noEmit --skipLibCheck -p tsconfig.json"
+    "test": "pnpm run test:types && pnpm run test:unit",
+    "test:types": "tsc --noEmit --skipLibCheck -p tsconfig.test.json",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@sozai/runtime": "workspace:^",

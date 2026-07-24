@@ -66,8 +66,11 @@ function assertValidPath(path: string): void {
   }
 }
 
+// RFC 6902 §4.4 forbids only a *proper* prefix: `from` must not be a strictly-shorter ancestor of
+// `path` (a location cannot be moved into one of its own descendants). An identical `from === path`
+// is not a proper prefix — it is a permitted no-op — so it is deliberately not matched here.
 function isProperPrefix(from: string, path: string): boolean {
-  return path === from || path.startsWith(`${from}/`)
+  return path.startsWith(`${from}/`)
 }
 
 function assertPathExists(obj: unknown, path: string): void {
@@ -83,7 +86,9 @@ function assertPathExists(obj: unknown, path: string): void {
  * @param path - JSON Pointer path (e.g., "/foo/bar/0"). The empty string `''` is a
  *   valid path meaning the whole document (root), and returns `[]`.
  * @returns Array of property keys and array indices
- * @throws {PatchError} When path doesn't start with '/'
+ * @throws {PatchError} When the path doesn't start with '/' (`INVALID_PATH`), or contains a
+ *   forbidden segment — `__proto__`, `constructor`, or `prototype` (`INVALID_PATH`). The empty
+ *   string `''` does not throw; it is the whole-document path and returns `[]`.
  *
  * @public
  */

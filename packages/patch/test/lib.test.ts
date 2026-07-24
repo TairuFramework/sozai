@@ -104,6 +104,15 @@ describe('applyPatches()', () => {
     expect(data).toEqual({ foo: { bar: 1 } })
   })
 
+  test('non-strict remove of a 3+ level missing parent path is a no-op', () => {
+    const data: Record<string, unknown> = { foo: { bar: 1 } }
+    // /foo/a/b/c: the parent vanishes at `a`, two keys before the leaf, so `undefined` surfaces
+    // mid-reduce (with `b` still to traverse) and exercises deletePath's reduce-time undefined-guard
+    // — distinct from a missing second-to-last parent, which only the post-reduce guard catches.
+    expect(() => applyPatches(data, [{ op: 'remove', path: '/foo/a/b/c' }], false)).not.toThrow()
+    expect(data).toEqual({ foo: { bar: 1 } })
+  })
+
   test('non-strict copy with missing from does not throw and creates no target', () => {
     const data: Record<string, unknown> = { foo: { bar: 1 } }
     expect(() =>
@@ -534,6 +543,14 @@ describe('applyPatches()', () => {
       expect(() => applyPatches(data, [{ op: 'move', from: '/a', path: '/a/b/moved' }])).toThrow(
         PatchError,
       )
+    })
+
+    test('move with identical from and path is a permitted no-op (RFC 6902 §4.4)', () => {
+      // Identical from/path is not a *proper* prefix, so it is not a move-into-descendant; the RFC
+      // permits it and it leaves the document unchanged.
+      const data: Record<string, unknown> = { a: { b: 1 } }
+      expect(() => applyPatches(data, [{ op: 'move', from: '/a', path: '/a' }])).not.toThrow()
+      expect(data).toEqual({ a: { b: 1 } })
     })
   })
 

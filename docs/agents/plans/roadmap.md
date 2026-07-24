@@ -32,9 +32,10 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 1. Quick wins — one small PR each, or one batched PR
 
-- [patch — deferred follow-ups](backlog/2026-07-03-patch-followups.md). Mostly docs and coverage. The
-  prototype-hardening item is theoretical and touches the well-tested atomic swap — take the
-  docs/coverage half, leave that one unless there's a reason.
+- [patch — atomic-swap prototype hardening](backlog/2026-07-03-patch-followups.md). The docs/coverage
+  items and the RFC `move`-identical-path fix landed [2026-07-24](completed/2026-07-24-patch-followups-docs-coverage.complete.md);
+  only this theoretical item remains, deliberately deferred — it touches the well-tested atomic swap
+  and no consumer feeds it untrusted input. Pick up only with a concrete reason.
 
 ### 2. Coverage and release plumbing
 

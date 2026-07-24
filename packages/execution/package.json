@@ -2,7 +2,11 @@
   "name": "@sozai/execution",
   "version": "0.2.1",
   "description": "Execution utilities",
-  "keywords": [],
+  "keywords": [
+    "execution",
+    "async",
+    "task"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",

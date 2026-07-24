@@ -361,5 +361,17 @@ export function applyPatches(
   for (const key of Object.keys(data)) {
     delete data[key]
   }
-  Object.assign(data, working)
+  // Rebuild via [[DefineOwnProperty]], not Object.assign's [[Set]]. An own `"__proto__"` key —
+  // which `JSON.parse` produces and `structuredClone` preserves — would otherwise trigger the
+  // `__proto__` accessor on assignment, dropping the key and reassigning `data`'s own prototype to
+  // its value. `defineProperty` writes it as a plain own property, so such a document round-trips
+  // unchanged. (Bounded to `data`; global `Object.prototype` was never reachable here.)
+  for (const key of Object.keys(working)) {
+    Object.defineProperty(data, key, {
+      value: (working as Record<string, unknown>)[key],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    })
+  }
 }

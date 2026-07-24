@@ -2,7 +2,11 @@
   "name": "@sozai/generator",
   "version": "0.2.0",
   "description": "Async generator utilities",
-  "keywords": [],
+  "keywords": [
+    "generator",
+    "async-generator",
+    "stream"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",
@@ -26,7 +30,7 @@
     "build:types": "tsc --emitDeclarationOnly --skipLibCheck",
     "prepublishOnly": "pnpm run build",
     "test": "pnpm run test:types && pnpm run test:unit",
-    "test:types": "tsc --noEmit -p tsconfig.test.json",
+    "test:types": "tsc --noEmit --skipLibCheck -p tsconfig.test.json",
     "test:unit": "vitest run"
   },
   "dependencies": {

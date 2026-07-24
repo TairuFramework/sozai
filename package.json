@@ -5,10 +5,11 @@
   "author": "Paul Le Cam",
   "type": "module",
   "scripts": {
-    "build": "pnpm run build:types && pnpm run build:js",
+    "build": "pnpm run clean && pnpm run build:types && pnpm run build:js",
     "build:js": "turbo run build:js",
-    "build:types": "pnpm run -r build:types",
+    "build:types": "turbo run build:types",
     "changeset": "changeset",
+    "clean": "pnpm -r build:clean",
     "format": "biome format --write .",
     "lint": "biome check --write ./packages",
     "prepare": "git config core.hooksPath .githooks",

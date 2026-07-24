@@ -2,7 +2,11 @@
   "name": "@sozai/result",
   "version": "0.2.0",
   "description": "Option, Result and AsyncResult primitives",
-  "keywords": [],
+  "keywords": [
+    "result",
+    "option",
+    "error-handling"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",

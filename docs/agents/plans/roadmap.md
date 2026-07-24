@@ -30,30 +30,19 @@ straight into `/dev-loop`.
 
 Ordered by cost against value, not severity. Nothing here blocks anything else.
 
-### 1. Quick wins — one small PR each, or one batched PR
+### 1. Docs & DX
 
-- [patch — atomic-swap prototype hardening](backlog/2026-07-03-patch-followups.md). The docs/coverage
-  items and the RFC `move`-identical-path fix landed [2026-07-24](completed/2026-07-24-patch-followups-docs-coverage.complete.md);
-  only this theoretical item remains, deliberately deferred — it touches the well-tested atomic swap
-  and no consumer feeds it untrusted input. Pick up only with a concrete reason.
+- **Package READMEs — done [2026-07-24](completed/2026-07-24-package-readmes.complete.md).** The 12
+  install-only stubs now carry a one-example overview each, seeded from `docs/reference/*.md` and
+  verified against real exports.
+- [package the domain skills as a Claude Code plugin](backlog/2026-07-24-package-skills-as-plugin.md).
+  sozai's six `docs/skills/*.skill.md` already declare invocable names (`sozai:discover`) and
+  cross-reference each other and sibling repos as `/sozai:*` commands, but without plugin packaging
+  none resolve — while `@enkaku` has already packaged its skills (`../enkaku/plugins/enkaku/`) and
+  points outward at `/sozai:*`. Real cross-repo DX gap; content exists. Coordinate the layout with
+  `kigu:discover-template` first.
 
-### 2. Coverage and release plumbing
-
-- [runtime-expo — no runtime tests](backlog/2026-07-16-runtime-expo-tests.md). The only package with no
-  `test/` at all, which is exactly why its `fetch` bug survived the sweep. The 2026-07-16 fix is
-  still unverified by any test. Cost is mostly mocking `expo-crypto`.
-- [infra — no release workflow](backlog/2026-07-11-release-workflow.md). Fifteen independently versioned
-  packages published by hand from a developer machine. Check whether kigu has a reusable release
-  workflow to call before writing one here.
-
-### 3. Infra hygiene — mechanical, batchable
-
-- [turbo, test scripts, READMEs, keywords](backlog/2026-07-02-infra-hygiene.md). The orphaned `clean` task
-  and the root `build:types` script bypassing Turbo are real caching losses; the READMEs are the
-  highest-value part for published packages, and `docs/reference/*.md` already has the content to
-  seed them.
-
-### 4. Needs a cross-repo audit first
+### 2. Needs a cross-repo audit first
 
 - [codec — base64 accepts non-canonical encodings](backlog/2026-07-11-codec-non-canonical-base64.md).
   Signature malleability at the string level. Only bites if something downstream treats a token
@@ -61,14 +50,14 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   idempotency keys, unique columns, replay sets. If none — and none is known today — this closes
   as a documented quirk. If one exists, fix it there, not in the codec.
 
-### 5. Blocked upstream — watch, don't work
+### 3. Blocked upstream — watch, don't work
 
 - [codec — canonicalize emits invalid JSON for nested non-serializable values](backlog/2026-07-11-codec-canonicalize-nested-undefined.md).
   Tracks [erdtman/canonicalize#22](https://github.com/erdtman/canonicalize/pull/22). Fails loud,
   caller bug to trigger. Bump the catalog entry when it ships. Fallback if the PR stalls: swap in
   an RFC 8785 implementation — non-breaking, the contract doesn't change.
 
-### 6. Deferred — research-heavy, no affected consumer
+### 4. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
   Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is

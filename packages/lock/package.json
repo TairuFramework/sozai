@@ -2,7 +2,12 @@
   "name": "@sozai/lock",
   "version": "0.1.0",
   "description": "Filesystem-based cross-process mutex",
-  "keywords": [],
+  "keywords": [
+    "lock",
+    "mutex",
+    "filesystem",
+    "cross-process"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",

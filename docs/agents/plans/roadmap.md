@@ -30,13 +30,17 @@ straight into `/dev-loop`.
 
 Ordered by cost against value, not severity. Nothing here blocks anything else.
 
-### 1. Package READMEs
+### 1. Docs & DX
 
-- [twelve packages ship install-only README stubs](backlog/2026-07-02-infra-hygiene.md). The
-  mechanical infra-hygiene items (Turbo `clean` rewired, root `build:types` routed through Turbo,
-  `test:types` normalized, keywords filled) landed [2026-07-24](completed/2026-07-24-infra-hygiene.complete.md);
-  the READMEs remain — a content pass, one minimal usage example per package, seeded from
-  `docs/reference/*.md`. Deserves its own session, not bundling with config work.
+- **Package READMEs — done [2026-07-24](completed/2026-07-24-package-readmes.complete.md).** The 12
+  install-only stubs now carry a one-example overview each, seeded from `docs/reference/*.md` and
+  verified against real exports.
+- [package the domain skills as a Claude Code plugin](backlog/2026-07-24-package-skills-as-plugin.md).
+  sozai's six `docs/skills/*.skill.md` already declare invocable names (`sozai:discover`) and
+  cross-reference each other and sibling repos as `/sozai:*` commands, but without plugin packaging
+  none resolve — while `@enkaku` has already packaged its skills (`../enkaku/plugins/enkaku/`) and
+  points outward at `/sozai:*`. Real cross-repo DX gap; content exists. Coordinate the layout with
+  `kigu:discover-template` first.
 
 ### 2. Needs a cross-repo audit first
 

@@ -13,6 +13,7 @@
  */
 
 import { onAbort } from '@sozai/async'
+import type { Logger } from '@sozai/log'
 
 export type UnsubscribeFunction = () => void
 
@@ -25,8 +26,51 @@ export type DatalessEventNames<Events extends Record<string, unknown>> = {
   [Key in keyof Events]: Events[Key] extends void ? Key : never
 }[keyof Events]
 
-export class EventEmitter<Events extends Record<string, unknown>> {
+export type EventEmitterOptions = {
+  logger?: Logger
+}
+
+/**
+ * Listen-only view of an {@link EventEmitter}. Hand this to consumers that may
+ * subscribe to events but must not emit them.
+ */
+export type EventsSource<Events extends Record<string, unknown>> = {
+  on<Name extends keyof Events>(
+    name: Name,
+    listener: (data: Events[Name]) => void | Promise<void>,
+    options?: ListenerOptions<Events[Name]>,
+  ): UnsubscribeFunction
+  once<Name extends keyof Events>(
+    name: Name,
+    options?: ListenerOptions<Events[Name]>,
+  ): Promise<Events[Name]>
+  readable<Name extends keyof Events>(
+    name: Name,
+    options?: ListenerOptions<Events[Name]>,
+  ): ReadableStream<Events[Name]>
+}
+
+/**
+ * Write-only view of an {@link EventEmitter}. Hand this to producers that may
+ * emit events but must not subscribe to them.
+ */
+export type EventsSink<Events extends Record<string, unknown>> = {
+  emit<Name extends DatalessEventNames<Events>>(name: Name): Promise<void>
+  emit<Name extends keyof Events>(name: Name, data: Events[Name]): Promise<void>
+  fire<Name extends DatalessEventNames<Events>>(name: Name): void
+  fire<Name extends keyof Events>(name: Name, data: Events[Name]): void
+  writable<Name extends keyof Events>(name: Name): WritableStream<Events[Name]>
+}
+
+export class EventEmitter<Events extends Record<string, unknown>>
+  implements EventsSource<Events>, EventsSink<Events>
+{
   #listeners = new Map<keyof Events, Set<(data: unknown) => void | Promise<void>>>()
+  #logger?: Logger
+
+  constructor(options?: EventEmitterOptions) {
+    this.#logger = options?.logger
+  }
 
   on<Name extends keyof Events>(
     name: Name,
@@ -113,6 +157,23 @@ export class EventEmitter<Events extends Record<string, unknown>> {
       .map((r) => r.reason)
     if (errors.length === 1) throw errors[0]
     if (errors.length > 1) throw new AggregateError(errors)
+  }
+
+  /**
+   * Fire-and-forget synchronous emit.
+   *
+   * Calls {@link EventEmitter.emit} without awaiting and returns immediately. Listener
+   * failures are swallowed — if a logger was provided to the constructor they are
+   * reported via `logger.warn`, otherwise they are silently discarded. Use
+   * {@link EventEmitter.emit} directly when you need to await completion or handle
+   * errors.
+   */
+  fire<Name extends DatalessEventNames<Events>>(name: Name): void
+  fire<Name extends keyof Events>(name: Name, data: Events[Name]): void
+  fire<Name extends keyof Events>(name: Name, data?: Events[Name]): void {
+    void this.emit(name as Name, data as Events[Name]).catch((error) => {
+      this.#logger?.warn('Event listener failed during fire()', { name, error })
+    })
   }
 
   readable<Name extends keyof Events>(

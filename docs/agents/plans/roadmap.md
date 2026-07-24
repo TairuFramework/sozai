@@ -17,7 +17,10 @@ found by the W3C review closed (07-19, `@sozai/otel` patch) — it spawned one f
 log-sink path below. And `@sozai/event` grew [`fire()` plus `EventsSource`/`EventsSink` view
 types](completed/2026-07-24-event-fire-and-view-types.complete.md) (07-24, additive minors) — new
 API on an unfrozen surface, so the freeze framing still holds. Its cross-repo adopters are future
-work; the one in-repo adopter (`@sozai/flow`) is filed below.
+work. The one in-repo candidate, `@sozai/flow`, was considered on 2026-07-24 and left as-is:
+`EventsSink` is an object-of-methods view, not the single bound `emit` function flow hands each
+handler, and intersecting the full view would leak `fire()`/`writable()` to handlers for no
+consumer need. Resurface only if a real consumer wants it.
 
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
@@ -35,9 +38,6 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 - [patch — deferred follow-ups](backlog/2026-07-03-patch-followups.md). Mostly docs and coverage. The
   prototype-hardening item is theoretical and touches the well-tested atomic swap — take the
   docs/coverage half, leave that one unless there's a reason.
-- [flow — adopt `EventsSink` for the emit-only slice](backlog/2026-07-24-flow-adopt-events-sink.md).
-  `@sozai/flow` fakes an emit-only view as `EventEmitter<Events>['emit']`; the 07-24 `EventsSink`
-  view type supersedes it. Trivial in-repo swap, no behaviour change.
 
 ### 2. Coverage and release plumbing
 

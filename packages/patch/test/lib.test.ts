@@ -554,6 +554,24 @@ describe('applyPatches()', () => {
     })
   })
 
+  describe('prototype safety', () => {
+    test('an own __proto__ member round-trips without mutating the prototype', () => {
+      // JSON.parse creates an own "__proto__" data property (it does not invoke the accessor);
+      // structuredClone preserves it. The atomic swap must re-add it as an own property rather than
+      // via assignment, which would trigger the accessor — dropping the key and reassigning data's
+      // own prototype to its value.
+      const data = JSON.parse('{"__proto__":{"polluted":true},"a":1}') as Record<string, unknown>
+      applyPatches(data, [{ op: 'replace', path: '/a', value: 2 }])
+
+      expect(Object.hasOwn(data, '__proto__')).toBe(true)
+      expect(Object.getOwnPropertyDescriptor(data, '__proto__')?.value).toEqual({ polluted: true })
+      expect(Object.getPrototypeOf(data)).toBe(Object.prototype)
+      expect(data.a).toBe(2)
+      // The global prototype was never reachable here, but assert it stayed clean regardless.
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    })
+  })
+
   describe('error handling edge cases', () => {
     test('should throw PatchError with correct code for invalid paths', () => {
       const data: Record<string, unknown> = { foo: 1 }

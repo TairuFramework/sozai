@@ -18,6 +18,14 @@ export type DisposerParams = {
  *
  * A subclass constructor that throws after `super()` still gets disposed, on the half-built
  * instance: its field initializers have run, its constructor-body assignments read as `undefined`.
+ *
+ * Reason latch: when constructed with an already-aborted signal, the external abort reason is
+ * latched so a `dispose()` racing the deferred dispose still receives it rather than a substituted
+ * `DisposeInterruption`. On hosts with a true-microtask `queueMicrotask` the deferral clears the
+ * latch within one turn; on hosts without it (React Native's legacy Promise, where the fallback
+ * lands on a macrotask) the latch stays observable across later turns, so a bare `dispose()` there
+ * also receives the external reason. That divergence is intentional — the external signal genuinely
+ * aborted, so its reason is the correct one to deliver either way.
  */
 export class Disposer extends AbortController implements AsyncDisposable {
   #deferred = defer<void>()

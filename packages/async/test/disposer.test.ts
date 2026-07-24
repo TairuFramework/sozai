@@ -257,4 +257,35 @@ describe('Disposer', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(seen).toEqual([['from field initializer', undefined]])
   })
+
+  test('under the macrotask fallback the latched external reason survives a microtask turn', async () => {
+    // React Native's legacy Promise polyfill has no true-microtask queueMicrotask, so scheduleMicrotask's
+    // fallback lands on setImmediate (a macrotask). Model that timing by routing queueMicrotask through
+    // setImmediate, then re-import Disposer so it binds the stubbed scheduler at module load. The latch
+    // therefore stays live across an intervening microtask turn, and a bare dispose() there still receives
+    // the external reason rather than a substituted DisposeInterruption — the intended, documented behavior.
+    vi.stubGlobal('queueMicrotask', (fn: () => void) => {
+      setImmediate(fn)
+    })
+    vi.resetModules()
+    try {
+      const { Disposer: FallbackDisposer } = await import('../src/disposer.js')
+      const controller = new AbortController()
+      controller.abort('external reason')
+      const disposeFn = vi.fn(() => Promise.resolve())
+      const disposer = new FallbackDisposer({ dispose: disposeFn, signal: controller.signal })
+
+      // A microtask turn passes without the deferred dispose firing — it is queued on a macrotask.
+      await Promise.resolve()
+      expect(disposeFn).not.toHaveBeenCalled()
+
+      // The bare dispose() still gets the latched external reason, not a DisposeInterruption.
+      await expect(disposer.dispose()).resolves.toBeUndefined()
+      expect(disposeFn).toHaveBeenCalledTimes(1)
+      expect(disposeFn).toHaveBeenCalledWith('external reason')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.resetModules()
+    }
+  })
 })

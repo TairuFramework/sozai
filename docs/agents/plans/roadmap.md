@@ -32,9 +32,6 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 1. Quick wins — one small PR each, or one batched PR
 
-- [disposer — macrotask fallback reason latch](backlog/2026-07-14-disposer-macrotask-fallback-reason-latch.md).
-  Decide whether the two platforms should agree, pin it with a test that stubs `queueMicrotask`,
-  say what the guarantee is in the JSDoc. No in-repo consumer affected.
 - [patch — deferred follow-ups](backlog/2026-07-03-patch-followups.md). Mostly docs and coverage. The
   prototype-hardening item is theoretical and touches the well-tested atomic swap — take the
   docs/coverage half, leave that one unless there's a reason.

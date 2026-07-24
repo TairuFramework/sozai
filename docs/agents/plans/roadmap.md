@@ -12,6 +12,13 @@ One correctness fix landed late: the [2026-07-16 review](project-loop-state.md) 
 captured at import time. Fixed in that review; the package still has no runtime tests, which is
 why it was missed.
 
+Since that roadmap cut, two things landed. The [span ID validation gap](completed/2026-07-19-otel-span-id-validation.complete.md)
+found by the W3C review closed (07-19, `@sozai/otel` patch) — it spawned one follow-up, the
+log-sink path below. And `@sozai/event` grew [`fire()` plus `EventsSource`/`EventsSink` view
+types](completed/2026-07-24-event-fire-and-view-types.complete.md) (07-24, additive minors) — new
+API on an unfrozen surface, so the freeze framing still holds. Its cross-repo adopters are future
+work; the one in-repo adopter (`@sozai/flow`) is filed below.
+
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
 straight into `/dev-loop`.
@@ -28,6 +35,9 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 - [patch — deferred follow-ups](backlog/2026-07-03-patch-followups.md). Mostly docs and coverage. The
   prototype-hardening item is theoretical and touches the well-tested atomic swap — take the
   docs/coverage half, leave that one unless there's a reason.
+- [flow — adopt `EventsSink` for the emit-only slice](backlog/2026-07-24-flow-adopt-events-sink.md).
+  `@sozai/flow` fakes an emit-only view as `EventEmitter<Events>['emit']`; the 07-24 `EventsSink`
+  view type supersedes it. Trivial in-repo swap, no behaviour change.
 
 ### 2. Coverage and release plumbing
 
@@ -62,6 +72,12 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 6. Deferred — research-heavy, no affected consumer
 
+- [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
+  Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is
+  unverified — the ID-stamping lives in whatever logs SDK the consumer installs, so establish what
+  a real SDK does with a zeroed context before deciding whether it needs a guard at all. The
+  predicate (`isValidSpanContext`) already exists internally. No affected consumer; may close as a
+  documented quirk.
 - [lock — close the no-boot-ID fallback hole](backlog/2026-07-13-lock-fallback-platforms.md).
   Windows has no boot-ID source, and sandboxed macOS loses one because darwin's comes from
   spawning `sysctl`. Both need clock-independent sources that may not be reachable from Node

@@ -4,7 +4,7 @@
 |----------|---------------|
 | Triage | 2026-07-16 |
 | Review | 2026-07-16 |
-| Roadmap | 2026-07-16 |
+| Roadmap | 2026-07-24 |
 
 Roadmap and next/backlog seeded from the [2026-07-02 repo audit](completed/2026-07-02-repo-audit.complete.md).
 Rewritten 2026-07-16: freeze-blocker sequence complete, roadmap re-cut as a backlog burndown.

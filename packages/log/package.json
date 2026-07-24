@@ -2,7 +2,11 @@
   "name": "@sozai/log",
   "version": "0.2.0",
   "description": "Logger",
-  "keywords": [],
+  "keywords": [
+    "log",
+    "logger",
+    "logging"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",

@@ -2,7 +2,11 @@
   "name": "@sozai/runtime-expo",
   "version": "0.2.2",
   "description": "Expo runtime",
-  "keywords": [],
+  "keywords": [
+    "expo",
+    "runtime",
+    "react-native"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/TairuFramework/sozai",

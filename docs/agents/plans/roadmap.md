@@ -30,21 +30,15 @@ straight into `/dev-loop`.
 
 Ordered by cost against value, not severity. Nothing here blocks anything else.
 
-### 1. Quick wins — one small PR each, or one batched PR
+### 1. Package READMEs
 
-- [patch — atomic-swap prototype hardening](backlog/2026-07-03-patch-followups.md). The docs/coverage
-  items and the RFC `move`-identical-path fix landed [2026-07-24](completed/2026-07-24-patch-followups-docs-coverage.complete.md);
-  only this theoretical item remains, deliberately deferred — it touches the well-tested atomic swap
-  and no consumer feeds it untrusted input. Pick up only with a concrete reason.
+- [twelve packages ship install-only README stubs](backlog/2026-07-02-infra-hygiene.md). The
+  mechanical infra-hygiene items (Turbo `clean` rewired, root `build:types` routed through Turbo,
+  `test:types` normalized, keywords filled) landed [2026-07-24](completed/2026-07-24-infra-hygiene.complete.md);
+  the READMEs remain — a content pass, one minimal usage example per package, seeded from
+  `docs/reference/*.md`. Deserves its own session, not bundling with config work.
 
-### 2. Infra hygiene — mechanical, batchable
-
-- [turbo, test scripts, READMEs, keywords](backlog/2026-07-02-infra-hygiene.md). The orphaned `clean` task
-  and the root `build:types` script bypassing Turbo are real caching losses; the READMEs are the
-  highest-value part for published packages, and `docs/reference/*.md` already has the content to
-  seed them.
-
-### 3. Needs a cross-repo audit first
+### 2. Needs a cross-repo audit first
 
 - [codec — base64 accepts non-canonical encodings](backlog/2026-07-11-codec-non-canonical-base64.md).
   Signature malleability at the string level. Only bites if something downstream treats a token
@@ -52,14 +46,14 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   idempotency keys, unique columns, replay sets. If none — and none is known today — this closes
   as a documented quirk. If one exists, fix it there, not in the codec.
 
-### 4. Blocked upstream — watch, don't work
+### 3. Blocked upstream — watch, don't work
 
 - [codec — canonicalize emits invalid JSON for nested non-serializable values](backlog/2026-07-11-codec-canonicalize-nested-undefined.md).
   Tracks [erdtman/canonicalize#22](https://github.com/erdtman/canonicalize/pull/22). Fails loud,
   caller bug to trigger. Bump the catalog entry when it ships. Fallback if the PR stalls: swap in
   an RFC 8785 implementation — non-breaking, the contract doesn't change.
 
-### 5. Deferred — research-heavy, no affected consumer
+### 4. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
   Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is

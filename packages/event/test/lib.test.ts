@@ -1,8 +1,8 @@
 import { createArraySink } from '@sozai/stream'
 import { describe, expect, test, vi } from 'vitest'
 
-import { EventEmitter } from '../src/index.js'
 import type { EventsSink, EventsSource } from '../src/index.js'
+import { EventEmitter } from '../src/index.js'
 
 describe('EventEmitter', () => {
   test('events can be listened to using a filter', async () => {
@@ -389,7 +389,7 @@ describe('EventEmitter', () => {
   })
 
   test('fire() dataless overload dispatches', async () => {
-    type Events = { tick: void }
+    type Events = { tick: undefined }
     const emitter = new EventEmitter<Events>()
     let called = false
     emitter.on('tick', () => {
@@ -456,7 +456,7 @@ describe('EventEmitter', () => {
   })
 
   test('type: EventEmitter is assignable to EventsSource and EventsSink', () => {
-    type Events = { ping: void; msg: string }
+    type Events = { ping: undefined; msg: string }
     const emitter = new EventEmitter<Events>()
 
     // Positive: the class satisfies both views.

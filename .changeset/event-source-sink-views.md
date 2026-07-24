@@ -1,5 +1,5 @@
 ---
-'@sozai/event': minor
+'@sozai/event': patch
 ---
 
 Add `EventsSource` and `EventsSink` view types.

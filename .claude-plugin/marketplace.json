@@ -1,0 +1,11 @@
+{
+  "name": "sozai",
+  "owner": { "name": "Paul Le Cam" },
+  "plugins": [
+    {
+      "name": "sozai",
+      "source": "./plugins/sozai",
+      "description": "Sozai core-utility discovery and domain skills."
+    }
+  ]
+}

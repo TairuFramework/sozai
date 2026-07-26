@@ -1,0 +1,6 @@
+{
+  "name": "sozai",
+  "version": "0.1.0",
+  "description": "Sozai core-utility skills: dataflow, validation, runtime, observability, and primitives.",
+  "author": { "name": "Paul Le Cam" }
+}

@@ -9,6 +9,7 @@
     "build:js": "turbo run build:js",
     "build:types": "turbo run build:types",
     "changeset": "changeset",
+    "check:skills": "node scripts/check-skills.mjs",
     "clean": "pnpm -r build:clean",
     "format": "biome format --write .",
     "lint": "biome check --write ./packages",

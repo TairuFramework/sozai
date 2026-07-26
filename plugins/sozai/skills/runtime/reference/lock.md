@@ -1,6 +1,7 @@
 # @sozai/lock
 
-Sibling reference: `reference/lock-semantics.md` — failure modes and the four safety properties.
+Sibling reference: `reference/lock-semantics.md` — the boot-ID safety property, and three failure
+modes: the unsafe fallback path, TTL-bounded reboot recovery, and same-boot pid recycling.
 
 > **Filesystem-based.** The only package in sozai that is not environment-agnostic. `lockPath` must
 > be on a local filesystem — `link()` atomicity is not guaranteed on NFS.

@@ -31,4 +31,4 @@ repo, a cross-process mutex.
 
 ## Related
 
-`/sozai:dataflow` — `@sozai/lock` builds on `@sozai/async`.
+- `/sozai:dataflow` — `@sozai/lock` builds on `@sozai/async`.

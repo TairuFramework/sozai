@@ -31,14 +31,17 @@ ID is readable — any other platform, or a record written by a process whose re
 possible on linux (`EMFILE`) and on darwin (the boot ID comes from an **exec**: a macOS App Sandbox or
 hardened runtime that denies the `sysctl` spawn puts that process here permanently) — the check falls
 back to comparing wall-clock-derived boot *times* (`bootAt`) within a 30s tolerance, and the hostname
-becomes the only machine identity there is. **Two** events then reap a live holder, as soon as its
-true monotonic age passes `staleTimeout`:
+becomes the only machine identity there is. **Two** events then reap a live holder on this path, as
+soon as its true monotonic age passes `staleTimeout`:
 
 - a **forward clock step** larger than the tolerance — the minutes-long macOS-keychain-prompt hold
   this package exists for is exactly such a holder, and sleep/wake supplies the step;
 - a **hostname change, with no clock event at all**. A DHCP rename alone, on a perfectly steady
   clock, costs a live darwin holder its lock at the TTL — and a laptop on DHCP, whose `sysctl` spawn
-  a sandbox denied, is precisely the process that ends up here.
+  a sandbox denied, is precisely the process that ends up here. **This one is not confined to the
+  fallback**: `bootIDProvesSamePIDNamespace()` is darwin-only, so on **linux** the same reap happens
+  to a live holder even with a matching, readable boot ID, purely from the hostname changing (two
+  containers sharing a host's boot ID land here).
 
 What `uptimeAt` buys on that path is narrower: it removes the *inflated* age, so a holder *younger*
 than the TTL is no longer reaped by the clock step alone. A consumer that may not have a readable boot
@@ -61,7 +64,9 @@ a holder that claimed the lock seconds into a boot (its `uptimeAt` sits *below* 
 uptime, so its age is small and positive, with no reboot signal at all), and a *fast* reboot — a
 container restart, a kexec, seconds of downtime — where hold + downtime + the new uptime is still
 under the TTL, so the negative age cannot be corroborated yet. Reap latency, bounded by the TTL,
-never an exclusion hole and never a wedge.
+never an exclusion hole — with one exception, confined to the fallback itself: a reboot faster than
+the 30s `bootAt` tolerance is indistinguishable there from clock drift and is read as the same boot,
+so a pid recycled across it wedges the lock exactly as a same-boot recycle does.
 
 A foreign-host holder (or a record too corrupt to identify one) is still aged by wall clock against
 `startedAt`, or the file's mtime — unavoidable, since another host's uptime can't be read, and the
@@ -80,9 +85,11 @@ two processes into the critical section. It is the deliberate price of rejecting
 outer bound, which would re-open the reap-a-live-holder hole the rest of the design exists to close.
 
 Reaping a stale lock is guarded, not provably atomic: the reaper unlinks the lockfile only while it
-still carries the record it classified stale — identified by a per-claim **nonce**, never by the
-inode, because an inode number is recycled the moment the file is unlinked (routinely on linux) and
-so names a slot, not a file. Reading and unlinking are still two syscalls, so a residual window
+still carries the record it classified stale — identified by matching the inode it was linked at,
+corroborated by a per-claim **nonce**. The inode is checked first but is not sufficient alone,
+because an inode number is recycled the moment the file is unlinked (routinely on linux) and so
+names a slot, not a file; the nonce is what tells a freshly-claimed lock in that slot from the stale
+one just reaped out of it. Reading and unlinking are still two syscalls, so a residual window
 remains where two waiters classifying the same stale lock in lockstep can have one unlink the
 other's freshly-claimed live lock. POSIX has no unlink-if-identity, so this can't be closed with name
 operations; a jitter before reaping (uniform in `[0, retryDelay)`, skipped by a try-lock)

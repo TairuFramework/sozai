@@ -44,4 +44,4 @@ if (result instanceof ValidationError) {
 }
 ```
 
-Also provides `assertType`, `asType`, `createStandardValidator`, `resolveSchema`, and more — see [the validation reference](../../docs/reference/validation.md) for the full API.
+Also provides `assertType`, `asType`, `createStandardValidator`, `resolveSchema`, and more — see [the schema reference](../../plugins/sozai/skills/validation/reference/schema.md) (part of the `sozai:validation` skill) for the full API.

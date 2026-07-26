@@ -28,4 +28,4 @@ controller.abort()
 await done.catch(() => {})
 ```
 
-Also provides `fromStream` for consuming a `ReadableStream` as a generator — see [the dataflow reference](../../docs/reference/dataflow.md) for the full API.
+Also provides `fromStream` for consuming a `ReadableStream` as a generator — see [the generator reference](../../plugins/sozai/skills/dataflow/reference/generator.md) (part of the `sozai:dataflow` skill) for the full API.

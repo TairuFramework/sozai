@@ -26,4 +26,4 @@ async function processItem(id: string): Promise<void> {
 }
 ```
 
-Also provides `withSyncSpan`, `injectW3CTraceContext`, `extractW3CTraceContext`, baggage codecs, and a `@sozai/log` bridge (`createOTelLogSink`, `traceLogger`) — see [the observability reference](../../docs/reference/observability.md) for the full API.
+Also provides `withSyncSpan`, `injectW3CTraceContext`, `extractW3CTraceContext`, baggage codecs, and a `@sozai/log` bridge (`createOTelLogSink`, `traceLogger`) — see [the otel reference](../../plugins/sozai/skills/observability/reference/otel.md) (part of the `sozai:observability` skill, with sibling references for propagation and the log bridge) for the full API.

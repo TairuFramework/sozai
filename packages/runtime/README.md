@@ -27,4 +27,4 @@ const testRuntime = createRuntime({
 })
 ```
 
-See [the runtime reference](../../docs/reference/runtime.md) for the full API.
+See [the runtime reference](../../plugins/sozai/skills/runtime/reference/runtime.md) (part of the `sozai:runtime` skill) for the full API.

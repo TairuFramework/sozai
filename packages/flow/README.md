@@ -39,4 +39,4 @@ for await (const value of flow) {
 }
 ```
 
-Also provides `createGenerator`, `MissingHandlerError`, and the `FlowGenerator`/`FlowAction`/`Handler` types — see [the dataflow reference](../../docs/reference/dataflow.md) for the full API.
+Also provides `createGenerator`, `MissingHandlerError`, and the `FlowGenerator`/`FlowAction`/`Handler` types — see [the flow reference](../../plugins/sozai/skills/dataflow/reference/flow.md) (part of the `sozai:dataflow` skill) for the full API.

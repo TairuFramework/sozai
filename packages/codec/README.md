@@ -28,4 +28,4 @@ b64uToJSON<Entry>(token) // { id: 'abc', value: 42 }
 canonicalStringify({ z: 1, a: 2 }) === canonicalStringify({ a: 2, z: 1 }) // true
 ```
 
-Also provides `toB64`/`fromB64`, `fromUTF`/`toUTF`, and `b64uFromUTF`/`b64uToUTF` — see [the validation reference](../../docs/reference/validation.md) for the full API.
+Also provides `toB64`/`fromB64`, `fromUTF`/`toUTF`, and `b64uFromUTF`/`b64uToUTF` — see [the codec reference](../../plugins/sozai/skills/validation/reference/codec.md) (part of the `sozai:validation` skill) for the full API.

@@ -25,4 +25,4 @@ Also provides `createRuntime` (Expo defaults with partial overrides) and `polyfi
 
 > This package tracks the Expo SDK and is versioned independently of the frozen `@sozai/runtime` core, so it may increment a major version on its own — pin it to your Expo SDK version.
 
-See [the runtime reference](../../docs/reference/runtime.md) for the full API.
+See [the runtime-expo reference](../../plugins/sozai/skills/runtime/reference/runtime-expo.md) (part of the `sozai:runtime` skill) for the full API.

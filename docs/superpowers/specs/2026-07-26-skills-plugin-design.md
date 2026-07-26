@@ -198,13 +198,22 @@ Nothing from a reference doc is discarded without being folded somewhere.
 ### `discover/SKILL.md`
 
 Enkaku-style router, not the terse `kigu:discover-template` shape. Sections: By Domain (five
-entries, a sentence of rationale each), By Use Case, 15-package overview, Cross-repo routing.
-No code blocks. It must fit within the 120-line cap as a single file — a router that has to be
-loaded in pieces is not a router. If it runs over, cut prose; do not split it.
+entries, a sentence of rationale each), By Use Case, 15-package overview. No code blocks.
+It must fit within the 120-line cap as a single file — a router that has to be loaded in
+pieces is not a router. If it runs over, cut prose; do not split it.
 
-The cross-repo section must state that `/kokuin:*` targets do not resolve yet — kokuin's
-skills are still unpackaged. Aspirational links are labelled as such rather than presented as
-working, which is the mistake enkaku's discover skill made in the other direction.
+**No cross-repo routing section.** Enkaku's discover skill has one because enkaku depends
+downward on sozai and kokuin, so routing to `/sozai:*` and `/kokuin:*` serves an agent working
+in enkaku. sozai is the bottom of the stack: no package here depends on `@enkaku`, `@kokuin`,
+or `@kumiai`, and consumers depend on published `^` ranges in the other direction. Reproducing
+enkaku's section here would invert the dependency graph and couple the foundation to its
+consumers. The most sozai should say is a single line noting that consumers live upstream and
+`kigu:stack-map` navigates there.
+
+The routing that *does* belong is intra-repo and cross-domain, driven by the actual package
+graph — `@sozai/execution` depends on `@sozai/result` (primitives), `@sozai/flow` on
+`@sozai/schema` (validation), `@sozai/otel` on `@sozai/log`. Domain skills whose packages
+depend across a domain boundary link to that domain in their `## Related` section.
 
 ### Effect
 
@@ -239,9 +248,11 @@ eyes on source.
 Cross-reference check, run separately from content verification:
 
 - every `/sozai:<domain>` reference resolves to a skill shipped by this plugin;
-- every `/enkaku:*` target exists in `../enkaku/plugins/enkaku/skills/`;
-- every `/kokuin:*` and `/kumiai:*` target is confirmed present or labelled as not yet
-  resolving.
+- every `reference/<file>.md` pointer in a `SKILL.md` names a file that exists;
+- no skill references `/enkaku:*`, `/kokuin:*`, or `/kumiai:*`. Verified: the current
+  `docs/skills/` and `docs/reference/` contain zero such links, so this is a guard against
+  introducing one while writing the new skills, not a cleanup task. Any outward link inverts
+  the dependency graph and gets cut.
 
 ### Pre-merge load test
 

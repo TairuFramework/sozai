@@ -10,9 +10,10 @@ Utilities that bridge `EventEmitter` instances and `ReadableStream`s into typed 
 | `fromEmitter` | function | Return an `AsyncGenerator` that yields events from an `EventEmitter` channel; supports `filter` and `AbortSignal`. Implements `Symbol.asyncDispose` |
 | `fromStream` | function | Return an `AsyncGenerator` that yields chunks from a `ReadableStream`; cancels the stream on early exit (`return()`/`break`) unless `preventCancel` is set |
 
-Only `fromEmitter` implements `Symbol.asyncDispose` directly; `fromStream`'s cleanup runs through
-its own `try`/`finally` when the generator is stopped, so it works with `break`/`return` in a
-`for await` loop but not with `using`/`await using`.
+`fromEmitter` implements `Symbol.asyncDispose` directly on its returned object; `fromStream`, a
+native `async function*`, inherits it from `AsyncGeneratorPrototype` (`AsyncIteratorObject extends
+AsyncDisposable` in `lib.esnext.disposable.d.ts`) — both call `.return()` and run their
+`try`/`finally`, so both work with `break`/`return` in a `for await` loop and with `using`/`await using`.
 
 ## Example: consuming an event stream as an async generator
 

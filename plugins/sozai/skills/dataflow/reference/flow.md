@@ -15,10 +15,12 @@ Async-generator state machine. Define typed handler functions and iterate throug
 | `HandlerExecutionContext` | type | `{ state: S; params: P; emit; signal? }` passed to each handler — `emit` fires flow events, `signal` reflects the flow's and the current step's abort state |
 | `GeneratorValue` | type | A non-terminal value yielded by the flow |
 | `GeneratorDoneValue` | type | The terminal value yielded when `status: 'end'` (or `'aborted'` / `'error'`) |
-| `MissingHandlerError` | class | Thrown when an action name has no registered handler |
+| `MissingHandlerError` | class | Set as `error` on a terminal `{ status: 'error' }` value when an action name has no registered handler — not thrown |
 
-Each handler returns `{ status: 'state' | 'action' | 'end', state, action?, params? }`. The
-generator implements `AsyncDisposable`, so `await using` also works for cleanup.
+Each handler returns `{ status: 'state' | 'action' | 'end', state, action?, params? }`. An unknown
+action name resolves `flow.next()` normally with `{ status: 'error', error: MissingHandlerError }`
+rather than throwing, so a `try`/`catch` around `next()` will not see it — check `value.status`
+instead. The generator implements `AsyncDisposable`, so `await using` also works for cleanup.
 
 ## Example: state machine with `createFlow`
 

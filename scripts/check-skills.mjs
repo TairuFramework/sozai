@@ -34,10 +34,15 @@ for (const file of mdFiles(ROOT)) {
   const text = readFileSync(file, 'utf8')
   const lines = text.split('\n').length
   if (lines > CAP) failures.push(`${file}: ${lines} lines, cap is ${CAP}`)
-  const outward = text.match(/\/(enkaku|kokuin|kumiai):[a-z-]+/g)
+  // Bare `enkaku:discover` counts too, not only the slash-prefixed form.
+  const outward = text.match(/\b(?:enkaku|kokuin|kumiai):[a-z][a-z-]*/g)
   if (outward) failures.push(`${file}: outward reference ${[...new Set(outward)].join(', ')}`)
   for (const named of new Set(text.match(/@sozai\/[a-z0-9-]+/g) ?? [])) {
     if (!realPackages.has(named)) failures.push(`${file}: no such package ${named}`)
+  }
+  for (const named of new Set(text.match(/\bsozai:[a-z][a-z-]*/g) ?? [])) {
+    const skill = named.slice('sozai:'.length)
+    if (!skills.includes(skill)) failures.push(`${file}: no such skill ${named}`)
   }
 }
 

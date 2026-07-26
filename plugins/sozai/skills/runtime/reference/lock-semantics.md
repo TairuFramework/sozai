@@ -71,8 +71,8 @@ so a pid recycled across it wedges the lock exactly as a same-boot recycle does.
 A foreign-host holder (or a record too corrupt to identify one) is still aged by wall clock against
 `startedAt`, or the file's mtime — unavoidable, since another host's uptime can't be read, and the
 reason cross-host locking is unsupported. A clock step can still expire a foreign-host record early;
-and in the other direction, a *future-dated* foreign record is respected until our own clock catches
-up to its `startedAt`, so the wait is bounded by the peer's skew, not by the TTL. (Deliberate: two
+and in the other direction, a *future-dated* foreign record is respected until our own clock passes
+its `startedAt` plus the TTL, so the wait is the peer's skew on top of the full TTL. (Deliberate: two
 hosts' clocks legitimately disagree, and a foreign record carries no reboot signal to corroborate
 reaping it early — only the claim itself, which is what a live remote holder writes.)
 

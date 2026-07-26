@@ -1,6 +1,6 @@
 # @sozai/generator
 
-Utilities that bridge `EventEmitter` instances and `ReadableStream`s into typed async generators. Depends on `@sozai/async` and `@sozai/event`.
+Utilities that bridge `EventEmitter` instances and `ReadableStream`s into typed async generators. Depends on `@sozai/async`; `@sozai/event` is a type-only devDependency.
 
 ## Exports
 

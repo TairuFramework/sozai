@@ -32,7 +32,6 @@ Use `@sozai/codec` to:
 
 ## Related
 
-- `/sozai:dataflow` — stream and event processing that produces validated payloads
-- `/sozai:runtime` — environment-specific I/O where codec handles binary serialization
-- `/sozai:observability` — structured log/metric schemas validated at definition time
-- `/sozai:primitives` — base utilities used by schema and codec internally
+- `/sozai:dataflow` — `@sozai/flow` builds on `@sozai/schema`.
+
+`@sozai/codec` depends on no other `@sozai` package and nothing in this repo depends on it.

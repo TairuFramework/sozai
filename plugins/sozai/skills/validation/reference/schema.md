@@ -16,8 +16,8 @@
 | `assertType` | function | Assert value matches schema; throws on failure |
 | `asType` | function | Assert and return typed value |
 | `isType` | function | Type guard; returns boolean |
-| `resolveReference` | function | Resolve `$ref` in a schema |
-| `resolveSchema` | function | Fully resolve a schema with references |
+| `resolveReference` | function | Resolve a `$ref` pointer string against a root schema |
+| `resolveSchema` | function | Resolve a schema's `$ref` via `resolveReference`, or return it unchanged |
 
 ## Example
 

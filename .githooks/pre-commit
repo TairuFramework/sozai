@@ -10,7 +10,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Checking skills..."
-node scripts/check-skills.mjs
+./node_modules/.bin/kigu-check-skills
 if [ $? -ne 0 ]; then
   echo "Skills check failed. Fix errors before committing."
   exit 1

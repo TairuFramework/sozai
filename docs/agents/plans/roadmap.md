@@ -38,7 +38,8 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 - **Package the domain skills as a Claude Code plugin — done
   [2026-07-26](completed/2026-07-26-package-skills-as-plugin.complete.md).** sozai's six domain
   skills now ship as `plugins/sozai/` (26 Markdown files, a 120-line cap enforced by
-  `scripts/check-skills.mjs`), registered through a `github`-sourced marketplace. `docs/skills/`
+  `kigu-check-skills` from `@kigu/dev`, configured in `skills-check.json`), registered through a
+  `github`-sourced marketplace. `docs/skills/`
   and `docs/reference/` are gone. `/sozai:*` still won't resolve for sibling repos until this
   branch merges to `main`; kokuin carries the identical gap and gets its own cycle.
 

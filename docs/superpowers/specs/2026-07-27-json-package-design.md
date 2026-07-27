@@ -143,7 +143,7 @@ silent semantic change.
 
 - `'allow'` — plain `JSON.parse`.
 - `'strip'` — a reviver returns `undefined` for a guarded key, deleting the property.
-- `'reject'` — throws `Error('Forbidden key: <key>')`.
+- `'reject'` — throws `TypeError('Forbidden key: <key>')`.
 
 Guarded keys: **`__proto__` and `constructor`.**
 

@@ -110,6 +110,8 @@ importers:
         specifier: workspace:^
         version: link:../stream
 
+  packages/json: {}
+
   packages/lock:
     dependencies:
       '@sozai/async':

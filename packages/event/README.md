@@ -29,4 +29,4 @@ emitter.fire('done')                      // fire-and-forget, errors swallowed
 off()
 ```
 
-Also provides `once`, `readable`/`writable` stream bridges, and the listen-only `EventsSource` / write-only `EventsSink` views — see [the dataflow reference](../../docs/reference/dataflow.md) for the full API.
+Also provides `once`, `readable`/`writable` stream bridges, and the listen-only `EventsSource` / write-only `EventsSink` views — see [the event reference](../../plugins/sozai/skills/dataflow/reference/event.md) (part of the `sozai:dataflow` skill) for the full API.

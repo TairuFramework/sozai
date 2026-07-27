@@ -9,6 +9,13 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+echo "Checking skills..."
+./node_modules/.bin/kigu-check-skills
+if [ $? -ne 0 ]; then
+  echo "Skills check failed. Fix errors before committing."
+  exit 1
+fi
+
 echo "Type checking..."
 pnpm run build:types
 if [ $? -ne 0 ]; then

@@ -35,12 +35,13 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 - **Package READMEs — done [2026-07-24](completed/2026-07-24-package-readmes.complete.md).** The 12
   install-only stubs now carry a one-example overview each, seeded from `docs/reference/*.md` and
   verified against real exports.
-- [package the domain skills as a Claude Code plugin](backlog/2026-07-24-package-skills-as-plugin.md).
-  sozai's six `docs/skills/*.skill.md` already declare invocable names (`sozai:discover`) and
-  cross-reference each other and sibling repos as `/sozai:*` commands, but without plugin packaging
-  none resolve — while `@enkaku` has already packaged its skills (`../enkaku/plugins/enkaku/`) and
-  points outward at `/sozai:*`. Real cross-repo DX gap; content exists. Coordinate the layout with
-  `kigu:discover-template` first.
+- **Package the domain skills as a Claude Code plugin — done
+  [2026-07-26](completed/2026-07-26-package-skills-as-plugin.complete.md).** sozai's six domain
+  skills now ship as `plugins/sozai/` (26 Markdown files, a 120-line cap enforced by
+  `kigu-check-skills` from `@kigu/dev`, configured in `skills-check.json`), registered through a
+  `github`-sourced marketplace. `docs/skills/`
+  and `docs/reference/` are gone. `/sozai:*` still won't resolve for sibling repos until this
+  branch merges to `main`; kokuin carries the identical gap and gets its own cycle.
 
 ### 2. Needs a cross-repo audit first
 

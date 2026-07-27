@@ -41,4 +41,4 @@ handled.cancel('user navigated away')
 console.log(handled.isCanceled) // true
 ```
 
-Also provides `next`, `generate`, `abort`, timeout/interruption introspection, and more — see [the dataflow reference](../../docs/reference/dataflow.md) for the full API.
+Also provides `next`, `generate`, `abort`, timeout/interruption introspection, and more — see [the execution reference](../../plugins/sozai/skills/dataflow/reference/execution.md) (part of the `sozai:dataflow` skill) for the full API.

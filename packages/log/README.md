@@ -20,4 +20,4 @@ const logger = getLogger(['myapp', 'server'])
 logger.info('listening on {port}', { port: 3000 })
 ```
 
-Also provides `getSozaiLogger`, `getConsoleSink`, `reset`, … — see [the observability reference](../../docs/reference/observability.md) for the full API.
+Also provides `getSozaiLogger`, `getConsoleSink`, `reset`, … — see [the log reference](../../plugins/sozai/skills/observability/reference/log.md) (part of the `sozai:observability` skill) for the full API.

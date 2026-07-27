@@ -29,4 +29,4 @@ controller.close()
 // result resolves to ['Value: 2', 'Value: 4']
 ```
 
-Also provides `createPipe`, `createConnection`, `writeTo`, `transform`, `toJSONLines`, `fromJSONLines`, and `JSONLinesError` — see [the dataflow reference](../../docs/reference/dataflow.md) for the full API.
+Also provides `createPipe`, `createConnection`, `writeTo`, `transform`, `toJSONLines`, `fromJSONLines`, and `JSONLinesError` — see [the stream reference](../../plugins/sozai/skills/dataflow/reference/stream.md) (part of the `sozai:dataflow` skill) for the full API.

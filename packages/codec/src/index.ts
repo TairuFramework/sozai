@@ -10,7 +10,7 @@
  * @module codec
  */
 
-import serialize from 'canonicalize'
+import { canonicalize as canonicalizeJSON, parse as parseJSON } from '@sozai/json'
 
 /**
  * Serialize a value to canonical JSON, with deterministic key ordering.
@@ -19,21 +19,15 @@ import serialize from 'canonicalize'
  * function or a symbol. Returning a non-string here would silently encode to `""` downstream
  * in {@link b64uFromJSON}.
  *
- * Also throws (propagated from the underlying `canonicalize` call) on values a plain
- * `JSON.stringify` would reject or silently mangle: `Error('NaN is not allowed')`,
- * `Error('Infinity is not allowed')`, `Error('Circular reference detected')`, and
- * `TypeError('Do not know how to serialize a BigInt')`. These are stricter than
+ * Also throws (propagated from `@sozai/json`) on values a plain `JSON.stringify` would reject or
+ * silently mangle, all as `TypeError`: `'NaN is not allowed'`, `'Infinity is not allowed'`,
+ * `'BigInt is not allowed'`, and `'Circular reference detected'`. These are stricter than
  * `JSON.stringify`, which turns `NaN`/`Infinity` into `null` rather than throwing — so
  * `b64uFromJSON({a: NaN})` throws while `b64uFromJSON({a: NaN}, false)` succeeds with
  * `{"a":null}`. The two modes differ on more than key order.
- *
- * Known upstream limitation: a *nested* function produces invalid JSON — a bare `undefined`
- * token in objects, an elided element in arrays — rather than having its key dropped. Nested
- * symbols and `undefined` values are handled correctly. Tracked by
- * https://github.com/erdtman/canonicalize/pull/22
  */
 export function canonicalStringify(value: unknown): string {
-  const serialized = serialize(value)
+  const serialized = canonicalizeJSON(value)
   if (serialized === undefined) {
     throw new TypeError('Value has no canonical JSON representation')
   }
@@ -196,41 +190,11 @@ export function b64uToUTF(base64url: string): string {
   return toUTF(fromB64U(base64url))
 }
 
-const MAX_JSON_DEPTH = 128
-
-function checkJSONDepth(json: string): void {
-  let depth = 0
-  let inString = false
-  let isEscaped = false
-  for (let i = 0; i < json.length; i++) {
-    const char = json[i]
-    if (isEscaped) {
-      isEscaped = false
-      continue
-    }
-    if (inString) {
-      if (char === '\\') isEscaped = true
-      else if (char === '"') inString = false
-      continue
-    }
-    if (char === '"') {
-      inString = true
-    } else if (char === '{' || char === '[') {
-      depth++
-      if (depth > MAX_JSON_DEPTH) {
-        throw new Error(`JSON exceeds maximum nesting depth of ${MAX_JSON_DEPTH}`)
-      }
-    } else if (char === '}' || char === ']') {
-      depth--
-    }
-  }
-}
-
 /**
  * Convert a base64url-encoded string to a JSON object.
+ *
+ * Parsing is depth-limited (128 levels) via `@sozai/json`, checked before `JSON.parse` runs.
  */
 export function b64uToJSON<T = Record<string, unknown>>(base64url: string): T {
-  const json = b64uToUTF(base64url)
-  checkJSONDepth(json)
-  return JSON.parse(json)
+  return parseJSON<T>(b64uToUTF(base64url))
 }

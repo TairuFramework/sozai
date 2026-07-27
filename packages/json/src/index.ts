@@ -160,7 +160,8 @@ export type ProtoKeysMode = 'allow' | 'strip' | 'reject'
 export type ParseOptions = {
   /**
    * Maximum nesting depth accepted, checked before parsing. Defaults to 128, which is also used
-   * when the value is not an integer — so `NaN` cannot silently disable the guard.
+   * when the value is not finite — so `NaN` or `Infinity` cannot silently disable the guard. A
+   * finite non-integer is floored rather than falling back to the default, so it fails closed.
    */
   maxDepth?: number
   /**
@@ -196,10 +197,12 @@ export type ParseOptions = {
  */
 export function parse<T = unknown>(json: string, options: ParseOptions = {}): T {
   const { maxDepth, protoKeys = 'allow' } = options
-  // Anything but an integer falls back to the default: `depth > NaN` is always false, so an
-  // accidental NaN would otherwise turn the guard off entirely. A negative limit is a valid
-  // integer and keeps rejecting everything, which fails closed.
-  checkDepth(json, Number.isInteger(maxDepth) ? (maxDepth as number) : DEFAULT_MAX_DEPTH)
+  // Anything non-finite falls back to the default: `depth > NaN` is always false, so an
+  // accidental NaN would otherwise turn the guard off entirely, and `Infinity` is caught by the
+  // same check. A finite non-integer is floored rather than falling back, so it fails closed
+  // instead of loosening to the default; a negative limit is a valid integer and keeps rejecting
+  // everything, which also fails closed.
+  checkDepth(json, Number.isFinite(maxDepth) ? Math.floor(maxDepth as number) : DEFAULT_MAX_DEPTH)
   if (protoKeys === 'allow') {
     return JSON.parse(json) as T
   }

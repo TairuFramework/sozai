@@ -22,12 +22,24 @@ describe('parse()', () => {
     expect(() => parse(nest(3), { maxDepth: 2 })).toThrow('JSON exceeds maximum nesting depth of 2')
   })
 
-  test('falls back to the default limit when maxDepth is not an integer', () => {
+  test('falls back to the default limit when maxDepth is not finite', () => {
     // `depth > NaN` is always false, so an unvalidated NaN would disable the guard entirely.
     expect(() => parse(nest(129), { maxDepth: Number.NaN })).toThrow(
       'JSON exceeds maximum nesting depth of 128',
     )
     expect(() => parse(nest(128), { maxDepth: Number.NaN })).not.toThrow()
+    // Infinity is not finite either, so it falls back rather than disabling the guard.
+    expect(() => parse(nest(129), { maxDepth: Number.POSITIVE_INFINITY })).toThrow(
+      'JSON exceeds maximum nesting depth of 128',
+    )
+  })
+
+  test('floors a fractional maxDepth instead of falling back to the default', () => {
+    // A finite non-integer must fail closed by flooring, not loosen to the default limit.
+    expect(() => parse(nest(1), { maxDepth: 1.5 })).not.toThrow()
+    expect(() => parse(nest(2), { maxDepth: 1.5 })).toThrow(
+      'JSON exceeds maximum nesting depth of 1',
+    )
   })
 
   test('does not count brackets inside strings', () => {

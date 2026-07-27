@@ -86,6 +86,25 @@ Behaviour matches `JSON.stringify` on every point where the RFC defers to the ES
 - Property values are read exactly once, so getters fire once.
 - Non-serializable values (`undefined`, symbols, **functions**) are omitted from objects and
   become `null` in arrays. **This is the bug being fixed.**
+- A `toJSON` that returns `undefined`, a function, or a symbol is treated the same way — the key
+  is omitted, not emitted as `"a":undefined`.
+- Sparse array holes serialize as `null`, not as elided elements.
+
+The last two are the same defect class as the reported bug — invalid JSON produced from a
+non-serializable value — reached by different routes, and both are verified present in
+`canonicalize@3.0.0`:
+
+```js
+canonicalize({ a: { toJSON: () => undefined }, b: 1 })  // '{"a":undefined,"b":1}'
+canonicalize([, 1])                                     // '[,1]'
+```
+
+Upstream #22 fixes neither: it keeps `.map` over arrays, which skips holes, and it pre-checks the
+raw property value, which cannot see what `toJSON` returns. Both fall out for free from the
+structure chosen here — `serialize` returns `string | undefined` and each container decides what
+an `undefined` child means (omit the key; emit `null` for an element), so there is no separate
+"is this omitted?" predicate to keep in sync. Array elements are visited by index rather than
+`.map` for the same reason.
 
 ### Errors
 
@@ -174,6 +193,11 @@ under `packages/json/test/vectors/` as six input/expected-output pairs: `arrays`
 (Copyright 2018 Anders Rundgren); an `ATTRIBUTION.md` alongside the fixtures records the source,
 copyright, and license.
 
+The fixtures are **downloaded as bytes**, never retyped or pasted. They carry precomposed
+characters, lone C0/C1 control characters, and a surrogate pair whose ordering is the whole point
+of the `weird` vector; a copy-paste round trip silently decomposed U+FB33 during this spec's
+research and inverted the expected sort order.
+
 The implementation is written against RFC 8785 rather than derived from the Apache-2.0
 `canonicalize` source.
 
@@ -184,6 +208,8 @@ Beyond the vectors:
 - One case per error row, asserting both `TypeError` and the exact message.
 - The regression that started this: a nested function is omitted from objects and becomes `null`
   in arrays, and the result parses.
+- The two adjacent routes to the same defect: a `toJSON` returning `undefined`, and a sparse
+  array hole.
 - Depth guard: at the limit, over the limit, a custom `maxDepth`, and braces inside strings and
   escapes not miscounted.
 - All three `protoKeys` modes against both `__proto__` and `constructor`, nested as well as

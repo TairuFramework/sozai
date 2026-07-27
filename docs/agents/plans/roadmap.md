@@ -12,7 +12,7 @@ One correctness fix landed late: the [2026-07-16 review](project-loop-state.md) 
 captured at import time. Fixed in that review; the package still has no runtime tests, which is
 why it was missed.
 
-Since that roadmap cut, two things landed. The [span ID validation gap](completed/2026-07-19-otel-span-id-validation.complete.md)
+Since that roadmap cut, three things landed. The [span ID validation gap](completed/2026-07-19-otel-span-id-validation.complete.md)
 found by the W3C review closed (07-19, `@sozai/otel` patch) — it spawned one follow-up, the
 log-sink path below. And `@sozai/event` grew [`fire()` plus `EventsSource`/`EventsSink` view
 types](completed/2026-07-24-event-fire-and-view-types.complete.md) (07-24, additive minors) — new
@@ -20,7 +20,11 @@ API on an unfrozen surface, so the freeze framing still holds. Its cross-repo ad
 work. The one in-repo candidate, `@sozai/flow`, was considered on 2026-07-24 and left as-is:
 `EventsSink` is an object-of-methods view, not the single bound `emit` function flow hands each
 handler, and intersecting the full view would leak `fire()`/`writable()` to handlers for no
-consumer need. Resurface only if a real consumer wants it.
+consumer need. Resurface only if a real consumer wants it. Third, the codec's invalid-JSON
+backlog item — the one entry that was blocked on an upstream PR — closed by taking the documented
+fallback: `@sozai/json` now implements RFC 8785 in-repo and `@sozai/codec` drops the third-party
+`canonicalize` dependency. That emptied the "blocked upstream" tier, which is gone from the
+sequence below.
 
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
@@ -51,9 +55,7 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   idempotency keys, unique columns, replay sets. If none — and none is known today — this closes
   as a documented quirk. If one exists, fix it there, not in the codec.
 
-### 3. Blocked upstream — watch, don't work
-
-### 4. Deferred — research-heavy, no affected consumer
+### 3. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
   Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is

@@ -17,7 +17,7 @@ import { canonicalize, parse } from '@sozai/json'
 // Key order is deterministic, so identical data produces identical bytes.
 canonicalize({ z: 1, a: 2 }) === canonicalize({ a: 2, z: 1 }) // true — '{"a":2,"z":1}'
 
-// Output matches JSON.stringify semantics apart from ordering and strictness.
+// Like JSON.stringify on these points: dropped keys, null array holes, toJSON.
 canonicalize({ a: undefined, b: () => {}, c: 1 }) // '{"c":1}'
 canonicalize([undefined, 1])                      // '[null,1]'
 canonicalize({ d: new Date(0) })                  // '{"d":"1970-01-01T00:00:00.000Z"}'
@@ -57,7 +57,9 @@ The depth check runs over the raw text before `JSON.parse`, so a hostile payload
 the parser. The default limit is 128; exceeding it throws
 `Error('JSON exceeds maximum nesting depth of N')`.
 
-`protoKeys` defaults to `'allow'`. `JSON.parse` does not pollute prototypes by itself — it
+`protoKeys` defaults to `'allow'`; `'reject'` throws `TypeError('Forbidden key: <key>')`, a
+`TypeError` so a rejected hostile payload is distinguishable from malformed JSON. `JSON.parse`
+does not pollute prototypes by itself — it
 creates an ordinary own property. The risk appears when the parsed value is merged into another
 object: `__proto__` is reached by any `[[Set]]`-based copy (`Object.assign`, `target[key] =
 value`), and `constructor` is the deep-merge path via `constructor.prototype`, which is the
@@ -72,6 +74,7 @@ parse('{"__proto__":{"x":1},"ok":1}', { protoKeys: 'strip' }) // { ok: 1 }
 try {
   parse('{"constructor":{}}', { protoKeys: 'reject' })
 } catch (err) {
-  console.log((err as Error).message) // 'Forbidden key: constructor'
+  // true 'Forbidden key: constructor'
+  console.log(err instanceof TypeError, (err as Error).message)
 }
 ```

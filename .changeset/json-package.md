@@ -15,7 +15,10 @@ returned `undefined` — so `b64uFromJSON` could encode, and a caller could sign
 element becomes `null` in arrays.
 
 Also aligned with `JSON.stringify`: boxed primitives are unwrapped (`new Number(5)` serializes as
-`5`, not `{}`), and each property is read exactly once, so getters fire once.
+`5`, not `{}`), each property is read exactly once, so getters fire once, and a `toJSON` method is
+now called with the property key rather than no arguments — `{ k: { toJSON: (key) => String(key) } }`
+was `'{"k":"undefined"}'` and is now `'{"k":"k"}'`, which is user-visible for any custom `toJSON`
+that inspects its arguments.
 
 Breaking for anyone matching on error identity: `canonicalStringify` now throws `TypeError`
 rather than `Error` for `NaN`, `Infinity` and circular references, and reports

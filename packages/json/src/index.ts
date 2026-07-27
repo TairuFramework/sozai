@@ -25,79 +25,128 @@
  * `NaN` and `Infinity` into `null`. Deeply nested values may throw a `RangeError` from stack
  * exhaustion, as `JSON.stringify` does.
  *
- * Otherwise the output matches `JSON.stringify` semantics: `toJSON` is honored, boxed primitives
- * are unwrapped, each property is read exactly once, non-serializable values are omitted from
- * objects and become `null` in arrays, and sparse array holes become `null`.
+ * On these specific points it follows `JSON.stringify`: `toJSON` is honored and receives the
+ * property key, boxed `Number`/`String`/`Boolean` objects are unwrapped, each property is read
+ * exactly once, values with no JSON representation are omitted from objects and become `null` in
+ * arrays, and sparse array holes become `null`. It is not a general drop-in for `JSON.stringify`
+ * beyond those points — the strictness above aside, a `toJSON` returning its own receiver is
+ * reported as a circular reference rather than serialized as `{}`, a boxed `BigInt`
+ * (`Object(1n)`) serializes as `{}` rather than throwing, and a boxed `NaN`/`Infinity` throws
+ * rather than becoming `null`.
  */
 export function canonicalize(value: unknown): string | undefined {
-  return serialize(value, '', new Set())
+  return encodeMember(value, '', [])
 }
 
-function serialize(value: unknown, key: string, seen: Set<object>): string | undefined {
-  if (typeof value === 'number') {
-    if (Number.isNaN(value)) {
-      throw new TypeError('NaN is not allowed')
-    }
-    if (!Number.isFinite(value)) {
-      throw new TypeError('Infinity is not allowed')
-    }
-  }
-  if (typeof value === 'bigint') {
-    throw new TypeError('BigInt is not allowed')
-  }
+/**
+ * References enclosing the value being encoded, innermost last. Membership means the value is its
+ * own ancestor, which is the only cycle canonical JSON cannot represent — a value repeated across
+ * siblings is fine.
+ */
+type Ancestors = Array<object>
 
-  // Covers null, numbers, strings and booleans, and returns undefined for the three
-  // non-serializable types — which every caller below already handles.
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value)
-  }
+/**
+ * Encode one member of the value tree: the root, an array element or an object property value.
+ * `key` is the name this member is reached by, which `toJSON` receives; it is `''` at the root.
+ *
+ * Returns `undefined` for a member with no JSON representation, which each caller resolves in its
+ * own way.
+ */
+function encodeMember(member: unknown, key: string, ancestors: Ancestors): string | undefined {
+  return typeof member === 'object' && member !== null
+    ? encodeReference(member, key, ancestors)
+    : encodeScalar(member)
+}
 
-  const object = value as Record<string, unknown>
-  const toJSON = object.toJSON
-  if (typeof toJSON === 'function') {
-    if (seen.has(object)) {
-      throw new TypeError('Circular reference detected')
-    }
-    seen.add(object)
-    const result = serialize((toJSON as (key: string) => unknown).call(object, key), key, seen)
-    seen.delete(object)
-    return result
+/** Encode any non-`object` value, plus `null`. */
+function encodeScalar(scalar: unknown): string | undefined {
+  switch (typeof scalar) {
+    case 'number':
+      return encodeNumber(scalar)
+    case 'bigint':
+      // RFC 8785 has no integer type beyond the JSON number, whose range this exceeds.
+      throw new TypeError('BigInt is not allowed')
+    default:
+      // Strings (RFC 8785 section 3.2.1), booleans and null serialize as themselves; undefined,
+      // functions and symbols yield undefined, both exactly as JSON.stringify does.
+      return JSON.stringify(scalar)
   }
+}
 
-  if (object instanceof Number || object instanceof String || object instanceof Boolean) {
-    return serialize(object.valueOf(), key, seen)
+/** Encode a number per RFC 8785 section 3.2.2, rejecting the values section 3.2.2.2 excludes. */
+function encodeNumber(number: number): string {
+  if (Number.isNaN(number)) {
+    throw new TypeError('NaN is not allowed')
   }
+  if (!Number.isFinite(number)) {
+    throw new TypeError('Infinity is not allowed')
+  }
+  // JSON.stringify formats numbers by the ECMAScript Number::toString algorithm, which is the
+  // format the RFC mandates — so there is nothing to reimplement here.
+  return JSON.stringify(number) as string
+}
 
-  if (seen.has(object)) {
+/** Encode an object reference, keeping it on the ancestor stack for the duration. */
+function encodeReference(reference: object, key: string, ancestors: Ancestors): string | undefined {
+  if (ancestors.includes(reference)) {
     throw new TypeError('Circular reference detected')
   }
-  seen.add(object)
-
-  let result: string
-  if (Array.isArray(object)) {
-    const values: Array<string> = []
-    // Indexed rather than `.map`, which skips holes in a sparse array and would emit an
-    // elided element instead of `null`.
-    for (let index = 0; index < object.length; index++) {
-      values.push(serialize(object[index], String(index), seen) ?? 'null')
-    }
-    result = `[${values.join(',')}]`
-  } else {
-    const parts: Array<string> = []
-    for (const name of Object.keys(object).sort()) {
-      // Read once, so getters fire once.
-      const serialized = serialize(object[name], name, seen)
-      // Catches a raw undefined/function/symbol and a toJSON that returned one.
-      if (serialized === undefined) {
-        continue
-      }
-      parts.push(`${JSON.stringify(name)}:${serialized}`)
-    }
-    result = `{${parts.join(',')}}`
+  ancestors.push(reference)
+  try {
+    return encodeReferenceBody(reference, key, ancestors)
+  } finally {
+    ancestors.pop()
   }
+}
 
-  seen.delete(object)
-  return result
+/** Dispatch an object reference to its representation: custom, boxed primitive, array or object. */
+function encodeReferenceBody(
+  reference: object,
+  key: string,
+  ancestors: Ancestors,
+): string | undefined {
+  const toJSON = (reference as { toJSON?: unknown }).toJSON
+  if (typeof toJSON === 'function') {
+    const replacement = (toJSON as (key: string) => unknown).call(reference, key)
+    return encodeMember(replacement, key, ancestors)
+  }
+  if (reference instanceof Boolean || reference instanceof Number || reference instanceof String) {
+    return encodeScalar(reference.valueOf())
+  }
+  return Array.isArray(reference)
+    ? encodeArray(reference, ancestors)
+    : encodeObject(reference as Record<string, unknown>, ancestors)
+}
+
+/** Encode an array, preserving element order — the RFC only reorders object keys. */
+function encodeArray(array: Array<unknown>, ancestors: Ancestors): string {
+  const elements: Array<string> = []
+  // Walked by index rather than mapped: Array.prototype.map skips the holes of a sparse array,
+  // which would elide those elements entirely and emit invalid JSON.
+  for (let index = 0; index < array.length; index++) {
+    // An element with no JSON representation — a hole, undefined, a function, a symbol, or a
+    // toJSON returning one of those — becomes null, since an array cannot drop a position.
+    elements.push(encodeMember(array[index], String(index), ancestors) ?? 'null')
+  }
+  return `[${elements.join(',')}]`
+}
+
+/** Encode a plain object with its keys ordered per RFC 8785 section 3.2.3. */
+function encodeObject(object: Record<string, unknown>, ancestors: Ancestors): string {
+  // The default comparator of Array.prototype.sort orders by UTF-16 code unit, which is exactly
+  // what the RFC asks for — note it places a surrogate pair (U+1F602, leading unit 0xD83D) before
+  // U+FB33, where code-point order would not.
+  const keys = Object.keys(object).sort()
+  const members: Array<string> = []
+  for (const key of keys) {
+    // Read once and reused below, so a getter fires exactly once.
+    const encoded = encodeMember(object[key], key, ancestors)
+    // A property with no JSON representation is dropped rather than nulled.
+    if (encoded !== undefined) {
+      members.push(`${JSON.stringify(key)}:${encoded}`)
+    }
+  }
+  return `{${members.join(',')}}`
 }
 
 const DEFAULT_MAX_DEPTH = 128
@@ -110,7 +159,8 @@ export type ProtoKeysMode = 'allow' | 'strip' | 'reject'
 /** Options for {@link parse}. */
 export type ParseOptions = {
   /**
-   * Maximum nesting depth accepted, checked before parsing. Defaults to 128.
+   * Maximum nesting depth accepted, checked before parsing. Defaults to 128, which is also used
+   * when the value is not an integer — so `NaN` cannot silently disable the guard.
    */
   maxDepth?: number
   /**
@@ -124,9 +174,10 @@ export type ParseOptions = {
    * `target.constructor.prototype` reaches `Object.prototype` and is the published bypass of
    * `__proto__`-only blocklists.
    *
-   * `'strip'` removes the key, `'reject'` throws `Error('Forbidden key: <key>')`. The default is
-   * `'allow'` because `{"constructor": "ACME Corp"}` is legitimate data — turn the guard on where
-   * the parsed value is merged into another object.
+   * `'strip'` removes the key, `'reject'` throws `TypeError('Forbidden key: <key>')` — a
+   * `TypeError` so a rejected hostile payload is distinguishable from malformed JSON without
+   * matching on the message. The default is `'allow'` because `{"constructor": "ACME Corp"}` is
+   * legitimate data — turn the guard on where the parsed value is merged into another object.
    *
    * `prototype` is deliberately not guarded: on a plain-object merge target it is `undefined`,
    * and it is unreachable without first traversing `constructor`.
@@ -144,15 +195,18 @@ export type ParseOptions = {
  * See {@link ParseOptions.protoKeys} for the prototype-key guard, which is off by default.
  */
 export function parse<T = unknown>(json: string, options: ParseOptions = {}): T {
-  const { maxDepth = DEFAULT_MAX_DEPTH, protoKeys = 'allow' } = options
-  checkDepth(json, maxDepth)
+  const { maxDepth, protoKeys = 'allow' } = options
+  // Anything but an integer falls back to the default: `depth > NaN` is always false, so an
+  // accidental NaN would otherwise turn the guard off entirely. A negative limit is a valid
+  // integer and keeps rejecting everything, which fails closed.
+  checkDepth(json, Number.isInteger(maxDepth) ? (maxDepth as number) : DEFAULT_MAX_DEPTH)
   if (protoKeys === 'allow') {
     return JSON.parse(json) as T
   }
   return JSON.parse(json, (key, value) => {
     if (PROTO_KEYS.has(key)) {
       if (protoKeys === 'reject') {
-        throw new Error(`Forbidden key: ${key}`)
+        throw new TypeError(`Forbidden key: ${key}`)
       }
       // Returning undefined from a reviver deletes the property.
       return undefined

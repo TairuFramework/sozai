@@ -22,6 +22,14 @@ describe('parse()', () => {
     expect(() => parse(nest(3), { maxDepth: 2 })).toThrow('JSON exceeds maximum nesting depth of 2')
   })
 
+  test('falls back to the default limit when maxDepth is not an integer', () => {
+    // `depth > NaN` is always false, so an unvalidated NaN would disable the guard entirely.
+    expect(() => parse(nest(129), { maxDepth: Number.NaN })).toThrow(
+      'JSON exceeds maximum nesting depth of 128',
+    )
+    expect(() => parse(nest(128), { maxDepth: Number.NaN })).not.toThrow()
+  })
+
   test('does not count brackets inside strings', () => {
     expect(parse('{"a":"[[[[["}')).toEqual({ a: '[[[[[' })
   })
@@ -40,8 +48,11 @@ describe('parse()', () => {
   describe('protoKeys', () => {
     const payload = '{"__proto__":{"polluted":1},"constructor":{"prototype":{"polluted":1}},"ok":1}'
 
-    test('allows prototype keys by default, without polluting', () => {
-      const result = parse<Record<string, unknown>>(payload)
+    test.each([
+      ['default', undefined],
+      ['explicit', { protoKeys: 'allow' } as const],
+    ])('allows prototype keys by %s, without polluting', (_label, options) => {
+      const result = parse<Record<string, unknown>>(payload, options)
       // JSON.parse creates an ordinary own property and leaves the prototype alone.
       expect(Object.hasOwn(result, '__proto__')).toBe(true)
       expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
@@ -65,12 +76,21 @@ describe('parse()', () => {
       expect(parse('[1,2,3]', { protoKeys: 'strip' })).toEqual([1, 2, 3])
     })
 
+    test('strips prototype keys inside an object inside an array', () => {
+      // The array path is the one the reviver reaches by numeric key, so a guarded key one level
+      // under an array must still be caught.
+      expect(parse('[{"__proto__":{"x":1},"ok":1}]', { protoKeys: 'strip' })).toEqual([{ ok: 1 }])
+    })
+
     test.each([
       ['__proto__', '{"__proto__":{}}'],
       ['constructor', '{"constructor":{}}'],
       ['__proto__', '{"a":{"__proto__":{}}}'],
       ['constructor', '{"a":{"constructor":{}}}'],
+      ['__proto__', '[{"__proto__":{"x":1},"ok":1}]'],
+      ['constructor', '[{"constructor":{},"ok":1}]'],
     ])('rejects %s in %s', (key, json) => {
+      expect(() => parse(json, { protoKeys: 'reject' })).toThrow(TypeError)
       expect(() => parse(json, { protoKeys: 'reject' })).toThrow(`Forbidden key: ${key}`)
     })
 

@@ -99,3 +99,54 @@ function serialize(value: unknown, key: string, seen: Set<object>): string | und
   seen.delete(object)
   return result
 }
+
+const DEFAULT_MAX_DEPTH = 128
+
+/** Options for {@link parse}. */
+export type ParseOptions = {
+  /**
+   * Maximum nesting depth accepted, checked before parsing. Defaults to 128.
+   */
+  maxDepth?: number
+}
+
+/**
+ * Parse JSON with a nesting limit.
+ *
+ * The depth check runs over the raw text before `JSON.parse`, so a hostile payload never reaches
+ * the parser. Exceeding the limit throws
+ * `Error('JSON exceeds maximum nesting depth of N')`.
+ */
+export function parse<T = unknown>(json: string, options: ParseOptions = {}): T {
+  const { maxDepth = DEFAULT_MAX_DEPTH } = options
+  checkDepth(json, maxDepth)
+  return JSON.parse(json) as T
+}
+
+function checkDepth(json: string, maxDepth: number): void {
+  let depth = 0
+  let inString = false
+  let isEscaped = false
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i]
+    if (isEscaped) {
+      isEscaped = false
+      continue
+    }
+    if (inString) {
+      if (char === '\\') isEscaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') {
+      inString = true
+    } else if (char === '{' || char === '[') {
+      depth++
+      if (depth > maxDepth) {
+        throw new Error(`JSON exceeds maximum nesting depth of ${maxDepth}`)
+      }
+    } else if (char === '}' || char === ']') {
+      depth--
+    }
+  }
+}

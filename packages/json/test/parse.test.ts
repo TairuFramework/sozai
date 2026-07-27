@@ -36,4 +36,46 @@ describe('parse()', () => {
       'JSON exceeds maximum nesting depth of 128',
     )
   })
+
+  describe('protoKeys', () => {
+    const payload = '{"__proto__":{"polluted":1},"constructor":{"prototype":{"polluted":1}},"ok":1}'
+
+    test('allows prototype keys by default, without polluting', () => {
+      const result = parse<Record<string, unknown>>(payload)
+      // JSON.parse creates an ordinary own property and leaves the prototype alone.
+      expect(Object.hasOwn(result, '__proto__')).toBe(true)
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    })
+
+    test('strips __proto__ and constructor', () => {
+      const result = parse<Record<string, unknown>>(payload, { protoKeys: 'strip' })
+      expect(Object.hasOwn(result, '__proto__')).toBe(false)
+      expect(Object.hasOwn(result, 'constructor')).toBe(false)
+      expect(result).toEqual({ ok: 1 })
+    })
+
+    test('strips nested prototype keys', () => {
+      expect(parse('{"a":{"__proto__":{"x":1},"b":2}}', { protoKeys: 'strip' })).toEqual({
+        a: { b: 2 },
+      })
+    })
+
+    test('leaves array elements alone when stripping', () => {
+      expect(parse('[1,2,3]', { protoKeys: 'strip' })).toEqual([1, 2, 3])
+    })
+
+    test.each([
+      ['__proto__', '{"__proto__":{}}'],
+      ['constructor', '{"constructor":{}}'],
+      ['__proto__', '{"a":{"__proto__":{}}}'],
+      ['constructor', '{"a":{"constructor":{}}}'],
+    ])('rejects %s in %s', (key, json) => {
+      expect(() => parse(json, { protoKeys: 'reject' })).toThrow(`Forbidden key: ${key}`)
+    })
+
+    test('accepts a payload with no prototype keys when rejecting', () => {
+      expect(parse('{"a":1}', { protoKeys: 'reject' })).toEqual({ a: 1 })
+    })
+  })
 })

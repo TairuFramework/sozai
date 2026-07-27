@@ -102,25 +102,63 @@ function serialize(value: unknown, key: string, seen: Set<object>): string | und
 
 const DEFAULT_MAX_DEPTH = 128
 
+const PROTO_KEYS = new Set(['__proto__', 'constructor'])
+
+/** How {@link parse} treats prototype-polluting keys. */
+export type ProtoKeysMode = 'allow' | 'strip' | 'reject'
+
 /** Options for {@link parse}. */
 export type ParseOptions = {
   /**
    * Maximum nesting depth accepted, checked before parsing. Defaults to 128.
    */
   maxDepth?: number
+  /**
+   * How to treat the `__proto__` and `constructor` keys. Defaults to `'allow'`.
+   *
+   * `JSON.parse` does not pollute prototypes on its own — it creates an ordinary own property
+   * and leaves the prototype untouched. The payload is inert until a consumer merges it, and the
+   * two guarded keys cover the two distinct merge paths: `__proto__` is reached by any
+   * `[[Set]]`-based copy (`Object.assign`, `target[key] = value`), which triggers the inherited
+   * `__proto__` setter; `constructor` is the deep-merge path, where walking
+   * `target.constructor.prototype` reaches `Object.prototype` and is the published bypass of
+   * `__proto__`-only blocklists.
+   *
+   * `'strip'` removes the key, `'reject'` throws `Error('Forbidden key: <key>')`. The default is
+   * `'allow'` because `{"constructor": "ACME Corp"}` is legitimate data — turn the guard on where
+   * the parsed value is merged into another object.
+   *
+   * `prototype` is deliberately not guarded: on a plain-object merge target it is `undefined`,
+   * and it is unreachable without first traversing `constructor`.
+   */
+  protoKeys?: ProtoKeysMode
 }
 
 /**
- * Parse JSON with a nesting limit.
+ * Parse JSON with a nesting limit and an optional prototype-key guard.
  *
  * The depth check runs over the raw text before `JSON.parse`, so a hostile payload never reaches
  * the parser. Exceeding the limit throws
  * `Error('JSON exceeds maximum nesting depth of N')`.
+ *
+ * See {@link ParseOptions.protoKeys} for the prototype-key guard, which is off by default.
  */
 export function parse<T = unknown>(json: string, options: ParseOptions = {}): T {
-  const { maxDepth = DEFAULT_MAX_DEPTH } = options
+  const { maxDepth = DEFAULT_MAX_DEPTH, protoKeys = 'allow' } = options
   checkDepth(json, maxDepth)
-  return JSON.parse(json) as T
+  if (protoKeys === 'allow') {
+    return JSON.parse(json) as T
+  }
+  return JSON.parse(json, (key, value) => {
+    if (PROTO_KEYS.has(key)) {
+      if (protoKeys === 'reject') {
+        throw new Error(`Forbidden key: ${key}`)
+      }
+      // Returning undefined from a reviver deletes the property.
+      return undefined
+    }
+    return value
+  }) as T
 }
 
 function checkDepth(json: string, maxDepth: number): void {

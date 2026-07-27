@@ -68,3 +68,14 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   spawning `sysctl`. Both need clock-independent sources that may not be reachable from Node
   without a native addon — establish that first. Failing that, surface the downgrade rather than
   hide it. Low priority until a consumer lands on an affected platform.
+- [json — cycle detection is O(depth) per node](backlog/2026-07-27-json-cycle-detection-complexity.md).
+  The independent rewrite swapped a `Set` for an ancestor array, making canonicalization O(d²) in
+  nesting depth. Stack exhaustion bounds recursion long before it matters, and every realistic
+  signing payload is shallow. Fix opportunistically when that function is next touched.
+
+### 4. Waiting on a release
+
+- [enkaku — migrate `@enkaku/react` off `canonicalize`](backlog/2026-07-27-enkaku-react-canonicalize-migration.md).
+  It was the second in-stack consumer of canonical JSON and the reason `@sozai/json` is its own
+  package. Blocked on `@sozai/json` reaching npm — enkaku depends on published `^` ranges. The
+  edit lands in that repo, not here; note the error classes differ from the old dependency.

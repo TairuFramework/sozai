@@ -53,11 +53,6 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 3. Blocked upstream — watch, don't work
 
-- [codec — canonicalize emits invalid JSON for nested non-serializable values](backlog/2026-07-11-codec-canonicalize-nested-undefined.md).
-  Tracks [erdtman/canonicalize#22](https://github.com/erdtman/canonicalize/pull/22). Fails loud,
-  caller bug to trigger. Bump the catalog entry when it ships. Fallback if the PR stalls: swap in
-  an RFC 8785 implementation — non-breaking, the contract doesn't change.
-
 ### 4. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).

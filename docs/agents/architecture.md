@@ -5,8 +5,8 @@ packages with no upward dependencies.
 
 ## Packages
 
-async, codec, event, execution, flow, generator, lock, log, otel, patch, result, runtime, schema,
-stream -- the stable group. Every package versions independently, per-package via changesets;
+async, codec, event, execution, flow, generator, json, lock, log, otel, patch, result, runtime,
+schema, stream -- the stable group. Every package versions independently, per-package via changesets;
 there is no `fixed` lock between them, so versions legitimately diverge. `runtime-expo` is bound
 to the Expo SDK but is not otherwise a special case.
 

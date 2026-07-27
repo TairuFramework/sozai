@@ -7,15 +7,15 @@ description: Use when exploring sozai capabilities - progressive discovery of th
 
 Sozai (素材 — "raw material") is the core-utilities layer of the stack: stable,
 environment-agnostic packages that everything else depends on downward. One exception,
-`@sozai/lock`, is filesystem-based. 15 packages across 5 domains.
+`@sozai/lock`, is filesystem-based. 16 packages across 5 domains.
 
 ## By domain
 
 - **Dataflow** — streaming, async, events, generators, stateful flow. Web Streams creation and
   transformation, deferred promises and disposers, typed event emitters, async-generator state
   machines, emitter and stream adapters, chainable cancellable execution. → `/sozai:dataflow`
-- **Validation** — JSON Schema with compile-time type generation (`FromSchema`), plus message
-  encoding and decoding. → `/sozai:validation`
+- **Validation** — JSON Schema with compile-time type generation (`FromSchema`), message encoding
+  and decoding, plus canonical JSON and hardened parsing. → `/sozai:validation`
 - **Runtime** — environment-agnostic `fetch` and randomness via `createRuntime`, the Expo /
   React Native binding, and a filesystem-based cross-process mutex. → `/sozai:runtime`
 - **Observability** — LogTape-based namespaced loggers, and OpenTelemetry tracing with W3C
@@ -36,13 +36,15 @@ environment-agnostic packages that everything else depends on downward. One exce
 - **Targeting Expo or React Native specifically** — `@sozai/runtime-expo`'s `polyfill()` for the
   `crypto` shim, layered on `@sozai/runtime`'s `Runtime` shape. `/sozai:runtime`.
 - **Serialising work across processes** — `@sozai/lock`, semantics file first. `/sozai:runtime`.
+- **Signing or content-addressing a payload** — `@sozai/json` for byte-identical serialization,
+  `@sozai/codec` for the base64url envelope. `/sozai:validation`.
 
 ## Packages
 
 **Dataflow** — `@sozai/stream`, `@sozai/async`, `@sozai/event`, `@sozai/flow`,
 `@sozai/generator`, `@sozai/execution`
 
-**Validation** — `@sozai/schema`, `@sozai/codec`
+**Validation** — `@sozai/schema`, `@sozai/codec`, `@sozai/json`
 
 **Runtime** — `@sozai/runtime`, `@sozai/runtime-expo`, `@sozai/lock`
 

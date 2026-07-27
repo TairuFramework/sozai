@@ -12,6 +12,7 @@ encoding and decoding primitives that move validated values across a boundary.
 
 - **@sozai/schema** — JSON Schema validation with type generation (`Schema`, `FromSchema`). → `reference/schema.md`
 - **@sozai/codec** — encoding and decoding primitives. → `reference/codec.md`
+- **@sozai/json** — canonical JSON and hardened parsing. → `reference/json.md`
 
 ## Pick this when
 
@@ -30,8 +31,14 @@ Use `@sozai/codec` to:
 - Produce deterministic JSON for content addressing or signatures
 - Round-trip objects through Base64URL without manual JSON steps
 
+Use `@sozai/json` to:
+
+- Produce byte-identical JSON for signing or content addressing
+- Parse untrusted JSON with a nesting limit
+- Defend a merge site against prototype-polluting keys
+
 ## Related
 
 - `/sozai:dataflow` — `@sozai/flow` builds on `@sozai/schema`.
 
-`@sozai/codec` depends on no other `@sozai` package and nothing in this repo depends on it.
+`@sozai/codec` depends on `@sozai/json`; nothing else in this repo depends on either.

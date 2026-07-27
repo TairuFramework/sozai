@@ -198,6 +198,36 @@ describe('canonicalStringify()', () => {
     expect(canonicalStringify(true)).toBe('true')
     expect(canonicalStringify(null)).toBe('null')
   })
+
+  test('emits parseable JSON for a nested function', () => {
+    const serialized = canonicalStringify({ a: () => {}, b: 1 })
+    expect(serialized).toBe('{"b":1}')
+    expect(JSON.parse(serialized)).toEqual({ b: 1 })
+  })
+
+  test('throws a TypeError on values with no canonical representation', () => {
+    expect(() => canonicalStringify({ a: Number.NaN })).toThrow(TypeError)
+    expect(() => canonicalStringify({ a: Number.NaN })).toThrow('NaN is not allowed')
+    expect(() => canonicalStringify({ a: 1n })).toThrow(TypeError)
+    expect(() => canonicalStringify({ a: 1n })).toThrow('BigInt is not allowed')
+    expect(() => canonicalStringify({ a: Number.POSITIVE_INFINITY })).toThrow(TypeError)
+    expect(() => canonicalStringify({ a: Number.POSITIVE_INFINITY })).toThrow(
+      'Infinity is not allowed',
+    )
+  })
+
+  test('throws a TypeError on a circular reference', () => {
+    const value: Record<string, unknown> = {}
+    value.self = value
+    expect(() => canonicalStringify(value)).toThrow(TypeError)
+    expect(() => canonicalStringify(value)).toThrow('Circular reference detected')
+  })
+
+  test('still throws when the value itself is not serializable', () => {
+    expect(() => canonicalStringify(undefined)).toThrow(
+      'Value has no canonical JSON representation',
+    )
+  })
 })
 
 describe('fromUTF() / toUTF()', () => {

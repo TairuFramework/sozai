@@ -13,7 +13,7 @@
 | `b64uFromUTF` | function | Encode UTF-8 string directly to Base64URL |
 | `b64uToUTF` | function | Decode Base64URL directly to UTF-8 string |
 | `b64uFromJSON` | function | Encode object to Base64URL (optionally canonical) |
-| `b64uToJSON` | function | Decode Base64URL string to typed object |
+| `b64uToJSON` | function | Decode Base64URL string to typed object (depth-limited) |
 | `canonicalStringify` | function | Deterministic JSON stringify (RFC 8785) |
 
 ## Example
@@ -63,14 +63,14 @@ canonicalStringify(a) === canonicalStringify(b) // true — keys sorted
 
 ## Example: decode error paths
 
-`fromB64` trims surrounding whitespace before validating (base64 routinely arrives from files or
-env vars with a trailing newline), but throws on embedded whitespace or an invalid
-alphabet/padding. `fromB64U` does **not** trim — its input is JWT segments off the wire, where
-whitespace is always corruption — but it accepts padded input for lenient decoding of older
-tokens. `toUTF` uses a fatal `TextDecoder` and throws a `TypeError` on invalid UTF-8, so corrupted
-bytes never silently decode to a plausible string; `fromUTF` has no such encode-side guard and
-replaces lone surrogates with U+FFFD per the `TextEncoder` contract. A leading BOM (U+FEFF)
-round-trips intact through `fromUTF`/`toUTF` — it is not stripped.
+`fromB64` trims surrounding whitespace before validating (base64 routinely arrives from files or env vars with a
+trailing newline), but throws on embedded whitespace or an invalid alphabet/padding. `fromB64U` does **not**
+trim — its input is JWT segments off the wire, where whitespace is always corruption — but it accepts padded
+input for lenient decoding of older tokens. `toUTF` uses a fatal `TextDecoder` and throws a `TypeError` on
+invalid UTF-8, so corrupted bytes never silently decode to a plausible string; `fromUTF` has no such encode-side
+guard and replaces lone surrogates with U+FFFD per the `TextEncoder` contract. A leading BOM (U+FEFF)
+round-trips intact through `fromUTF`/`toUTF` — it is not stripped. `b64uToJSON` rejects payloads nested deeper
+than 128 levels with `Error('JSON exceeds maximum nesting depth of 128')`, checked before parsing.
 
 ```typescript
 import { fromB64, fromB64U, toUTF } from '@sozai/codec'
@@ -99,9 +99,9 @@ try {
 
 ## Example: canonicalStringify error paths
 
-`canonicalStringify` throws on values `JSON.stringify` would silently mangle or reject:
-`Error('NaN is not allowed')`, `Error('Infinity is not allowed')`,
-`Error('Circular reference detected')`, and `TypeError('Do not know how to serialize a BigInt')`.
+`canonicalStringify` delegates to `@sozai/json` and throws a `TypeError` on values
+`JSON.stringify` would silently mangle or reject: `'NaN is not allowed'`,
+`'Infinity is not allowed'`, `'BigInt is not allowed'`, `'Circular reference detected'`.
 Plain `JSON.stringify` (used by `b64uFromJSON` when `canonicalize` is `false`) instead silently
 turns `NaN`/`Infinity` into `null`, so the two `b64uFromJSON` modes diverge on more than key order.
 

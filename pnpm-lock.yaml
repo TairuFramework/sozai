@@ -30,9 +30,6 @@ catalogs:
     ajv-formats:
       specifier: ^3.0.1
       version: 3.0.1
-    canonicalize:
-      specifier: 3.0.0
-      version: 3.0.0
     expo-crypto:
       specifier: ^57.0.1
       version: 57.0.1
@@ -58,9 +55,9 @@ importers:
 
   packages/codec:
     dependencies:
-      canonicalize:
-        specifier: 'catalog:'
-        version: 3.0.0
+      '@sozai/json':
+        specifier: workspace:^
+        version: link:../json
     devDependencies:
       uint8arrays:
         specifier: 'catalog:'
@@ -109,6 +106,8 @@ importers:
       '@sozai/stream':
         specifier: workspace:^
         version: link:../stream
+
+  packages/json: {}
 
   packages/lock:
     dependencies:
@@ -1845,11 +1844,6 @@ packages:
 
   caniuse-lite@1.0.30001800:
     resolution: {integrity: sha512-MMHtuAz9Ys840zAY5F4k6fV5GaivZ9sPk+nz0mY+GYVzRBnYkN0mpqkSR92oWRQ19yQWo4HvBV/FnC16AJX8MA==}
-
-  canonicalize@3.0.0:
-    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
-    engines: {node: '>=18'}
-    hasBin: true
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -5734,8 +5728,6 @@ snapshots:
   camelcase@6.3.0: {}
 
   caniuse-lite@1.0.30001800: {}
-
-  canonicalize@3.0.0: {}
 
   chai@6.2.2: {}
 

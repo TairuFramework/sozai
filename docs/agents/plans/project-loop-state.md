@@ -41,13 +41,6 @@ merged, or demoted — every item is still live.
   made them invisible to the project-loop staleness rule that keys off exactly that prefix. Dates
   are found-dates, matching the source work. Inbound links updated in `roadmap.md`, this file, and
   three `completed/` records.
-- **Upstream intel on [codec-canonicalize-nested-undefined](backlog/2026-07-11-codec-canonicalize-nested-undefined.md)
-  — not yet folded into the file.** `erdtman/canonicalize#22` is authored by erdtman, the sole
-  maintainer, opened 2026-06-13 and unmerged a month later. Release cadence is roughly annual
-  (2.1.0 in 2025-03, 3.0.0 in 2026-04, still latest and what the catalog pins). So "bump the
-  catalog when it ships" plausibly means waiting into 2027, and the RFC 8785 swap deserves more
-  weight than the file's framing of it as a stall-fallback. Re-check the PR quarterly, not per
-  triage.
 - **Promotions to `next/` proposed and not taken:** `2026-07-16-runtime-expo-tests` (the 07-16
   fetch fix is the one known gap with no test behind it) and `2026-07-14-otel-span-id-validation-gap`
   (two lines plus a test, top of the roadmap's quick wins).

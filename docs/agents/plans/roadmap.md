@@ -12,7 +12,7 @@ One correctness fix landed late: the [2026-07-16 review](project-loop-state.md) 
 captured at import time. Fixed in that review; the package still has no runtime tests, which is
 why it was missed.
 
-Since that roadmap cut, two things landed. The [span ID validation gap](completed/2026-07-19-otel-span-id-validation.complete.md)
+Since that roadmap cut, three things landed. The [span ID validation gap](completed/2026-07-19-otel-span-id-validation.complete.md)
 found by the W3C review closed (07-19, `@sozai/otel` patch) — it spawned one follow-up, the
 log-sink path below. And `@sozai/event` grew [`fire()` plus `EventsSource`/`EventsSink` view
 types](completed/2026-07-24-event-fire-and-view-types.complete.md) (07-24, additive minors) — new
@@ -20,7 +20,11 @@ API on an unfrozen surface, so the freeze framing still holds. Its cross-repo ad
 work. The one in-repo candidate, `@sozai/flow`, was considered on 2026-07-24 and left as-is:
 `EventsSink` is an object-of-methods view, not the single bound `emit` function flow hands each
 handler, and intersecting the full view would leak `fire()`/`writable()` to handlers for no
-consumer need. Resurface only if a real consumer wants it.
+consumer need. Resurface only if a real consumer wants it. Third, the codec's invalid-JSON
+backlog item — the one entry that was blocked on an upstream PR — closed by taking the documented
+fallback: `@sozai/json` now implements RFC 8785 in-repo and `@sozai/codec` drops the third-party
+`canonicalize` dependency. That emptied the "blocked upstream" tier, which is gone from the
+sequence below.
 
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
@@ -51,14 +55,7 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   idempotency keys, unique columns, replay sets. If none — and none is known today — this closes
   as a documented quirk. If one exists, fix it there, not in the codec.
 
-### 3. Blocked upstream — watch, don't work
-
-- [codec — canonicalize emits invalid JSON for nested non-serializable values](backlog/2026-07-11-codec-canonicalize-nested-undefined.md).
-  Tracks [erdtman/canonicalize#22](https://github.com/erdtman/canonicalize/pull/22). Fails loud,
-  caller bug to trigger. Bump the catalog entry when it ships. Fallback if the PR stalls: swap in
-  an RFC 8785 implementation — non-breaking, the contract doesn't change.
-
-### 4. Deferred — research-heavy, no affected consumer
+### 3. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
   Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is
@@ -71,3 +68,14 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   spawning `sysctl`. Both need clock-independent sources that may not be reachable from Node
   without a native addon — establish that first. Failing that, surface the downgrade rather than
   hide it. Low priority until a consumer lands on an affected platform.
+- [json — cycle detection is O(depth) per node](backlog/2026-07-27-json-cycle-detection-complexity.md).
+  The independent rewrite swapped a `Set` for an ancestor array, making canonicalization O(d²) in
+  nesting depth. Stack exhaustion bounds recursion long before it matters, and every realistic
+  signing payload is shallow. Fix opportunistically when that function is next touched.
+
+### 4. Waiting on a release
+
+- [enkaku — migrate `@enkaku/react` off `canonicalize`](backlog/2026-07-27-enkaku-react-canonicalize-migration.md).
+  It was the second in-stack consumer of canonical JSON and the reason `@sozai/json` is its own
+  package. Blocked on `@sozai/json` reaching npm — enkaku depends on published `^` ranges. The
+  edit lands in that repo, not here; note the error classes differ from the old dependency.

@@ -2,7 +2,15 @@ import type { Config, LogRecord } from '@logtape/logtape'
 import { getConfig } from '@logtape/logtape'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { getDefaultConfig, getLogger, getSozaiLogger, isSetup, reset, setup } from '../src/index.js'
+import {
+  getDefaultConfig,
+  getLogger,
+  getReporter,
+  getSozaiLogger,
+  isSetup,
+  reset,
+  setup,
+} from '../src/index.js'
 
 // Routes both the package's own category and a `test` category into `records`, at
 // `debug` so every level is captured. The default config routes every category at
@@ -209,6 +217,65 @@ describe('getDefaultConfig', () => {
     setup(getDefaultConfig({ console: fakeConsole }))
     getSozaiLogger('test').error('boom')
     expect(error).toHaveBeenCalledOnce()
+  })
+})
+
+describe('getReporter', () => {
+  beforeEach(() => {
+    reset()
+  })
+
+  test('sends the record to the logger for its category when logging is configured', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    const boom = new Error('boom')
+    getReporter(['test', 'lane'], '@scope/pkg')('the push lane ended', boom)
+    expect(records).toHaveLength(1)
+    expect(records[0].category).toEqual(['test', 'lane'])
+    expect(records[0].level).toBe('error')
+    expect(records[0].properties.error).toBe(boom)
+  })
+
+  /**
+   * The genuine last resort: logtape drops everything when nothing is configured, so the console
+   * is the only place left. Tagged with the package name because a bare line on stderr with no
+   * owner is barely better than silence.
+   */
+  test('falls back to a tagged console line when nothing is configured', () => {
+    const error = vi.fn()
+    const realError = console.error
+    console.error = error
+    const boom = new Error('boom')
+    try {
+      getReporter(['test', 'lane'], '@scope/pkg')('the push lane ended', boom)
+    } finally {
+      console.error = realError
+    }
+    expect(error).toHaveBeenCalledWith('[@scope/pkg] the push lane ended', boom)
+  })
+
+  /**
+   * `error` is optional because one real call site has no error to give (rpc's warnDropped reports
+   * a rejected payload, not a thrown thing). Passing it through regardless would print a bare
+   * `undefined` after every such line.
+   */
+  test('omits the error argument entirely when none was given', () => {
+    const error = vi.fn()
+    const realError = console.error
+    console.error = error
+    try {
+      getReporter(['test', 'lane'], '@scope/pkg')('dropped an invalid event')
+    } finally {
+      console.error = realError
+    }
+    expect(error).toHaveBeenCalledWith('[@scope/pkg] dropped an invalid event')
+  })
+
+  test('takes a category as a string', () => {
+    const records: Array<LogRecord> = []
+    setup(memoryConfig(records))
+    getReporter('test', '@scope/pkg')('a message')
+    expect(records[0].category).toEqual(['test'])
   })
 })
 

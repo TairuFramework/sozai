@@ -22,6 +22,38 @@ export function getSozaiLogger(namespace: string, properties?: Record<string, un
   return getLogger(['sozai', namespace], properties)
 }
 
+/** An error report that always lands somewhere. `error` is optional: not every condition has one. */
+export type Reporter = (message: string, error?: unknown) => void
+
+/**
+ * Build a reporter for conditions a host may have wired no handler for, where the alternative to
+ * reporting is silence.
+ *
+ * Records go to the logger for `category`. When logging has not been configured AT ALL, logtape
+ * drops everything, so they go to the console tagged with `packageName` instead — the genuine last
+ * resort, not an approximation of one: {@link getDefaultConfig} carries every category, so a
+ * configured app that still sees nothing narrowed the category deliberately.
+ *
+ * `error` level only, on purpose. `warn` would be dropped by the default config.
+ */
+export function getReporter(
+  category: string | Array<string> | ReadonlyArray<string>,
+  packageName: string,
+): Reporter {
+  const logger = getLogger(category)
+  return (message, error) => {
+    if (isSetup()) {
+      logger.error(message, error === undefined ? undefined : { error })
+      return
+    }
+    if (error === undefined) {
+      console.error(`[${packageName}] ${message}`)
+      return
+    }
+    console.error(`[${packageName}] ${message}`, error)
+  }
+}
+
 export function getDefaultConfig(options?: ConsoleSinkOptions): Config<'console', never> {
   return {
     sinks: { console: getConsoleSink(options) },

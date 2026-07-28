@@ -1,6 +1,6 @@
 {
   "name": "@sozai/codec",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Codecs and encoding utilities",
   "keywords": [
     "base64",

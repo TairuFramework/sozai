@@ -1,5 +1,12 @@
 # @sozai/otel
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [916f48c]
+  - @sozai/log@0.3.0
+
 ## 0.3.1
 
 ### Patch Changes

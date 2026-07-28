@@ -1,5 +1,12 @@
 # @sozai/event
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [916f48c]
+  - @sozai/log@0.3.0
+
 ## 0.1.2
 
 ### Patch Changes

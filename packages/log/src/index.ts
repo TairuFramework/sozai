@@ -25,10 +25,17 @@ export function getSozaiLogger(namespace: string, properties?: Record<string, un
 export function getDefaultConfig(options?: ConsoleSinkOptions): Config<'console', never> {
   return {
     sinks: { console: getConsoleSink(options) },
-    loggers: [
-      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: ['console'] },
-      { category: ['sozai'], lowestLevel: 'error', sinks: ['console'] },
-    ],
+    // Any category reaches the console at error unless an app deliberately narrows it. Without
+    // this, a package logging under its own category is dropped by the very config that made
+    // isSetup() answer true — the app took the documented easy path and went deaf.
+    //
+    // One entry, and the ['logtape','meta'] and ['sozai'] entries it replaces are gone on purpose.
+    // `parentSinks` defaults to 'inherit', which UNIONS a category's own sinks with its parent's
+    // rather than overriding them, and does not de-duplicate by sink identity: keeping either
+    // alongside this would print every record under it twice, through the same sink object. The
+    // root entry covers both at the same level, and logtape counts a `category: []` entry as
+    // configuring the meta logger, so its "not configured" fallback stays suppressed.
+    loggers: [{ category: [], lowestLevel: 'error', sinks: ['console'] }],
   }
 }
 

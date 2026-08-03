@@ -26,6 +26,28 @@ fallback: `@sozai/json` now implements RFC 8785 in-repo and `@sozai/codec` drops
 `canonicalize` dependency. That emptied the "blocked upstream" tier, which is gone from the
 sequence below.
 
+Three more landed on 2026-08-03, all of them backlog items rather than new work.
+
+`@enkaku/react` moved off the third-party `canonicalize` package onto `@sozai/json`, which had
+been waiting only on that package reaching npm. The ESM-interop cast at the call site went with
+it. The edit landed in the enkaku repo; nothing here changed.
+
+The codec's non-canonical base64 item closed — **with the opposite outcome to the one this
+roadmap predicted**. It was filed on the expectation that the audit would find no consumer
+treating a token string as an identity, and would close as a documented quirk. The audit found
+one: `@enkaku/server`'s replay cache keyed on the base64url signature *string* when a message
+carried no `jti`, and a 64-byte Ed25519 signature has 16 spellings that all verify, so a captured
+message could be replayed once per spelling. Both sides are fixed. `@sozai/codec` now rejects
+non-canonical encodings by default, with `{ strict: false }` restoring the old behaviour (minor —
+breaking for input that was never canonically encoded). Enkaku's replay key re-encodes the
+signature canonically, so it no longer depends on the codec version or on padding. The concern
+that parked this for a month — that a strict decoder would fix only the native path and make it
+disagree with the `atob` fallback — did not survive contact: canonicality is decidable from the
+string, in the regex guard, before either decoder runs.
+
+And `@sozai/json`'s cycle detection went back to a `Set`, making canonicalization linear rather
+than quadratic in nesting depth.
+
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
 straight into `/dev-loop`.
@@ -47,15 +69,7 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   and `docs/reference/` are gone. `/sozai:*` still won't resolve for sibling repos until this
   branch merges to `main`; kokuin carries the identical gap and gets its own cycle.
 
-### 2. Needs a cross-repo audit first
-
-- [codec — base64 accepts non-canonical encodings](backlog/2026-07-11-codec-non-canonical-base64.md).
-  Signature malleability at the string level. Only bites if something downstream treats a token
-  string as an identity. Audit `@kokuin` / `@kubun` / `@enkaku` for dedup sets, cache keys,
-  idempotency keys, unique columns, replay sets. If none — and none is known today — this closes
-  as a documented quirk. If one exists, fix it there, not in the codec.
-
-### 3. Deferred — research-heavy, no affected consumer
+### 2. Deferred — research-heavy, no affected consumer
 
 - [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
   Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is
@@ -68,14 +82,10 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
   spawning `sysctl`. Both need clock-independent sources that may not be reachable from Node
   without a native addon — establish that first. Failing that, surface the downgrade rather than
   hide it. Low priority until a consumer lands on an affected platform.
-- [json — cycle detection is O(depth) per node](backlog/2026-07-27-json-cycle-detection-complexity.md).
-  The independent rewrite swapped a `Set` for an ancestor array, making canonicalization O(d²) in
-  nesting depth. Stack exhaustion bounds recursion long before it matters, and every realistic
-  signing payload is shallow. Fix opportunistically when that function is next touched.
+### 3. Waiting on a release
 
-### 4. Waiting on a release
-
-- [enkaku — migrate `@enkaku/react` off `canonicalize`](backlog/2026-07-27-enkaku-react-canonicalize-migration.md).
-  It was the second in-stack consumer of canonical JSON and the reason `@sozai/json` is its own
-  package. Blocked on `@sozai/json` reaching npm — enkaku depends on published `^` ranges. The
-  edit lands in that repo, not here; note the error classes differ from the old dependency.
+- [stack — roll the strict base64 floor out to token verification](backlog/2026-08-03-codec-strict-floor-rollout.md).
+  Nothing consumes the strict decode yet: `@kokuin/token` verifies signatures through whatever
+  `@sozai/codec` it resolves, and its floor still admits the lenient `0.3.x`. Bumping it rejects a
+  malleable signature at verification, upstream of every consumer. Blocked on the codec minor
+  reaching npm. The edits land in kokuin and enkaku, not here.

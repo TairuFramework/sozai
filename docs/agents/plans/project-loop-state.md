@@ -4,10 +4,11 @@
 |----------|---------------|
 | Triage | 2026-07-16 |
 | Review | 2026-07-16 |
-| Roadmap | 2026-07-24 |
+| Roadmap | 2026-08-03 |
 
 Roadmap and next/backlog seeded from the [2026-07-02 repo audit](completed/2026-07-02-repo-audit.complete.md).
 Rewritten 2026-07-16: freeze-blocker sequence complete, roadmap re-cut as a backlog burndown.
+Refreshed 2026-08-03 after three backlog closures; the cross-repo-audit tier is empty and gone.
 
 ## 2026-07-16 review
 
@@ -17,8 +18,10 @@ First review. Findings and disposition:
   covered `runtime-expo`, so it was never picked up. `expoRuntime.fetch` now delegates at call
   time, matching `@sozai/runtime`. Its sibling finding (`polyfillFetch` no-op) had been fixed
   incidentally in the patch PR (#1) with no plan record.
-- **Untracked follow-ups filed:** [runtime-expo-tests](backlog/2026-07-16-runtime-expo-tests.md),
-  [release-workflow](backlog/2026-07-11-release-workflow.md).
+- **Untracked follow-ups filed:** runtime-expo-tests (since closed —
+  [2026-07-24](completed/2026-07-24-runtime-expo-tests.complete.md)), release-workflow (dropped
+  2026-07-24 — automating the release is not wanted; publishing stays a hand-run
+  `pnpm run release`. Do not re-file it).
 - **Doc drift fixed:** `AGENTS.md` restated conventions-skill rules and pointed at kigu's
   `repo-split-design.md` (deleted 2026-07-01, replaced by `stack.md`); `docs/index.md` linked a
   non-existent `plans/next/`; `backlog/2026-07-02-infra-hygiene.md`'s `build:types` claim was half-stale.

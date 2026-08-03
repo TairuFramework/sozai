@@ -99,4 +99,36 @@ describe('canonicalize()', () => {
     expect(() => canonicalize(value)).toThrow(TypeError)
     expect(() => canonicalize(value)).toThrow('Circular reference detected')
   })
+
+  test('throws on a cycle that closes several levels up', () => {
+    const root: Record<string, unknown> = {}
+    const middle: Record<string, unknown> = {}
+    root.middle = middle
+    middle.leaf = { root }
+    expect(() => canonicalize(root)).toThrow('Circular reference detected')
+  })
+
+  test('throws on a cycle through an array', () => {
+    const array: Array<unknown> = []
+    array.push({ array })
+    expect(() => canonicalize(array)).toThrow('Circular reference detected')
+  })
+
+  test('throws on a toJSON that returns the value it was called on', () => {
+    const value = { toJSON: () => value }
+    expect(() => canonicalize(value)).toThrow('Circular reference detected')
+  })
+
+  test('allows a reference repeated at different depths', () => {
+    // Only passes if a reference stops counting as an ancestor once its subtree is done: the
+    // second occurrence is nested deeper than the first, not inside it.
+    const shared = { v: 1 }
+    expect(canonicalize({ a: shared, b: { c: shared } })).toBe('{"a":{"v":1},"b":{"c":{"v":1}}}')
+  })
+
+  test('allows a reference repeated across many siblings', () => {
+    const shared = { v: 1 }
+    const value = Array.from({ length: 50 }, () => shared)
+    expect(canonicalize(value)).toBe(`[${Array.from({ length: 50 }, () => '{"v":1}').join(',')}]`)
+  })
 })

@@ -35,15 +35,20 @@
  * rather than becoming `null`.
  */
 export function canonicalize(value: unknown): string | undefined {
-  return encodeMember(value, '', [])
+  return encodeMember(value, '', new Set())
 }
 
 /**
- * References enclosing the value being encoded, innermost last. Membership means the value is its
- * own ancestor, which is the only cycle canonical JSON cannot represent — a value repeated across
- * siblings is fine.
+ * References enclosing the value being encoded. Membership means the value is its own ancestor,
+ * which is the only cycle canonical JSON cannot represent — a value repeated across siblings is
+ * fine.
+ *
+ * A `Set` rather than a stack: the encoder only ever asks whether a reference is enclosing, never
+ * which one or how deep, and a linear scan per visited node would make canonicalization quadratic
+ * in nesting depth. A reference cannot be added twice, since the second attempt is a cycle and
+ * throws before it gets there.
  */
-type Ancestors = Array<object>
+type Ancestors = Set<object>
 
 /**
  * Encode one member of the value tree: the root, an array element or an object property value.
@@ -88,14 +93,14 @@ function encodeNumber(number: number): string {
 
 /** Encode an object reference, keeping it on the ancestor stack for the duration. */
 function encodeReference(reference: object, key: string, ancestors: Ancestors): string | undefined {
-  if (ancestors.includes(reference)) {
+  if (ancestors.has(reference)) {
     throw new TypeError('Circular reference detected')
   }
-  ancestors.push(reference)
+  ancestors.add(reference)
   try {
     return encodeReferenceBody(reference, key, ancestors)
   } finally {
-    ancestors.pop()
+    ancestors.delete(reference)
   }
 }
 

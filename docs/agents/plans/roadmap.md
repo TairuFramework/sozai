@@ -48,6 +48,14 @@ string, in the regex guard, before either decoder runs.
 And `@sozai/json`'s cycle detection went back to a `Set`, making canonicalization linear rather
 than quadratic in nesting depth.
 
+A fourth closed the same day with **no code change**: the otel log-sink's unguarded context
+forwarding. Its research gate — what a real logs SDK does with a zeroed span context — was run
+against `@opentelemetry/sdk-logs`, and the SDK already drops an invalid context before it reaches
+a log record. [The record](completed/2026-08-03-otel-log-sink-context-forwarding.complete.md)
+carries the probe matrix so nobody re-derives it, and notes the scope of the claim: sozai depends
+only on the API packages, so a non-reference SDK that stamps without validating would put the
+question back.
+
 Nothing left is urgent. What remains is a backlog of known, documented, non-blocking items —
 each already carries its own `file:line` references and reasoning, so any of them can go
 straight into `/dev-loop`.
@@ -71,17 +79,12 @@ Ordered by cost against value, not severity. Nothing here blocks anything else.
 
 ### 2. Deferred — research-heavy, no affected consumer
 
-- [otel — log-sink forwards the active context unguarded](backlog/2026-07-19-otel-log-sink-context-forwarding.md).
-  Same zero-ID class the 07-19 guards closed, reached via the logs SDK path instead. Impact is
-  unverified — the ID-stamping lives in whatever logs SDK the consumer installs, so establish what
-  a real SDK does with a zeroed context before deciding whether it needs a guard at all. The
-  predicate (`isValidSpanContext`) already exists internally. No affected consumer; may close as a
-  documented quirk.
 - [lock — close the no-boot-ID fallback hole](backlog/2026-07-13-lock-fallback-platforms.md).
   Windows has no boot-ID source, and sandboxed macOS loses one because darwin's comes from
   spawning `sysctl`. Both need clock-independent sources that may not be reachable from Node
   without a native addon — establish that first. Failing that, surface the downgrade rather than
   hide it. Low priority until a consumer lands on an affected platform.
+
 ### 3. Waiting on a release
 
 - [stack — roll the strict base64 floor out to token verification](backlog/2026-08-03-codec-strict-floor-rollout.md).

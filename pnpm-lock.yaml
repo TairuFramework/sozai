@@ -13,8 +13,8 @@ catalogs:
       specifier: ^0.2.0
       version: 0.2.0
     '@logtape/logtape':
-      specifier: ^2.2.4
-      version: 2.2.4
+      specifier: ^2.3.0
+      version: 2.3.0
     '@opentelemetry/api':
       specifier: ^1.9.1
       version: 1.9.1
@@ -119,7 +119,7 @@ importers:
     dependencies:
       '@logtape/logtape':
         specifier: 'catalog:'
-        version: 2.2.4
+        version: 2.3.0
 
   packages/otel:
     dependencies:
@@ -1011,8 +1011,8 @@ packages:
     resolution: {integrity: sha512-MhMr+kuagzZT781RVfloXf6s7E/AsyJ85dcCcmigua69SY9fLUBqF/RCBW8NZnzUraDvapp4PAPwL3HwIUdK7w==}
     hasBin: true
 
-  '@logtape/logtape@2.2.4':
-    resolution: {integrity: sha512-2rALzv9m4ibE5FyB8/FMm5MPMMlK7ujgy3ufricVKIxj6e7SZbw4w6J16/fRAsXgdDlOXPUA0aa6XoEQvdlKxw==}
+  '@logtape/logtape@2.3.0':
+    resolution: {integrity: sha512-s/pxCgf9Gg75ypTV/bRUq355Dy/JP/zUJWfgJQPO5pTkXC23X2AXBcmBBgFiWH+bSi4yiX/G06qGV8CdAWD3SA==}
 
   '@manypkg/find-root@1.1.0':
     resolution: {integrity: sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA==}
@@ -4923,7 +4923,7 @@ snapshots:
       - supports-color
       - vite
 
-  '@logtape/logtape@2.2.4': {}
+  '@logtape/logtape@2.3.0': {}
 
   '@manypkg/find-root@1.1.0':
     dependencies:

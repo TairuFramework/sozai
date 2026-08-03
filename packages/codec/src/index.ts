@@ -49,6 +49,29 @@ export function fromB64atob(base64: string): Uint8Array {
 }
 
 const B64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?$/
+// The final chunk of a base64 string carries spare bits that encode nothing: a 2-character
+// chunk holds one byte in its first 8 bits, leaving 4 unused, and a 3-character chunk holds
+// two bytes, leaving 2. Decoders ignore those bits, so 16 distinct 2-character chunks and 4
+// distinct 3-character chunks decode to the same bytes. The strict patterns pin the unused
+// bits to zero by restricting the last character: `[AQgw]` are the alphabet indices whose low
+// 4 bits are clear, `[AEIMQUYcgkosw048]` those whose low 2 bits are. Both classes are
+// alphanumeric, so the same two serve base64 and base64url.
+const B64_STRICT_RE =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw](?:==)?|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=?)?$/
+
+/**
+ * Options for the base64 and base64url decoders.
+ */
+export type DecodeOptions = {
+  /**
+   * Reject encodings whose final chunk has non-zero unused bits. Defaults to `true`.
+   *
+   * Set to `false` to accept the historical lenient decode, where up to 16 distinct strings
+   * decode to the same bytes. Only do so for input whose exact encoding is already immaterial
+   * — never where the encoded string itself is treated as an identity.
+   */
+  strict?: boolean
+}
 
 /**
  * Convert a base64-encoded string to a Uint8Array.
@@ -59,10 +82,15 @@ const B64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3
  * `Error('Invalid base64 encoding')`. A whitespace-only string is rejected too: it is distinct
  * from the empty string, which is accepted and decodes to an empty `Uint8Array`. This is the
  * mirror image of {@link fromB64U}, which does not trim.
+ *
+ * Non-canonical encodings — a final chunk whose unused bits are not zero — throw the same
+ * error unless `strict` is disabled. Canonicality is decided from the string before either
+ * decoder runs, so the native and `atob` paths accept exactly the same inputs.
  */
-export function fromB64(base64: string): Uint8Array {
+export function fromB64(base64: string, options: DecodeOptions = {}): Uint8Array {
   const trimmed = base64.trim()
-  if ((base64.length > 0 && trimmed.length === 0) || !B64_RE.test(trimmed)) {
+  const pattern = options.strict === false ? B64_RE : B64_STRICT_RE
+  if ((base64.length > 0 && trimmed.length === 0) || !pattern.test(trimmed)) {
     throw new Error('Invalid base64 encoding')
   }
   return typeof Uint8Array.fromBase64 === 'function'
@@ -71,6 +99,9 @@ export function fromB64(base64: string): Uint8Array {
 }
 
 const B64U_RE = /^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}(?:==)?|[A-Za-z0-9_-]{3}=?)?$/
+// Same canonical-tail constraint as B64_STRICT_RE, over the URL-safe alphabet.
+const B64U_STRICT_RE =
+  /^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-][AQgw](?:==)?|[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048]=?)?$/
 
 /**
  * Convert a base64url-encoded string to a Uint8Array using the `atob` fallback decoder.
@@ -94,9 +125,17 @@ export function fromB64Uatob(base64url: string): Uint8Array {
  * corruption rather than incidental formatting. Any character outside the URL-safe alphabet,
  * embedded or surrounding whitespace, or padding in an invalid position throws
  * `Error('Invalid base64url encoding')`.
+ *
+ * Non-canonical encodings — a final chunk whose unused bits are not zero — throw the same
+ * error unless `strict` is disabled. Canonicality is decided from the string before either
+ * decoder runs, so the native and `atob` paths accept exactly the same inputs. Padding is a
+ * separate axis and remains accepted either way, so a padded and an unpadded spelling of the
+ * same bytes both decode: callers that need one spelling per value must re-encode rather than
+ * rely on `strict`.
  */
-export function fromB64U(base64url: string): Uint8Array {
-  if (!B64U_RE.test(base64url)) {
+export function fromB64U(base64url: string, options: DecodeOptions = {}): Uint8Array {
+  const pattern = options.strict === false ? B64U_RE : B64U_STRICT_RE
+  if (!pattern.test(base64url)) {
     throw new Error('Invalid base64url encoding')
   }
   return typeof Uint8Array.fromBase64 === 'function'

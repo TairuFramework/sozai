@@ -405,6 +405,101 @@ describe('fromB64()', () => {
   })
 })
 
+describe('canonical encoding enforcement', () => {
+  const urlAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+
+  // Replace the last character of `encoded` with every alphabet character in turn, keeping the
+  // ones that still decode to `bytes` under a lenient decode. That set is the malleability
+  // class: distinct strings a decoder cannot tell apart.
+  function variantsOf(encoded: string, bytes: Uint8Array): Array<string> {
+    return Array.from(urlAlphabet, (char) => encoded.slice(0, -1) + char).filter((variant) => {
+      try {
+        return equals(fromB64U(variant, { strict: false }), bytes)
+      } catch {
+        return false
+      }
+    })
+  }
+
+  test('a one-byte tail has 16 lenient spellings and one canonical one', () => {
+    const bytes = new Uint8Array([97])
+    const encoded = toB64U(bytes)
+    const variants = variantsOf(encoded, bytes)
+
+    expect(variants).toHaveLength(16)
+    expect(variants.filter((variant) => variant === encoded)).toHaveLength(1)
+    for (const variant of variants) {
+      if (variant === encoded) {
+        expect(equals(fromB64U(variant), bytes)).toBe(true)
+      } else {
+        expect(() => fromB64U(variant)).toThrow('Invalid base64url')
+      }
+    }
+  })
+
+  test('a two-byte tail has 4 lenient spellings and one canonical one', () => {
+    const bytes = new Uint8Array([104, 105])
+    const encoded = toB64U(bytes)
+    const variants = variantsOf(encoded, bytes)
+
+    expect(variants).toHaveLength(4)
+    for (const variant of variants) {
+      if (variant === encoded) {
+        expect(equals(fromB64U(variant), bytes)).toBe(true)
+      } else {
+        expect(() => fromB64U(variant)).toThrow('Invalid base64url')
+      }
+    }
+  })
+
+  test('a three-byte tail has no spare bits, so nothing to reject', () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const encoded = toB64U(bytes)
+    expect(variantsOf(encoded, bytes)).toEqual([encoded])
+    expect(equals(fromB64U(encoded), bytes)).toBe(true)
+  })
+
+  test('an Ed25519-shaped signature is malleable 16 ways without strict', () => {
+    // 64 bytes leaves a one-byte tail, which is what made a base64url signature string unsafe
+    // to use as an identity: all 16 spellings verify, but each is a distinct string.
+    const signature = new Uint8Array(64).fill(7)
+    const encoded = toB64U(signature)
+    const variants = variantsOf(encoded, signature)
+
+    expect(variants).toHaveLength(16)
+    expect(variants.filter((variant) => variant !== encoded)).toHaveLength(15)
+    for (const variant of variants) {
+      expect(equals(fromB64U(variant, { strict: false }), signature)).toBe(true)
+    }
+  })
+
+  test('strict: false restores the lenient decode', () => {
+    expect(equals(fromB64U('YR', { strict: false }), new Uint8Array([97]))).toBe(true)
+    expect(equals(fromB64('YR==', { strict: false }), new Uint8Array([97]))).toBe(true)
+  })
+
+  test('fromB64 enforces canonicality over the standard alphabet', () => {
+    expect(() => fromB64('YR==')).toThrow('Invalid base64')
+    expect(() => fromB64('aGm=')).toThrow('Invalid base64')
+    expect(equals(fromB64('YQ=='), new Uint8Array([97]))).toBe(true)
+    expect(equals(fromB64('aGk='), new Uint8Array([104, 105]))).toBe(true)
+  })
+
+  test('padding is a separate axis that strict does not collapse', () => {
+    // Both spellings are canonical in their unused bits, so both decode under strict. A caller
+    // needing one spelling per value has to re-encode; `strict` alone will not give it that.
+    const bytes = new Uint8Array([97])
+    expect(equals(fromB64U('YQ'), bytes)).toBe(true)
+    expect(equals(fromB64U('YQ=='), bytes)).toBe(true)
+    expect(toB64U(fromB64U('YQ'))).toBe(toB64U(fromB64U('YQ==')))
+  })
+
+  test('surrounding whitespace is still trimmed before the strict check', () => {
+    expect(equals(fromB64('  YQ==  '), new Uint8Array([97]))).toBe(true)
+    expect(() => fromB64('  YR==  ')).toThrow('Invalid base64')
+  })
+})
+
 // Node 24 ships no `Uint8Array` base64 methods, so the codec runs the `atob` fallback there for
 // real — every other test in this file exercises that path end to end on Node 24, and the native
 // path on Node 26. The two tests below instead *delete* the natives to force the fallback on a

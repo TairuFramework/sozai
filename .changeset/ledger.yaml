@@ -1,0 +1,8 @@
+"@sozai/codec@0.4.0":
+  dir: packages/codec
+  intents:
+    - codec-strict-base64
+"@sozai/json@0.1.1":
+  dir: packages/json
+  intents:
+    - json-set-cycle-detection

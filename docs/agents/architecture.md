@@ -6,8 +6,9 @@ packages with no upward dependencies.
 ## Packages
 
 async, codec, event, execution, flow, generator, json, lock, log, otel, patch, result, runtime,
-schema, stream -- the stable group. Every package versions independently, per-package via changesets;
-there is no `fixed` lock between them, so versions legitimately diverge. `runtime-expo` is bound
+schema, stream -- the stable group. Every package versions independently, via pnpm's native
+versioning (`pnpm change` / `pnpm version -r`); `versioning.fixed` in `pnpm-workspace.yaml` is
+unset, so there is no lock between them and versions legitimately diverge. `runtime-expo` is bound
 to the Expo SDK but is not otherwise a special case.
 
 `lock` is filesystem-based (`node:fs`) -- the one package here that is not environment-agnostic; it

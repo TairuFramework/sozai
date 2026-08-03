@@ -8,8 +8,9 @@
 
 The stable foundation — low-altitude packages that everything else (identity, RPC, MLS)
 depends downward on. Packages here ossify; consumers (`@kokuin`, `@enkaku`, `@kumiai`)
-depend on published `^` ranges, never `workspace:`. Versions move per-package via
-changesets — there is no `fixed` lock, so versions diverge as each package bumps.
+depend on published `^` ranges, never `workspace:`. Versions move per-package via pnpm's
+native versioning (`pnpm change` records an intent, `pnpm version -r` applies the plan,
+`pnpm run release` publishes) — no `fixed` group, so versions diverge as each package bumps.
 `runtime-expo` tracks the Expo SDK but is not otherwise special. Package list and
 positioning: [docs/agents/architecture.md](./docs/agents/architecture.md).
 

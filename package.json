@@ -8,18 +8,15 @@
     "build": "pnpm run clean && pnpm run build:types && pnpm run build:js",
     "build:js": "turbo run build:js",
     "build:types": "turbo run build:types",
-    "changeset": "changeset",
     "check:skills": "kigu-check-skills",
     "clean": "pnpm -r build:clean",
     "format": "biome format --write .",
     "lint": "biome check --write ./packages",
     "prepare": "git config core.hooksPath .githooks",
-    "release": "pnpm run build && changeset publish",
-    "test": "turbo run test:types test:unit",
-    "version": "changeset version"
+    "release": "pnpm run build && pnpm publish -r",
+    "test": "turbo run test:types test:unit"
   },
   "devDependencies": {
-    "@changesets/cli": "catalog:",
     "@kigu/dev": "catalog:"
   },
   "packageManager": "pnpm@11.18.0"

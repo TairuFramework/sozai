@@ -1,6 +1,6 @@
 {
   "name": "@sozai/log",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Logger",
   "keywords": [
     "log",
@@ -33,7 +33,10 @@
     "test:types": "tsc --noEmit --skipLibCheck -p tsconfig.test.json",
     "test:unit": "vitest run"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@logtape/logtape": "catalog:"
+  },
+  "peerDependencies": {
     "@logtape/logtape": "catalog:"
   },
   "publishConfig": {

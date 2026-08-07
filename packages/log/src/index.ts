@@ -61,13 +61,23 @@ export function getDefaultConfig(options?: ConsoleSinkOptions): Config<'console'
     // this, a package logging under its own category is dropped by the very config that made
     // isSetup() answer true — the app took the documented easy path and went deaf.
     //
-    // One entry, and the ['logtape','meta'] and ['sozai'] entries it replaces are gone on purpose.
+    // The root entry replaces the ['sozai'] entry it used to sit beside, on purpose.
     // `parentSinks` defaults to 'inherit', which UNIONS a category's own sinks with its parent's
-    // rather than overriding them, and does not de-duplicate by sink identity: keeping either
-    // alongside this would print every record under it twice, through the same sink object. The
-    // root entry covers both at the same level, and logtape counts a `category: []` entry as
-    // configuring the meta logger, so its "not configured" fallback stays suppressed.
-    loggers: [{ category: [], lowestLevel: 'error', sinks: ['console'] }],
+    // rather than overriding them, and does not de-duplicate by sink identity: a second entry
+    // naming 'console' would print every record under it twice, through the same sink object.
+    //
+    // The meta entry names no sink for exactly that reason — it inherits the root's console and
+    // prints once. It is not redundant with the root entry: logtape reads a `category: []` entry
+    // as configuring the meta logger (so its "configure the meta logger with a separate sink"
+    // notice stays suppressed either way), but that leaves the meta logger's OWN `lowestLevel` at
+    // 'trace', with only the root's dispatch plan holding its info-level records back. A consumer
+    // that takes this config and lowers the root — the documented way to turn up logging — would
+    // then get logtape's internal chatter as well. Pinning the meta logger here makes 'error' its
+    // own floor, so it stays quiet whatever the root is set to.
+    loggers: [
+      { category: [], lowestLevel: 'error', sinks: ['console'] },
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: [] },
+    ],
   }
 }
 

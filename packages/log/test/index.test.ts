@@ -23,6 +23,9 @@ function memoryConfig(records: Array<LogRecord>): Config<string, string> {
       },
     },
     loggers: [
+      // Without an entry covering it, logtape decides the meta logger is unconfigured, attaches a
+      // console sink of its own and prints an info-level notice to stdout on every configure().
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: [] },
       { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
       { category: ['test'], lowestLevel: 'debug', sinks: ['memory'] },
     ],
@@ -156,7 +159,40 @@ describe('getDefaultConfig', () => {
   test('routes any category to a console sink at error level', () => {
     const config = getDefaultConfig()
     expect(Object.keys(config.sinks)).toEqual(['console'])
-    expect(config.loggers).toEqual([{ category: [], lowestLevel: 'error', sinks: ['console'] }])
+    expect(config.loggers).toEqual([
+      { category: [], lowestLevel: 'error', sinks: ['console'] },
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: [] },
+    ])
+  })
+
+  /**
+   * logtape emits an info-level "configure the meta logger with a separate sink" notice from
+   * inside `configureSync` whenever no entry covers `['logtape','meta']`. The root entry alone
+   * satisfies logtape's check but leaves the meta logger's own `lowestLevel` at 'trace', so the
+   * notice is held back only by the root's level — and a consumer lowering the root to see its own
+   * debug records would get logtape's internals along with them. The explicit meta entry pins it.
+   */
+  test('keeps logtape meta records out of a config whose root was lowered', () => {
+    const methods = {
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      debug: vi.fn(),
+      log: vi.fn(),
+    }
+    const config = getDefaultConfig({ console: methods as unknown as Console })
+    setup({
+      ...config,
+      loggers: config.loggers.map((logger) =>
+        logger.category.length === 0 ? { ...logger, lowestLevel: 'debug' as const } : logger,
+      ),
+    })
+    for (const method of Object.values(methods)) {
+      expect(method).not.toHaveBeenCalled()
+    }
+    // The lowered root still works for everything that is not logtape's own chatter.
+    getLogger(['kumiai', 'rpc']).debug('lowered on purpose')
+    expect(methods.debug).toHaveBeenCalledOnce()
   })
 
   /**

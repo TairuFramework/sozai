@@ -7,7 +7,7 @@ export type GeneratorDoneValue<State extends Record<string, unknown>> =
 
 export type GeneratorValue<State extends Record<string, unknown>, Params = unknown> =
   | GeneratorDoneValue<State>
-  | { status: 'action'; state: State; action: string; params: Params }
+  | { status: 'action'; state: State; action: { name: string; params?: Params } }
   | { status: 'state'; state: State }
 
 /** @internal */

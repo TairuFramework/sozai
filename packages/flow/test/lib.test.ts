@@ -31,8 +31,7 @@ const handlers = {
     return {
       status: 'action' as const,
       state: { value: state.value + params.amount },
-      action: 'subtract',
-      params: { amount: 3 },
+      action: { name: 'subtract', params: { amount: 3 } },
     }
   },
   subtract: ({ state, params }: HandlerExecutionContext<State, Params>) => {
@@ -53,7 +52,11 @@ describe('createGenerator()', () => {
     })
 
     await expect(generator.next()).resolves.toEqual({
-      value: { status: 'action', state: { value: 3 }, action: 'subtract', params: { amount: 3 } },
+      value: {
+        status: 'action',
+        state: { value: 3 },
+        action: { name: 'subtract', params: { amount: 3 } },
+      },
       done: false,
     })
     await expect(generator.next()).resolves.toEqual({
@@ -90,8 +93,7 @@ describe('createGenerator()', () => {
         return {
           status: 'action' as const,
           state: { value: state.value + params.amount },
-          action: 'multiply' as keyof typeof handlers,
-          params: { amount: 3 },
+          action: { name: 'multiply' as keyof typeof handlers, params: { amount: 3 } },
         }
       },
     } satisfies typeof handlers
@@ -104,7 +106,11 @@ describe('createGenerator()', () => {
     })
 
     await expect(generator.next()).resolves.toEqual({
-      value: { status: 'action', state: { value: 3 }, action: 'multiply', params: { amount: 3 } },
+      value: {
+        status: 'action',
+        state: { value: 3 },
+        action: { name: 'multiply', params: { amount: 3 } },
+      },
       done: false,
     })
     await expect(generator.next()).resolves.toEqual({
@@ -169,8 +175,7 @@ describe('createGenerator()', () => {
         return {
           status: 'action' as const,
           state: { invalid: 'state' } as unknown as State,
-          action: 'subtract',
-          params: { amount: 3 },
+          action: { name: 'subtract', params: { amount: 3 } },
         }
       },
     } satisfies typeof handlers
@@ -197,11 +202,55 @@ describe('createGenerator()', () => {
     await expect(
       generator.next({ action: { name: 'add', params: { amount: 2 } } }),
     ).resolves.toEqual({
-      value: { status: 'action', state: { value: 3 }, action: 'subtract', params: { amount: 3 } },
+      value: {
+        status: 'action',
+        state: { value: 3 },
+        action: { name: 'subtract', params: { amount: 3 } },
+      },
       done: false,
     })
     await expect(generator.next()).resolves.toEqual({
       value: { status: 'end', state: { value: 0 } },
+      done: true,
+    })
+  })
+
+  test('the canonical action object drives in both input and return positions', async () => {
+    // Input position: `.next({ action: { name, params } })`.
+    // Return position: the `add` handler returns `action: { name, params }`,
+    // which is what the flow emits and then chains into.
+    const generator = createGenerator({ handlers, stateValidator, state: { value: 1 } })
+    await expect(
+      generator.next({ action: { name: 'add', params: { amount: 2 } } }),
+    ).resolves.toEqual({
+      value: {
+        status: 'action',
+        state: { value: 3 },
+        action: { name: 'subtract', params: { amount: 3 } },
+      },
+      done: false,
+    })
+    await expect(generator.next()).resolves.toEqual({
+      value: { status: 'end', state: { value: 0 } },
+      done: true,
+    })
+  })
+
+  test('action params can be omitted', async () => {
+    const noParamHandlers = {
+      touch: ({ state }: HandlerExecutionContext<State, Record<string, never>>) => ({
+        status: 'end' as const,
+        state: { value: state.value + 1 },
+      }),
+    } satisfies HandlersRecord<State>
+
+    const generator = createGenerator<State, typeof noParamHandlers>({
+      handlers: noParamHandlers,
+      state: { value: 1 },
+      action: { name: 'touch' },
+    })
+    await expect(generator.next()).resolves.toEqual({
+      value: { status: 'end', state: { value: 2 } },
       done: true,
     })
   })
@@ -226,7 +275,11 @@ describe('createGenerator()', () => {
     await expect(
       generator.next({ state: { value: 2 }, action: { name: 'add', params: { amount: 2 } } }),
     ).resolves.toEqual({
-      value: { status: 'action', state: { value: 4 }, action: 'subtract', params: { amount: 3 } },
+      value: {
+        status: 'action',
+        state: { value: 4 },
+        action: { name: 'subtract', params: { amount: 3 } },
+      },
       done: false,
     })
     await expect(generator.next()).resolves.toEqual({
@@ -331,7 +384,11 @@ describe('createFlow()', () => {
     const generator = flow({ state: { value: 1 }, action: { name: 'add', params: { amount: 2 } } })
 
     await expect(generator.next()).resolves.toEqual({
-      value: { status: 'action', state: { value: 3 }, action: 'subtract', params: { amount: 3 } },
+      value: {
+        status: 'action',
+        state: { value: 3 },
+        action: { name: 'subtract', params: { amount: 3 } },
+      },
       done: false,
     })
     await expect(generator.next()).resolves.toEqual({
@@ -357,8 +414,7 @@ describe('events support', () => {
       return {
         status: 'action' as const,
         state: { value: result },
-        action: 'subtract',
-        params: { amount: 3 },
+        action: { name: 'subtract', params: { amount: 3 } },
       }
     },
     subtract: ({ state, params, emit }: HandlerExecutionContext<State, Params, TestEvents>) => {
@@ -422,8 +478,7 @@ describe('events support', () => {
     expect(firstStep.value).toEqual({
       status: 'action',
       state: { value: 3 },
-      action: 'subtract',
-      params: { amount: 3 },
+      action: { name: 'subtract', params: { amount: 3 } },
     })
     expect(events).toEqual([
       { type: 'add:started', data: { value: 1 } },

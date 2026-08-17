@@ -22,7 +22,7 @@ export type FlowAction<
   Action extends keyof Handlers = keyof Handlers,
 > = {
   name: Action & string
-  params: Parameters<Handlers[Action]>[0]['params']
+  params?: Parameters<Handlers[Action]>[0]['params']
 }
 
 export type CreateFlowParams<
@@ -127,9 +127,10 @@ export function createGenerator<
           return { value, done: false }
         }
 
-        const nextAction =
-          value?.status === 'action' ? { name: value.action, params: value.params } : null
-        const action = step?.action ?? nextAction ?? defaultAction
+        // One canonical action shape `{ name, params? }` in every position:
+        // the chained handler-return, the step input, and the default action.
+        const chainedAction = value?.status === 'action' ? value.action : null
+        const action = step?.action ?? chainedAction ?? defaultAction
         defaultAction = undefined
         if (action == null) {
           value = { status: 'end', state }

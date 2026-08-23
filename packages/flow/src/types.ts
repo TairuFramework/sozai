@@ -2,7 +2,9 @@ import type { EventEmitter } from '@sozai/event'
 
 export type GeneratorDoneValue<State extends Record<string, unknown>> =
   | { status: 'aborted'; state: State; reason: unknown }
-  | { status: 'end'; state: State }
+  // `outcome` lets a terminal handler tag how the run ended for the driver to
+  // act on (e.g. adaptive rescheduling). Opaque here: flow never interprets it.
+  | { status: 'end'; state: State; outcome?: string }
   | { status: 'error'; state: State; error: Error }
 
 export type GeneratorValue<State extends Record<string, unknown>, Params = unknown> =

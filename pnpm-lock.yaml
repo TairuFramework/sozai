@@ -28,8 +28,8 @@ catalogs:
       specifier: ^3.0.1
       version: 3.0.1
     expo-crypto:
-      specifier: ^57.0.1
-      version: 57.0.1
+      specifier: ^57.0.2
+      version: 57.0.2
     json-schema-to-ts:
       specifier: ^3.1.1
       version: 3.1.1
@@ -148,7 +148,7 @@ importers:
         version: link:../runtime
       expo-crypto:
         specifier: 'catalog:'
-        version: 57.0.1(expo@57.0.2)
+        version: 57.0.2(expo@57.0.2)
 
   packages/schema:
     dependencies:
@@ -2004,8 +2004,8 @@ packages:
       expo: '*'
       react-native: '*'
 
-  expo-crypto@57.0.1:
-    resolution: {integrity: sha512-xwegXQw3ATgeL1ZuqbSNrGzOeG+zNeh6Z6DSJk825Qpa3TEQQ1kG3ioE1p3g/SNF373BAVz2iBKUTSytlIbBRA==}
+  expo-crypto@57.0.2:
+    resolution: {integrity: sha512-OGLvHK7Hb7qsONMWGB9pJw3n+iY4OnZQmM/KwQEHRMrrOmNg0Lxj9+tp9bj46aAMMzXx0FTVA2jUKoplpXPnkA==}
     peerDependencies:
       expo: '*'
 
@@ -5595,7 +5595,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  expo-crypto@57.0.1(expo@57.0.2):
+  expo-crypto@57.0.2(expo@57.0.2):
     dependencies:
       expo: 57.0.2(@babel/core@7.29.7(supports-color@8.1.1))(@expo/dom-webview@57.0.0)(react-native@0.86.0(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.7)(supports-color@8.1.1))(react@19.2.7)(supports-color@8.1.1)(typescript@6.0.3)
 

@@ -245,6 +245,60 @@ describe('createStandardValidator()', () => {
   })
 })
 
+describe('StandardJSONSchemaV1 converter', () => {
+  const schema = {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    required: ['id'],
+    additionalProperties: false,
+  } as const
+
+  test('toStandardValidator without a schema has no jsonSchema converter', () => {
+    const standard = toStandardValidator(createValidator(schema))
+    expect('jsonSchema' in standard['~standard']).toBe(false)
+  })
+
+  test('createStandardValidator exposes a jsonSchema converter', () => {
+    const standard = createStandardValidator(schema)
+    const { jsonSchema } = standard['~standard']
+    expect(jsonSchema.input({ target: 'draft-07' })).toEqual(schema)
+    expect(jsonSchema.output({ target: 'draft-07' })).toEqual(schema)
+  })
+
+  test('input and output return the same document for a plain validator', () => {
+    const { jsonSchema } = createStandardValidator(schema)['~standard']
+    expect(jsonSchema.input({ target: 'draft-07' })).toBe(jsonSchema.output({ target: 'draft-07' }))
+  })
+
+  test('defaults to the draft-07 target', () => {
+    const { jsonSchema } = createStandardValidator(schema)['~standard']
+    expect(jsonSchema.input({ target: 'draft-07' })).toEqual(schema)
+    expect(() => jsonSchema.input({ target: 'draft-2020-12' })).toThrow(
+      'Unsupported JSON Schema target: draft-2020-12',
+    )
+  })
+
+  test('tracks the 2020-12 draft option', () => {
+    const { jsonSchema } = createStandardValidator(schema, { draft: '2020-12' })['~standard']
+    expect(jsonSchema.input({ target: 'draft-2020-12' })).toEqual(schema)
+    expect(() => jsonSchema.input({ target: 'draft-07' })).toThrow(
+      'Unsupported JSON Schema target: draft-07',
+    )
+  })
+
+  test('throws for the openapi-3.0 target', () => {
+    const { jsonSchema } = createStandardValidator(schema)['~standard']
+    expect(() => jsonSchema.output({ target: 'openapi-3.0' })).toThrow(
+      'Unsupported JSON Schema target: openapi-3.0',
+    )
+  })
+
+  test('toStandardValidator attaches the converter when given a schema', () => {
+    const standard = toStandardValidator(createValidator(schema), schema, { draft: '2020-12' })
+    expect(standard['~standard'].jsonSchema.input({ target: 'draft-2020-12' })).toEqual(schema)
+  })
+})
+
 describe('ValidationErrorObject path decoding', () => {
   test('decodes JSON Pointer escapes in instancePath', () => {
     // Property name contains a slash and a tilde; Ajv encodes them as ~1 and ~0.

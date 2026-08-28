@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from '@standard-schema/spec'
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from '@standard-schema/spec'
 import { Ajv } from 'ajv'
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
@@ -106,17 +106,58 @@ export function isType<T>(validator: Validator<T>, value: unknown): value is T {
   return !(validator(value) instanceof ValidationError)
 }
 
+// Build the StandardJSONSchemaV1 companion converter for a validator's source
+// schema. The validator compiled against a single dialect, so it only recovers
+// that one target; any other target (including openapi-3.0) throws, per the
+// companion spec's "throw if the target is not supported" contract. `input` and
+// `output` are the same document because a plain validator's input type equals
+// its output type.
+function createJSONSchemaConverter(
+  schema: Schema,
+  draft: '07' | '2020-12',
+): StandardJSONSchemaV1.Converter {
+  const sourceTarget = draft === '2020-12' ? 'draft-2020-12' : 'draft-07'
+  const convert = (options: StandardJSONSchemaV1.Options): Record<string, unknown> => {
+    if (options.target !== sourceTarget) {
+      throw new Error(`Unsupported JSON Schema target: ${options.target}`)
+    }
+    return schema as Record<string, unknown>
+  }
+  return { input: convert, output: convert }
+}
+
 /**
  * Turn a `Validator` function into a standard schema validator.
  */
-export function toStandardValidator<T>(validator: Validator<T>): StandardSchemaV1<T> {
-  return {
+export function toStandardValidator<T>(validator: Validator<T>): StandardSchemaV1<T>
+export function toStandardValidator<T>(
+  validator: Validator<T>,
+  schema: Schema,
+  options?: ValidatorOptions,
+): StandardSchemaV1<T> & StandardJSONSchemaV1<T>
+export function toStandardValidator<T>(
+  validator: Validator<T>,
+  schema?: Schema,
+  options?: ValidatorOptions,
+): StandardSchemaV1<T> {
+  if (schema == null) {
+    return {
+      '~standard': {
+        version: 1,
+        vendor: 'sozai',
+        validate: validator,
+      },
+    }
+  }
+  const result: StandardSchemaV1<T> & StandardJSONSchemaV1<T> = {
     '~standard': {
       version: 1,
       vendor: 'sozai',
       validate: validator,
+      jsonSchema: createJSONSchemaConverter(schema, options?.draft ?? '07'),
     },
   }
+  return result
 }
 
 /**
@@ -125,6 +166,6 @@ export function toStandardValidator<T>(validator: Validator<T>): StandardSchemaV
 export function createStandardValidator<S extends Schema, T = FromSchema<S>>(
   schema: S,
   options?: ValidatorOptions,
-): StandardSchemaV1<T> {
-  return toStandardValidator(createValidator(schema, options))
+): StandardSchemaV1<T> & StandardJSONSchemaV1<T> {
+  return toStandardValidator(createValidator<S, T>(schema, options), schema, options)
 }

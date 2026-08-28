@@ -10,7 +10,7 @@
  * @module schema
  */
 
-export type { StandardSchemaV1 } from '@standard-schema/spec'
+export type { StandardJSONSchemaV1, StandardSchemaV1 } from '@standard-schema/spec'
 export type { FromSchema } from 'json-schema-to-ts'
 
 export { ValidationError, ValidationErrorObject } from './errors.js'

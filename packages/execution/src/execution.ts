@@ -89,7 +89,10 @@ export class Execution<V, E extends Error = Error>
       const signalSources = this.#chainSignal
         ? [this.#chainSignal, ...executableSignals]
         : executableSignals
-      const signal = signalSources.length === 1 ? signalSources[0] : AbortSignal.any(signalSources)
+      const signal =
+        signalSources.length === 1
+          ? (signalSources[0] as AbortSignal)
+          : AbortSignal.any(signalSources)
       this.#signal = signal
 
       const deferred = defer<Result<V, E | Interruption>>()

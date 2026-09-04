@@ -55,8 +55,8 @@ test('concurrent processes never hold the lock at the same time', async () => {
   // Every `enter` is immediately followed by its OWN `exit`. Any interleaving means two
   // processes were inside the critical section at once — the bug this package exists to stop.
   for (let index = 0; index < lines.length; index += 2) {
-    const [enterWord, enterID] = lines[index].split(' ')
-    const [exitWord, exitID] = lines[index + 1].split(' ')
+    const [enterWord, enterID] = (lines[index] as string).split(' ')
+    const [exitWord, exitID] = (lines[index + 1] as string).split(' ')
     expect(enterWord).toBe('enter')
     expect(exitWord).toBe('exit')
     expect(exitID).toBe(enterID)

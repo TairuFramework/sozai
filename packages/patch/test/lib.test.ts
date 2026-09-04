@@ -391,7 +391,7 @@ describe('applyPatches()', () => {
     test('should handle arrays with objects', () => {
       const data: Record<string, unknown> = { users: [{ name: 'John' }, { name: 'Jane' }] }
       applyPatches(data, [{ op: 'replace', path: '/users/0/name', value: 'Bob' }])
-      expect((data.users as Array<Record<string, unknown>>)[0].name).toBe('Bob')
+      expect((data.users as Array<Record<string, unknown>>)[0]?.name).toBe('Bob')
     })
 
     test('should throw on invalid array index for add', () => {
@@ -535,7 +535,7 @@ describe('applyPatches()', () => {
       const data: Record<string, unknown> = { src: { n: 1 }, dst: {} }
       applyPatches(data, [{ op: 'copy', from: '/src', path: '/dst/copied' }])
       applyPatches(data, [{ op: 'replace', path: '/src/n', value: 2 }])
-      expect((data.dst as Record<string, Record<string, unknown>>).copied.n).toBe(1)
+      expect((data.dst as Record<string, Record<string, unknown>>).copied?.n).toBe(1)
     })
 
     test('move rejects moving into own descendant', () => {

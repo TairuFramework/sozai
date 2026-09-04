@@ -46,7 +46,15 @@ export function parseTraceparent(header: string): TraceparentData | undefined {
   if (match == null) {
     return undefined
   }
-  const [, version, traceID, spanID, flags, trailing] = match
+  // Groups 1-4 are mandatory in the regex; only the trailing group is optional.
+  const [, version, traceID, spanID, flags, trailing] = match as unknown as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string?,
+  ]
   if (version === 'ff') {
     return undefined
   }

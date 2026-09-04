@@ -3,7 +3,8 @@
   "compilerOptions": {
     "types": ["node"],
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "noUncheckedIndexedAccess": false
   },
   "include": ["./src/**/*", "./test/**/*"]
 }

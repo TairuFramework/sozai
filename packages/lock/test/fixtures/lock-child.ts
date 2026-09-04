@@ -2,7 +2,12 @@ import { appendFileSync } from 'node:fs'
 
 import { withFileLock } from '../../src/index.js'
 
-const [lockPath, witnessPath, id, holdMs] = process.argv.slice(2)
+const [lockPath, witnessPath, id, holdMs] = process.argv.slice(2) as [
+  string,
+  string,
+  string,
+  string,
+]
 
 await withFileLock(
   lockPath,

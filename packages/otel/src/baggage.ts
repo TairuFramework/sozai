@@ -112,7 +112,8 @@ export function parseBaggage(header: string): Array<BaggageEntry> {
   const seen = new Set<string>()
   for (const member of header.split(',')) {
     const parts = member.split(';')
-    const kv = parts[0].trim()
+    // split always yields at least one element.
+    const kv = (parts[0] as string).trim()
     if (kv === '') {
       continue
     }

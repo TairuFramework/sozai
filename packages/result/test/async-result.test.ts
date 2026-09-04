@@ -776,10 +776,10 @@ describe('AsyncResult semantics', () => {
 
   test('all() normalizes non-Error rejection reasons', async () => {
     const results = await AsyncResult.all<number>([Promise.resolve(1), Promise.reject('oops')])
-    expect(results.value[0].isOK()).toBe(true)
+    expect(results.value[0]?.isOK()).toBe(true)
     const errored = results.value[1]
-    expect(errored.isError()).toBe(true)
-    expect(errored.error).toBeInstanceOf(Error)
-    expect(errored.error?.cause).toBe('oops')
+    expect(errored?.isError()).toBe(true)
+    expect(errored?.error).toBeInstanceOf(Error)
+    expect(errored?.error?.cause).toBe('oops')
   })
 })

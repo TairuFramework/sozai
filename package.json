@@ -5,7 +5,7 @@
   "author": "Paul Le Cam",
   "type": "module",
   "scripts": {
-    "build": "pnpm run clean && pnpm run build:types && pnpm run build:js",
+    "build": "pnpm run build:types && pnpm run build:js",
     "build:js": "turbo run build:js",
     "build:types": "turbo run build:types",
     "check:skills": "kigu-check-skills",
@@ -14,10 +14,11 @@
     "lint": "biome check --write ./packages",
     "prepare": "git config core.hooksPath .githooks",
     "release": "pnpm run build && pnpm publish -r",
-    "test": "turbo run test:types test:unit"
+    "test": "turbo run test:types test:unit",
+    "test:types": "turbo run test:types"
   },
   "devDependencies": {
     "@kigu/dev": "catalog:"
   },
-  "packageManager": "pnpm@11.24.0"
+  "packageManager": "pnpm@11.25.0"
 }

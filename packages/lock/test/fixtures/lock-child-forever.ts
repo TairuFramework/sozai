@@ -1,6 +1,6 @@
 import { acquireFileLock } from '../../src/index.js'
 
-const [lockPath] = process.argv.slice(2)
+const [lockPath] = process.argv.slice(2) as [string]
 
 await acquireFileLock(lockPath, { timeout: 15_000 })
 

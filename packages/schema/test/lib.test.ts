@@ -311,7 +311,7 @@ describe('ValidationErrorObject path decoding', () => {
     const result = validator({ 'a/b~c': 'not-a-number' })
     expect(result).toBeInstanceOf(ValidationError)
     const issue = (result as ValidationError).issues[0]
-    expect(issue.path).toEqual(['a/b~c'])
+    expect(issue?.path).toEqual(['a/b~c'])
   })
 })
 

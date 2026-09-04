@@ -226,7 +226,7 @@ describe('span status', () => {
       }),
     ).toThrow('boom')
     expect(statuses).toHaveLength(1)
-    expect(statuses[0].code).toBe(SpanStatusCode.ERROR)
+    expect(statuses[0]?.code).toBe(SpanStatusCode.ERROR)
   })
 
   test('withSpan leaves status UNSET on success rather than setting OK', async () => {
@@ -258,6 +258,6 @@ describe('span status', () => {
       }),
     ).rejects.toThrow('boom')
     expect(statuses).toHaveLength(1)
-    expect(statuses[0].code).toBe(SpanStatusCode.ERROR)
+    expect(statuses[0]?.code).toBe(SpanStatusCode.ERROR)
   })
 })

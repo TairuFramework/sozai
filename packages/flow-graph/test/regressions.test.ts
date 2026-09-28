@@ -98,6 +98,36 @@ test('run abort reaches a custom node after a successful action', async () => {
   expect((await pending).status).toBe('aborted')
 })
 
+test('an aborted run does not invoke the node kind', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  const graph = createFlowGraph({
+    kinds: [
+      {
+        ...observer,
+        execute: () => {
+          calls++
+
+          return { next: 'end' }
+        },
+      },
+    ],
+  })
+
+  controller.abort('stop')
+
+  const result = await graph.run({
+    definition: definition({
+      start: { kind: 'observe', next: 'end' },
+      end: { kind: 'end' },
+    }),
+    signal: controller.signal,
+  })
+
+  expect(result.status).toBe('aborted')
+  expect(calls).toBe(0)
+})
+
 test('checks cycles reachable only through a loop body edge', () => {
   const graph = createFlowGraph()
 

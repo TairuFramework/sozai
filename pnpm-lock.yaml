@@ -263,9 +263,6 @@ importers:
       '@sozai/event':
         specifier: workspace:^
         version: link:../event
-      '@sozai/flow':
-        specifier: workspace:^
-        version: link:../flow
       '@sozai/json':
         specifier: workspace:^
         version: link:../json

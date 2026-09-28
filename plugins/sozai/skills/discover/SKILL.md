@@ -42,7 +42,8 @@ environment-agnostic packages that everything else depends on downward. One exce
 ## Packages
 
 **Dataflow** — `@sozai/stream`, `@sozai/async`, `@sozai/event`, `@sozai/flow`, `@sozai/flow-graph`,
-`@sozai/generator`, `@sozai/execution`
+`@sozai/generator`, `@sozai/execution`. `flow-graph` executes JSON node kinds directly and does not
+depend on `flow`.
 
 **Validation** — `@sozai/schema`, `@sozai/codec`, `@sozai/json`
 

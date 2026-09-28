@@ -1,3 +1,4 @@
+/** Persistable JSON flow graphs with directly executed node kinds and resumable runs. */
 export * from './checker.js'
 export * from './digest.js'
 export * from './errors.js'

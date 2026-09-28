@@ -1,6 +1,6 @@
 # @sozai/flow-graph
 
-Use `createFlowGraph()` for JSON flow definitions that can be checked, persisted, and resumed. It builds on `@sozai/flow`. Use `@sozai/flow` directly for code-defined state machines.
+Use `createFlowGraph()` for JSON flow definitions that can be checked, persisted, and resumed. Node kinds execute directly. Use `@sozai/flow` for code-defined state machines.
 
 | Export | Purpose |
 |---|---|

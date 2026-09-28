@@ -1,6 +1,6 @@
 # @sozai/flow-graph
 
-Persistable JSON flow graphs built on `@sozai/flow`. Check definitions before execution. Each run yields JSON state at durable commit points.
+Persistable JSON flow graphs with direct node kind execution. Check definitions before execution. Each run yields JSON state at durable commit points.
 
 Built-in kinds cover branching, state writes, bounded loops, host actions, external input, and terminal outcomes. The package also supports retries, tracing, and safe error logging.
 

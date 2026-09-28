@@ -37,7 +37,6 @@
     "@noble/hashes": "catalog:",
     "@sozai/async": "workspace:^",
     "@sozai/event": "workspace:^",
-    "@sozai/flow": "workspace:^",
     "@sozai/json": "workspace:^",
     "@sozai/log": "workspace:^",
     "@sozai/otel": "workspace:^",

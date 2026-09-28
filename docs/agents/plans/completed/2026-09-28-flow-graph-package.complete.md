@@ -1,4 +1,4 @@
-# flow-graph -- JSON-serialisable flow graphs on top of @sozai/flow
+# flow-graph -- JSON-serialisable flow graphs
 
 **Status:** complete (v1 scope; flow references deferred as planned)
 **Date:** 2026-09-28
@@ -46,10 +46,9 @@ entry, and `retryAt` is committed once. Changed code defaults, jitter and `Retry
 recomputed after a crash. Waits longer than `suspendAfterMs` suspend the run instead of sleeping.
 `recover` ends an in-flight attempt whose deadline has passed instead of replaying it.
 
-**Attempt timeouts stay inside handlers.** The only step signal given to `@sozai/flow` is the run
-abort signal, because `@sozai/flow` discards a handler result when its step signal aborts. Timeouts
-and deadlines run through `raceAttempt`. Non-retrying kinds receive the live run signal. No change
-to `@sozai/flow` was needed.
+**Attempt timeouts use `raceAttempt`.** The runner calls each kind directly. Retrying kinds
+receive an attempt signal, while non-retrying kinds receive the live run signal. Timeouts and
+deadlines discard an abandoned attempt without changing the result of a later attempt.
 
 **The checker targets LLM repair.** `check` returns issues with a definition path and a fix hint.
 Schema failures are reported per field. Rules cover unknown kinds and targets, unreachable nodes,
@@ -71,10 +70,10 @@ instead of using it as parent.
 the authoring schema (for LLMs), the storage schema (accepting reserved `call`, `goto` and
 `loop.body: { flow }` shapes), `runStateSchema` and status-matrix invariants, the filter evaluator,
 `defineNodeKind`, `FlowRetryableError`, `toTimestamp`, `formatIssues` and `digestDefinition`.
-Dependencies: `@sozai/flow`, `schema`, `event`, `async`, `otel`, `log`, `runtime`, `json`, and
+Dependencies: `schema`, `event`, `async`, `otel`, `log`, `runtime`, `json`, and
 `@noble/hashes` (added to the catalog).
 
-199 tests in `@sozai/flow-graph`, 60 in `@sozai/json`.
+207 tests in `@sozai/flow-graph`, 60 in `@sozai/json`.
 
 ## Deviations from the spec
 
@@ -84,6 +83,8 @@ Dependencies: `@sozai/flow`, `schema`, `event`, `async`, `otel`, `log`, `runtime
 - `isJSONValue` accepts `-0`, which becomes `0` after a JSON round trip. The digest is unaffected.
 - A custom kind's `resultSchema(node)` needs a real node, so it is validated by the checker, not
   entirely at registration.
+- `@sozai/flow` was dropped because `flow-graph` used it only to dispatch one handler per attempt.
+  That required workarounds for error wrapping, terminal error state and step-signal discard.
 
 ## Follow-on
 

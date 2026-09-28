@@ -1,5 +1,4 @@
 import { raceAttempt } from '@sozai/async'
-import { createGenerator } from '@sozai/flow'
 import type { JSONValue } from '@sozai/json'
 import { setSpanOnContext, withActiveContext } from '@sozai/otel'
 
@@ -26,86 +25,13 @@ type NodeExecutorParams = { runner: FlowRunner }
 
 export class NodeExecutor {
   #runner: FlowRunner
-  #currentResult?: NodeResult
-  #activeGeneration = 0
-  #activeContext?: ExecuteContext
-  #handlers: Parameters<typeof createGenerator>[0]['handlers']
-  #flow: ReturnType<typeof createGenerator>
 
   constructor(params: NodeExecutorParams) {
     this.#runner = params.runner
-    this.#handlers = Object.fromEntries(
-      [...this.#runner.kinds].map(([name, kind]) => [
-        name,
-        async ({
-          state: flowState,
-          params,
-        }: {
-          state: Record<string, unknown>
-          params: { node: string }
-        }) => {
-          const node = required(
-            Object.hasOwn(this.#runner.definition.nodes, params.node)
-              ? this.#runner.definition.nodes[params.node]
-              : undefined,
-            ['frames', 0, 'node'],
-          )
-
-          if (
-            this.#runner.event &&
-            this.#runner.mode === 'resume' &&
-            this.#runner.state.pending?.reason === 'suspend' &&
-            !kind.resume
-          ) {
-            throw new FlowNodeFailure({ code: 'invalid_suspend' })
-          }
-
-          const generation = this.#activeGeneration
-
-          const produced =
-            this.#runner.event &&
-            this.#runner.mode === 'resume' &&
-            this.#runner.state.pending?.reason === 'suspend'
-              ? await required(kind.resume, ['pending'])(
-                  node,
-                  required(this.#activeContext, ['frames', 0, 'node']),
-                  this.#runner.event as ResumeEvent,
-                )
-              : await kind.execute(node, required(this.#activeContext, ['frames', 0, 'node']))
-
-          if (generation === this.#activeGeneration) {
-            this.#currentResult = produced
-          }
-
-          const nextID = produced && 'next' in produced ? produced.next : undefined
-
-          const nextNode =
-            nextID && Object.hasOwn(this.#runner.definition.nodes, nextID)
-              ? this.#runner.definition.nodes[nextID]
-              : undefined
-
-          return nextNode
-            ? {
-                status: 'action' as const,
-                state: flowState,
-                action: { name: nextNode.kind, params: { node: nextID } },
-              }
-            : { status: 'state' as const, state: flowState }
-        },
-      ]),
-    )
-
-    this.#flow = createGenerator({
-      handlers: this.#handlers,
-      state: this.#runner.state as unknown as Record<string, unknown>,
-      signal: this.#runner.signal,
-    })
   }
 
   async runOne(params: RunOneParams): Promise<{ result: NodeResult; staged: Scope }> {
     const { nodeID, kind, attempt, invocationID, pending, deadline, timeoutMs } = params
-
-    this.#activeGeneration++
 
     const frame = required(this.#runner.state.frames[0], ['frames', 0])
 
@@ -132,9 +58,9 @@ export class NodeExecutor {
     let thrown: unknown
 
     try {
-      const execute = async (attemptSignal: AbortSignal) =>
-        withActiveContext(nodeContext, async () => {
-          this.#activeContext = {
+      const execute = async (attemptSignal: AbortSignal) => {
+        return withActiveContext(nodeContext, async () => {
+          const context: ExecuteContext = {
             nodeID,
             runID: this.#runner.state.runID,
             invocationID,
@@ -152,41 +78,33 @@ export class NodeExecutor {
             runtime: this.#runner.runtime,
           }
 
-          this.#currentResult = undefined
-
-          const outcome = await this.#flow.next({
-            action: { name: kind.kind, params: { node: nodeID } },
-            state: this.#runner.state as unknown as Record<string, unknown>,
-            signal: this.#runner.signal,
-          })
-
-          if (this.#runner.signal?.aborted) {
-            throw this.#runner.signal.reason
+          if (this.#runner.runSignal.aborted) {
+            throw this.#runner.runSignal.reason
           }
 
-          const flowValue = outcome.value
+          const node = required(
+            Object.hasOwn(this.#runner.definition.nodes, nodeID)
+              ? this.#runner.definition.nodes[nodeID]
+              : undefined,
+            ['frames', 0, 'node'],
+          )
 
-          if (flowValue?.status === 'error') {
-            this.#flow = createGenerator({
-              handlers: this.#handlers,
-              state: this.#runner.state as unknown as Record<string, unknown>,
-              signal: this.#runner.signal,
-            })
+          const resumeEvent =
+            this.#runner.mode === 'resume' && this.#runner.state.pending?.reason === 'suspend'
+              ? (this.#runner.event as ResumeEvent | undefined)
+              : undefined
 
-            const wrapped = flowValue.error
-
-            throw wrapped instanceof Error &&
-              wrapped.message === 'Handler execution failed' &&
-              wrapped.cause !== undefined
-              ? wrapped.cause
-              : wrapped
+          if (resumeEvent && !kind.resume) {
+            throw new FlowNodeFailure({ code: 'invalid_suspend' })
           }
 
-          if (flowValue?.status === 'aborted') {
-            throw this.#runner.signal?.reason
-          }
+          const result = resumeEvent
+            ? await required(kind.resume, ['pending'])(node, context, resumeEvent)
+            : await kind.execute(node, context)
 
-          const result = this.#currentResult as NodeResult | undefined
+          if (this.#runner.runSignal.aborted) {
+            throw this.#runner.runSignal.reason
+          }
 
           if (!result) {
             throw new FlowNodeFailure({ code: 'invalid_value' })
@@ -194,6 +112,7 @@ export class NodeExecutor {
 
           return result
         })
+      }
 
       const result = kind.retries
         ? await raceAttempt({
@@ -244,12 +163,6 @@ export class NodeExecutor {
       thrown = error
 
       this.#runner.setFailedSpan(nodeSpan)
-
-      this.#flow = createGenerator({
-        handlers: this.#handlers,
-        state: this.#runner.state as unknown as Record<string, unknown>,
-        signal: this.#runner.signal,
-      })
 
       if (this.#runner.options.recordErrorMessages) {
         nodeSpan.recordException(error instanceof Error ? error : new Error(String(error)))

@@ -15,7 +15,7 @@ machines, emitter and stream adapters, and chainable cancellable execution.
 - **@sozai/async** — deferred promises, lazy evaluation, `Disposer`, interruptions. → `reference/async.md`
 - **@sozai/event** — typed event emitter with stream bridging. → `reference/event.md`
 - **@sozai/flow** — async-generator state machine. → `reference/flow.md`
-- **@sozai/flow-graph** — JSON flow definitions with resumable state and retries. → `reference/flow-graph.md`
+- **@sozai/flow-graph** — independent JSON flow definitions with resumable state and retries. → `reference/flow-graph.md`
 - **@sozai/generator** — emitter/stream → async generator adapters. → `reference/generator.md`
 - **@sozai/execution** — chainable, cancellable async execution with `Result`. → `reference/execution.md`
 

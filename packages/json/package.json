@@ -1,6 +1,6 @@
 {
   "name": "@sozai/json",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Canonical JSON serialization and hardened parsing",
   "keywords": [
     "json",

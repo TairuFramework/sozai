@@ -1,6 +1,6 @@
 import { assertRetryPolicy } from '@sozai/async'
 import { isJSONValue } from '@sozai/json'
-import type { Schema } from '@sozai/schema'
+import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
 import type { FlowDefinition, FlowIssue, FlowNode, FlowRetryPolicy, NodeKind } from './types.js'
@@ -18,10 +18,63 @@ const issue = (
   hint: string,
   severity: 'error' | 'warning' = 'error',
 ): FlowIssue => ({ severity, path, code, message, hint })
+const ownNode = (nodes: FlowDefinition['nodes'], id: string): FlowNode | undefined =>
+  Object.hasOwn(nodes, id) ? nodes[id] : undefined
+const validationIssues = (
+  error: ValidationError,
+  prefix: Array<string | number>,
+): Array<FlowIssue> => {
+  const specific = error.issues.filter(
+    (item) => !['oneOf', 'anyOf', 'allOf'].includes(item.details.keyword),
+  )
+  const detailed = specific.length > 0 ? specific : error.issues
+  const selected = detailed.filter(
+    (item) =>
+      !detailed.some(
+        (other) =>
+          other.path.length > item.path.length &&
+          item.path.every((part, index) => other.path[index] === part),
+      ),
+  )
+  const result = selected.map((item) => {
+    const details = item.details
+    const params = details.params as Record<string, unknown>
+    const field =
+      details.keyword === 'additionalProperties'
+        ? params.additionalProperty
+        : details.keyword === 'required'
+          ? params.missingProperty
+          : undefined
+    const path = [...prefix, ...item.path.map((part) => (/^\d+$/.test(part) ? Number(part) : part))]
+    if (typeof field === 'string') path.push(field)
+    const allowed =
+      details.keyword === 'additionalProperties' && item.path.at(-1) === 'is'
+        ? 'Use isNull, equalTo, notEqualTo, in, notIn, lessThan, lessThanOrEqualTo, greaterThan, greaterThanOrEqualTo, contains, includesAll, includesAny or presence.'
+        : details.keyword === 'enum'
+          ? `Use one of ${JSON.stringify(params.allowedValues)}.`
+          : details.keyword === 'const'
+            ? `Use ${JSON.stringify(params.allowedValue)}.`
+            : details.keyword === 'type'
+              ? `Expected ${String(params.type)}.`
+              : details.keyword === 'required'
+                ? `Add the required ${String(field)} field.`
+                : details.keyword === 'additionalProperties'
+                  ? `Remove the unknown ${String(field)} field.`
+                  : `Fix the ${details.keyword} constraint.`
+    return issue('schema', path, item.message, allowed)
+  })
+  return [...new Map(result.map((item) => [JSON.stringify(item.path), item])).values()]
+}
 const child = (schema: unknown, key: string): unknown => {
   if (!schema || typeof schema !== 'object') return undefined
-  const shape = schema as { properties?: Record<string, unknown>; additionalProperties?: unknown }
-  if (shape.properties?.[key]) return shape.properties[key]
+  const shape = schema as {
+    properties?: Record<string, unknown>
+    additionalProperties?: unknown
+    items?: unknown
+  }
+  if (shape.properties && Object.hasOwn(shape.properties, key)) return shape.properties[key]
+  if (/^(0|[1-9]\d*)$/.test(key) && shape.items && typeof shape.items === 'object')
+    return shape.items
   return shape.additionalProperties && typeof shape.additionalProperties === 'object'
     ? shape.additionalProperties
     : undefined
@@ -42,7 +95,7 @@ const containsEnd = (
 ): boolean => {
   if (visited.has(start)) return false
   visited.add(start)
-  if (definition.nodes[start]?.kind === 'end') return true
+  if (ownNode(definition.nodes, start)?.kind === 'end') return true
   return (edges.get(start) ?? []).some((next) => containsEnd(definition, edges, next, visited))
 }
 
@@ -52,6 +105,8 @@ export function checkDefinition(
   actions?: Record<string, unknown>,
   authoringSchema?: Schema,
   storageSchema?: Schema,
+  validatorFor: (schema: Schema, strict?: boolean) => Validator<unknown> = (schema, strict) =>
+    createValidator(schema, strict === undefined ? undefined : { strict }),
 ): { ok: boolean; issues: Array<FlowIssue> } {
   const issues: Array<FlowIssue> = []
   if (!isJSONValue(definition))
@@ -76,27 +131,37 @@ export function checkDefinition(
   const raw = definition as Record<string, unknown>
   if (authoringSchema) {
     try {
-      const valid = createValidator(authoringSchema, { strict: false })(definition)
+      const valid = validatorFor(authoringSchema, false)(definition)
       if (valid instanceof ValidationError) {
         const stored =
           storageSchema &&
-          !(
-            createValidator(storageSchema, { strict: false })(definition) instanceof ValidationError
-          )
-        issues.push(
-          stored
-            ? issue(
+          !(validatorFor(storageSchema, false)(definition) instanceof ValidationError)
+        if (stored && raw.nodes && typeof raw.nodes === 'object') {
+          const reserved = Object.entries(raw.nodes).filter(([, node]) => {
+            if (!node || typeof node !== 'object') return false
+            const shape = node as Record<string, unknown>
+            return (
+              shape.kind === 'call' ||
+              shape.kind === 'goto' ||
+              (shape.kind === 'loop' && shape.body !== null && typeof shape.body === 'object')
+            )
+          })
+          return {
+            ok: false,
+            issues: reserved.map(([id]) =>
+              issue(
                 'unsupported',
-                ['nodes'],
-                'Definition uses a reserved kind or flow reference.',
-                'Use only executable node kinds in v1.',
-              )
-            : issue(
-                'schema',
-                [],
-                'Definition does not match the authoring schema.',
-                'Fix required fields and node shapes using authoringSchema.',
+                ['nodes', id],
+                'Node uses a reserved flow reference.',
+                'Use an executable node kind or a local loop body.',
               ),
+            ),
+          }
+        }
+        issues.push(
+          ...validationIssues(valid, []).filter(
+            (item) => item.path[0] !== 'nodes' || item.path.length <= 1,
+          ),
         )
       }
     } catch {
@@ -115,7 +180,7 @@ export function checkDefinition(
   const def = definition as unknown as FlowDefinition
   const ids = Object.keys(def.nodes)
   const edges = new Map<string, Array<string>>()
-  if (!def.nodes[def.start])
+  if (!ownNode(def.nodes, def.start))
     issues.push(
       issue('unknown_target', ['start'], 'Start node is missing.', 'Name an existing node.'),
     )
@@ -146,15 +211,8 @@ export function checkDefinition(
       continue
     }
     try {
-      if (createValidator(kind.schema, { strict: false })(n) instanceof ValidationError)
-        issues.push(
-          issue(
-            'schema',
-            ['nodes', id],
-            'Node has an invalid shape.',
-            'Follow the node kind schema.',
-          ),
-        )
+      const valid = validatorFor(kind.schema, false)(n)
+      if (valid instanceof ValidationError) issues.push(...validationIssues(valid, ['nodes', id]))
     } catch {
       issues.push(
         issue(
@@ -165,7 +223,7 @@ export function checkDefinition(
         ),
       )
     }
-    if ('retry' in n) {
+    if (Object.hasOwn(n, 'retry')) {
       try {
         if (!kind.retries) throw new TypeError('Kind does not retry')
         const policy = n.retry as FlowRetryPolicy
@@ -189,7 +247,7 @@ export function checkDefinition(
         )
       }
     }
-    if (n.kind === 'action' && actions && !((n.name as string) in actions))
+    if (n.kind === 'action' && actions && !Object.hasOwn(actions, n.name as string))
       issues.push(
         issue(
           'unknown_action',
@@ -217,7 +275,7 @@ export function checkDefinition(
       outgoing.map((e) => e.id),
     )
     for (const edge of outgoing)
-      if (!def.nodes[edge.id])
+      if (!ownNode(def.nodes, edge.id))
         issues.push(
           issue(
             'unknown_target',
@@ -249,7 +307,7 @@ export function checkDefinition(
         nodeReads.push({ path: obj.ref as Array<string>, location: [...location, 'ref'] })
       if (Array.isArray(obj.path) && obj.path.every((part) => typeof part === 'string')) {
         const p = obj.path as Array<string>
-        const writing = location.includes('assign')
+        const writing = n.kind === 'set' && location[2] === 'assign'
         if (writing && (p[0] !== 'state' || p.length < 2))
           issues.push(
             issue(
@@ -277,7 +335,7 @@ export function checkDefinition(
     reads.set(id, nodeReads)
     if (n.kind === 'input' && n.schema)
       try {
-        createValidator(n.schema as Schema)
+        validatorFor(n.schema as Schema)
       } catch {
         issues.push(
           issue(
@@ -290,8 +348,8 @@ export function checkDefinition(
       }
     if (kind.resultSchema)
       try {
-        createValidator(kind.resultSchema(n))
-        const s = kind.resultSchema(n) as { properties?: Record<string, unknown> }
+        const s = kind.resultSchema(n) as Schema & { properties?: Record<string, unknown> }
+        validatorFor(s)
         if (s.properties?.error)
           issues.push(
             issue(
@@ -315,7 +373,7 @@ export function checkDefinition(
   }
   if (def.input)
     try {
-      createValidator(def.input)
+      validatorFor(def.input)
     } catch {
       issues.push(
         issue(
@@ -328,7 +386,7 @@ export function checkDefinition(
     }
   const reachable = new Set<string>()
   const visit = (id: string): void => {
-    if (reachable.has(id) || !def.nodes[id]) return
+    if (reachable.has(id) || !ownNode(def.nodes, id)) return
     reachable.add(id)
     for (const next of edges.get(id) ?? []) visit(next)
   }
@@ -352,19 +410,23 @@ export function checkDefinition(
   const stripped = new Map(
     [...edges].map(([id, next]) => [
       id,
-      next.filter((target) => def.nodes[id]?.kind !== 'loop' || def.nodes[id]?.body !== target),
+      next.filter(
+        (target) =>
+          ownNode(def.nodes, id)?.kind !== 'loop' || ownNode(def.nodes, id)?.body !== target,
+      ),
     ]),
   )
-  const cycle = (id: string, stack = new Set<string>(), done = new Set<string>()): boolean => {
+  const done = new Set<string>()
+  const cycle = (id: string, stack = new Set<string>()): boolean => {
     if (stack.has(id)) return true
     if (done.has(id)) return false
     stack.add(id)
-    for (const next of stripped.get(id) ?? []) if (cycle(next, stack, done)) return true
+    for (const next of stripped.get(id) ?? []) if (cycle(next, stack)) return true
     stack.delete(id)
     done.add(id)
     return false
   }
-  if (cycle(def.start))
+  if (ids.some((id) => cycle(id)))
     issues.push(
       issue(
         'unbounded_cycle',
@@ -414,7 +476,7 @@ export function checkDefinition(
         )
         continue
       }
-      if (root === 'results' && (!producer || !def.nodes[producer])) {
+      if (root === 'results' && (!producer || !ownNode(def.nodes, producer))) {
         issues.push(
           issue(
             'invalid_path',
@@ -425,7 +487,7 @@ export function checkDefinition(
         )
         continue
       }
-      if (root === 'loops' && (!producer || def.nodes[producer]?.kind !== 'loop'))
+      if (root === 'loops' && (!producer || ownNode(def.nodes, producer)?.kind !== 'loop'))
         issues.push(
           issue(
             'invalid_path',
@@ -434,8 +496,8 @@ export function checkDefinition(
             'Name an existing loop node.',
           ),
         )
-      if (root === 'results' && producer && def.nodes[producer]) {
-        const p = def.nodes[producer]
+      if (root === 'results' && producer && ownNode(def.nodes, producer)) {
+        const p = ownNode(def.nodes, producer)
         if (!p) continue
         if (rest[0] === 'error' && p.onError) {
           if (

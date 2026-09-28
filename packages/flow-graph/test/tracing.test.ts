@@ -376,3 +376,43 @@ test('an unhandled failure marks the exported segment as an error', async () => 
   expect(segment?.status.code).toBe(SpanStatusCode.ERROR)
   expect(segment?.attributes['flow.error.code']).toBe('node_failed')
 })
+
+test('recorded handled and retried failures leave node spans without error status', async () => {
+  exporter.reset()
+  let attempts = 0
+  const graph = createFlowGraph({
+    recordErrorMessages: true,
+    actions: {
+      work: async () => {
+        attempts++
+        if (attempts === 1) throw new FlowRetryableError({ message: 'retry' })
+        throw new Error('handled')
+      },
+    },
+  })
+  const result = await graph.run({
+    definition: {
+      id: 'handled-retry',
+      name: 'Handled retry',
+      version: 1,
+      start: 'work',
+      nodes: {
+        work: {
+          kind: 'action',
+          name: 'work',
+          next: 'end',
+          onError: 'end',
+          retry: { maxAttempts: 2 },
+        },
+        end: { kind: 'end' },
+      },
+    },
+  })
+  expect(result.status).toBe('ended')
+  expect(
+    exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === 'flow.node')
+      .map((span) => span.status.code),
+  ).not.toContain(SpanStatusCode.ERROR)
+})

@@ -155,5 +155,5 @@ test.each([
   const first = await createFlowGraph().run({ definition })
   const state = JSON.parse(JSON.stringify(first.runState))
   mutate(state)
-  expect(() => assertRunState(state, definition)).toThrow(FlowStateError)
+  expect(() => assertRunState(state, definition, new Map())).toThrow(FlowStateError)
 })

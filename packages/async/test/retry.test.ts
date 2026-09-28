@@ -11,6 +11,9 @@ import {
 } from '../src/retry.js'
 
 describe('getRetryDelay()', () => {
+  test.each([0, -1, 1.5, Number.NaN])('rejects invalid attempt %s', (attempt) => {
+    expect(() => getRetryDelay({ maxAttempts: 2 }, attempt)).toThrow(RangeError)
+  })
   test('uses exponential growth and cap', () => {
     const policy = { maxAttempts: 4, backoff: { initialMs: 100, multiplier: 3, maxMs: 500 } }
     expect(getRetryDelay(policy, 1)).toBe(100)
@@ -66,6 +69,14 @@ describe('raceAttempt()', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  test('does not invoke an attempt after its deadline', async () => {
+    const fn = vi.fn(async () => 'late')
+    await expect(raceAttempt({ fn, deadline: 100, now: () => 100 })).rejects.toMatchObject({
+      cause: 'deadline',
+    })
+    expect(fn).not.toHaveBeenCalled()
+  })
+
   test('enforces attempt timeout when fn ignores its signal', async () => {
     const pending = raceAttempt({ fn: () => new Promise(() => {}), timeoutMs: 25 })
     const assertion = expect(pending).rejects.toMatchObject({ cause: 'attempt' })
@@ -120,6 +131,26 @@ describe('raceAttempt()', () => {
 describe('retry()', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
+
+  test('loop-start deadline exhaustion keeps the last failure', async () => {
+    const failure = new Error('last failure')
+    const pending = retry(
+      async () => {
+        throw failure
+      },
+      {
+        policy: { maxAttempts: 2, totalTimeoutMs: 10 },
+        retryable: () => true,
+        onRetry: () => vi.setSystemTime(Date.now() + 10),
+      },
+    )
+    const assertion = expect(pending).rejects.toMatchObject({
+      reason: 'total_timeout',
+      cause: failure,
+    })
+    await vi.runAllTimersAsync()
+    await assertion
+  })
 
   test('succeeds on first attempt', async () => {
     const fn = vi.fn(async () => 'ok')

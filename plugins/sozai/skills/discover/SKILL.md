@@ -13,7 +13,7 @@ environment-agnostic packages that everything else depends on downward. One exce
 
 - **Dataflow** — streaming, async, events, generators, stateful flow. Web Streams creation and
   transformation, deferred promises and disposers, typed event emitters, async-generator state
-machines, persistent JSON flow graphs, emitter and stream adapters, chainable cancellable execution. → `/sozai:dataflow`
+  machines, persistent JSON flow graphs, emitter and stream adapters, chainable cancellable execution. → `/sozai:dataflow`
 - **Validation** — JSON Schema with compile-time type generation (`FromSchema`), message encoding
   and decoding, plus canonical JSON and hardened parsing. → `/sozai:validation`
 - **Runtime** — environment-agnostic `fetch` and randomness via `createRuntime`, the Expo /

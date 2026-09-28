@@ -54,7 +54,7 @@ export type ExecuteContext = {
   runtime: Runtime
 }
 export type NodeKind<N extends { kind: string } = FlowNode> = {
-  kind: string
+  kind: N['kind']
   schema: Schema
   targets: (node: N) => Array<{ path: Array<string | number>; id: string }>
   resultSchema?: (node: N) => Schema
@@ -66,6 +66,7 @@ export type NodeKind<N extends { kind: string } = FlowNode> = {
   retryable?: (error: unknown) => RetryDecision
 }
 export const defineNodeKind = <N extends { kind: string }>(kind: NodeKind<N>): NodeKind<N> => kind
+export type RegisteredNodeKind = Omit<NodeKind<never>, 'kind'> & { kind: string }
 export type Action = (ctx: {
   args: Record<string, JSONValue>
   signal: AbortSignal
@@ -142,7 +143,7 @@ export type FlowRun = AsyncIterable<RunState> & {
   events: EventEmitter<FlowEvents>
 }
 export type FlowGraphOptions = {
-  kinds?: Array<NodeKind<never>>
+  kinds?: Array<RegisteredNodeKind>
   actions?: Record<string, Action>
   retryDefaults?: Record<string, FlowRetryPolicy>
   maxSteps?: number

@@ -24,6 +24,7 @@ import {
   withActiveContext,
 } from '@sozai/otel'
 import { createRuntime } from '@sozai/runtime'
+import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
 import { checkDefinition } from './checker.js'
@@ -63,6 +64,8 @@ import type { Scope } from './value.js'
 import { resolveValue } from './value.js'
 
 const clone = <T>(value: T): T => structuredClone(value)
+const own = <T>(values: Record<string, T>, key: string): T | undefined =>
+  Object.hasOwn(values, key) ? values[key] : undefined
 const required = <T>(value: T | undefined): T => {
   if (value === undefined) throw new FlowStateError()
   return value
@@ -70,7 +73,7 @@ const required = <T>(value: T | undefined): T => {
 const requireJSON = (value: unknown): void => {
   if (!isJSONValue(value)) throw new FlowNodeFailure({ code: 'invalid_value' })
 }
-const tracer = createTracerFactory('sozai', '0.1.0')('flow-graph')
+const tracer = createTracerFactory('sozai')('flow-graph')
 const final = (status: RunState['status']) =>
   status === 'ended' || status === 'error' || status === 'aborted' || status === 'suspended'
 const defaultMeta = (error: unknown): ErrorMetadata => ({
@@ -102,7 +105,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   const logger = options.logger ?? getSozaiLogger('flow-graph')
   const kinds = new Map<string, NodeKind>()
   for (const registered of [...builtinKinds(options.actions, now), ...(options.kinds ?? [])]) {
-    const kind = registered as NodeKind
+    const kind = registered as unknown as NodeKind
     if (kinds.has(kind.kind)) throw new TypeError(`Duplicate node kind: ${kind.kind}`)
     if (kind.resultSchema) {
       let shape: { properties?: Record<string, unknown> } | undefined
@@ -122,8 +125,25 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   }
   const authoringSchema = makeDefinitionSchema([...kinds.values()])
   const storageSchema = makeDefinitionSchema([...kinds.values()], true)
+  const validators = new Map<string, Validator<unknown>>()
+  const validatorFor = (schema: Schema, strict?: boolean): Validator<unknown> => {
+    const key = `${strict ?? 'default'}:${JSON.stringify(schema)}`
+    let validator = validators.get(key)
+    if (!validator) {
+      validator = createValidator(schema, strict === undefined ? undefined : { strict })
+      validators.set(key, validator)
+    }
+    return validator
+  }
   const check = (definition: unknown) =>
-    checkDefinition(definition, kinds, options.actions, authoringSchema, storageSchema)
+    checkDefinition(
+      definition,
+      kinds,
+      options.actions,
+      authoringSchema,
+      storageSchema,
+      validatorFor,
+    )
   const logError = (message: string, metadata: Record<string, unknown>) => {
     if (isSetup()) traceLogger(logger).error(message, metadata)
     else console.error(`[@sozai/flow-graph] ${message}`, metadata)
@@ -238,7 +258,9 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       next.status = 'aborted'
       delete next.inFlight
       delete next.pending
-      const a = next.frames[0]?.attempts[next.frames[0]?.node]
+      const frame = next.frames[0]
+      const a =
+        frame && Object.hasOwn(frame.attempts, frame.node) ? frame.attempts[frame.node] : undefined
       if (a) delete a.retryAt
       return commit(next)
     }
@@ -252,7 +274,10 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       next.status = 'error'
       delete next.inFlight
       delete next.pending
-      const a = next.frames[0]?.attempts[nodeID]
+      const a =
+        next.frames[0] && Object.hasOwn(next.frames[0].attempts, nodeID)
+          ? next.frames[0].attempts[nodeID]
+          : undefined
       if (a) delete a.retryAt
       if (code === 'loop_exhausted') delete next.frames[0]?.loops[nodeID]
       next.error = {
@@ -292,7 +317,10 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       reason: RunError['reason'],
       meta: ErrorMetadata,
     ): RunState => {
-      const attempts = state.frames[0]?.attempts[nodeID]
+      const attempts =
+        state.frames[0] && Object.hasOwn(state.frames[0].attempts, nodeID)
+          ? state.frames[0].attempts[nodeID]
+          : undefined
       const count = attempts?.count ?? 1
       if (typeof node.onError === 'string') {
         const next = clone(state)
@@ -329,7 +357,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       }
       return failure('node_failed', nodeID, { reason, attempts: count }, meta)
     }
-    let activeSignal = signal ?? new AbortController().signal
+    const runSignal = signal ?? new AbortController().signal
     let currentResult: NodeResult | undefined
     let activeGeneration = 0
     let activeContext: ExecuteContext | undefined
@@ -343,7 +371,11 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
           state: Record<string, unknown>
           params: { node: string }
         }) => {
-          const node = required(definition.nodes[params.node])
+          const node = required(
+            Object.hasOwn(definition.nodes, params.node)
+              ? definition.nodes[params.node]
+              : undefined,
+          )
           if (event && mode === 'resume' && state.pending?.reason === 'suspend' && !kind.resume)
             throw new FlowNodeFailure({ code: 'invalid_suspend' })
           const generation = activeGeneration
@@ -352,12 +384,14 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
               ? await required(kind.resume)(node, required(activeContext), event as ResumeEvent)
               : await kind.execute(node, required(activeContext))
           if (generation === activeGeneration) currentResult = produced
-          const nextID = 'next' in produced ? produced.next : undefined
-          return nextID && definition.nodes[nextID]
+          const nextID = produced && 'next' in produced ? produced.next : undefined
+          const nextNode =
+            nextID && Object.hasOwn(definition.nodes, nextID) ? definition.nodes[nextID] : undefined
+          return nextNode
             ? {
                 status: 'action' as const,
                 state: flowState,
-                action: { name: definition.nodes[nextID]?.kind, params: { node: nextID } },
+                action: { name: nextNode.kind, params: { node: nextID } },
               }
             : { status: 'state' as const, state: flowState }
         },
@@ -401,7 +435,6 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       try {
         const execute = async (attemptSignal: AbortSignal) =>
           withActiveContext(nodeContext, async () => {
-            activeSignal = attemptSignal
             activeContext = {
               nodeID,
               runID: state.runID,
@@ -414,7 +447,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
               setResult: (value) => {
                 staged.results[nodeID] = value
               },
-              signal: activeSignal,
+              signal: attemptSignal,
               span: nodeSpan,
               logger,
               runtime,
@@ -433,7 +466,12 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
                 state: state as unknown as Record<string, unknown>,
                 signal,
               })
-              throw flowValue.error
+              const wrapped = flowValue.error
+              throw wrapped instanceof Error &&
+                wrapped.message === 'Handler execution failed' &&
+                wrapped.cause !== undefined
+                ? wrapped.cause
+                : wrapped
             }
             if (flowValue?.status === 'aborted') throw signal?.reason
             const result = currentResult as NodeResult | undefined
@@ -442,7 +480,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
           })
         const result = kind.retries
           ? await raceAttempt({ fn: execute, signal, timeoutMs, deadline, now })
-          : await execute(activeSignal)
+          : await execute(runSignal)
         requireJSON(result)
         requireJSON(staged.state)
         requireJSON(staged.results)
@@ -461,7 +499,10 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
           )
             throw new FlowNodeFailure({ code: 'invalid_target' })
           nodeSpan.setAttribute('flow.next', result.next)
-          if ('result' in result) staged.results[nodeID] = result.result as JSONValue
+          if ('result' in result) {
+            requireJSON(result.result)
+            staged.results[nodeID] = result.result as JSONValue
+          }
         } else if (!('end' in result)) throw new FlowNodeFailure({ code: 'invalid_value' })
         requireJSON(staged)
         return { result, staged }
@@ -475,10 +516,6 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
         })
         if (options.recordErrorMessages) {
           nodeSpan.recordException(error instanceof Error ? error : new Error(String(error)))
-          nodeSpan.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          })
         }
         throw error
       } finally {
@@ -508,7 +545,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
         )
       )
         return failure(error.code, nodeID, undefined, meta)
-      const attempt = required(state.frames[0]).attempts[nodeID]
+      const frame = required(state.frames[0])
+      const attempt = Object.hasOwn(frame.attempts, nodeID) ? frame.attempts[nodeID] : undefined
       if (!attempt) return nodeFail(nodeID, node, kind, 'non_retryable', meta)
       const expired =
         (error instanceof TimeoutInterruption && error.cause === 'deadline') ||
@@ -585,7 +623,6 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
     }
     async function* drive(): AsyncGenerator<RunState, RunState> {
       let recovering = mode === 'recover'
-      let _resumeEvent = event
       try {
         while (state.status === 'running' || state.status === 'suspended') {
           if (signal?.aborted) {
@@ -594,10 +631,14 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
           }
           const frame = required(state.frames[0])
           const nodeID = frame.node
-          const node = required(definition.nodes[nodeID])
+          const node = required(
+            Object.hasOwn(definition.nodes, nodeID) ? definition.nodes[nodeID] : undefined,
+          )
           const kind = required(kinds.get(node.kind))
           const pending = state.pending
-          const attempts = frame.attempts[nodeID]
+          const attempts = Object.hasOwn(frame.attempts, nodeID)
+            ? frame.attempts[nodeID]
+            : undefined
           if (state.status === 'suspended' && pending?.reason === 'suspend') {
             const invocationID = attempts?.invocationID ?? `${state.runID}:0:${frame.invocation}`
             try {
@@ -610,7 +651,6 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
                 attempts?.deadline ? new Date(attempts.deadline).getTime() : undefined,
                 attempts?.policy.attemptTimeoutMs,
               )
-              _resumeEvent = undefined
               const saved = applyResult(result, staged, nodeID, true)
               yield saved
               if (final(saved.status)) break
@@ -675,7 +715,9 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
             const f = required(next.frames[0])
             const policy = clone(
               (node.retry as FlowRetryPolicy | undefined) ??
-                options.retryDefaults?.[kind.kind] ?? { maxAttempts: 1 },
+                (options.retryDefaults ? own(options.retryDefaults, kind.kind) : undefined) ?? {
+                  maxAttempts: 1,
+                },
             )
             f.invocation++
             next.steps++
@@ -693,8 +735,22 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
             yield saved
             continue
           }
-          const current = state.frames[0]?.attempts[nodeID]
+          const current =
+            state.frames[0] && Object.hasOwn(state.frames[0].attempts, nodeID)
+              ? state.frames[0].attempts[nodeID]
+              : undefined
           if (kind.retries && current) {
+            if (current.deadline && now() >= new Date(current.deadline).getTime()) {
+              yield nodeFail(
+                nodeID,
+                node,
+                kind,
+                'total_timeout',
+                current.lastFailure ?? { type: 'TimeoutInterruption' },
+              )
+              if (final(state.status)) break
+              continue
+            }
             if (recovering && state.inFlight) {
               if (current.interruptions >= (current.policy.maxInterruptions ?? 3)) {
                 yield nodeFail(
@@ -711,17 +767,6 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
               required(required(next.frames[0]).attempts[nodeID]).interruptions++
               yield commit(next)
             } else {
-              if (current.deadline && now() >= new Date(current.deadline).getTime()) {
-                yield nodeFail(
-                  nodeID,
-                  node,
-                  kind,
-                  'total_timeout',
-                  current.lastFailure ?? { type: 'TimeoutInterruption' },
-                )
-                if (final(state.status)) break
-                continue
-              }
               if (current.count >= current.policy.maxAttempts) {
                 yield nodeFail(
                   nodeID,
@@ -745,7 +790,11 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
             }
             recovering = false
           }
-          const a = state.frames[0]?.attempts[nodeID]
+          const a =
+            state.frames[0] && Object.hasOwn(state.frames[0].attempts, nodeID)
+              ? state.frames[0].attempts[nodeID]
+              : undefined
+          if (!kind.retries) events.fire('node:enter', { node: nodeID, runState: clone(state) })
           const invocationID =
             a?.invocationID ?? `${state.runID}:0:${(state.frames[0]?.invocation ?? 0) + 1}`
           try {
@@ -836,7 +885,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
     if (
       !isJSONValue(input) ||
       (params.definition.input &&
-        createValidator(params.definition.input)(input) instanceof ValidationError)
+        validatorFor(params.definition.input)(input) instanceof ValidationError)
     )
       throw new FlowInputError()
     const state: RunState = {
@@ -881,7 +930,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       params.event.type === 'value' &&
       (!isJSONValue(params.event.value) ||
         (pending.schema &&
-          createValidator(pending.schema)(params.event.value) instanceof ValidationError))
+          validatorFor(pending.schema)(params.event.value) instanceof ValidationError))
     )
       throw new FlowInputError()
     return makeRun(
@@ -913,8 +962,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
     const runState = flow.getState()
     return {
       status: runState.status,
-      ...(runState.outcome ? { outcome: runState.outcome } : {}),
-      ...(runState.output ? { output: runState.output } : {}),
+      ...(runState.outcome !== undefined ? { outcome: runState.outcome } : {}),
+      ...(runState.output !== undefined ? { output: runState.output } : {}),
       ...(runState.pending ? { pending: runState.pending } : {}),
       ...(runState.error ? { error: runState.error } : {}),
       runState,

@@ -39,7 +39,7 @@ const fixtures: Array<RuleFixture> = [
   { code: 'schema', path: [], definition: { ...definition({ start: end }), version: Number.NaN } },
   {
     code: 'unsupported',
-    path: ['nodes'],
+    path: ['nodes', 'start'],
     definition: definition({ start: { kind: 'goto', flow: 'other' } }),
   },
   {

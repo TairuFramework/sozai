@@ -6,7 +6,7 @@ import { FlowRetryableError } from './errors.js'
 import type { Filter } from './filter.js'
 import { builtinSchemas } from './schemas.js'
 import { toTimestamp } from './time.js'
-import type { Action, NodeKind } from './types.js'
+import type { Action, NodeKind, RegisteredNodeKind } from './types.js'
 import type { Path, Value } from './value.js'
 import { writeState } from './value.js'
 
@@ -39,7 +39,7 @@ const target = (path: string, id: string) => ({ path: [path], id })
 export function builtinKinds(
   actions?: Record<string, Action>,
   now: () => number = Date.now,
-): Array<NodeKind<never>> {
+): Array<RegisteredNodeKind> {
   const branch: NodeKind<BranchNode> = {
     kind: 'branch',
     schema: builtinSchemas.branch,
@@ -81,7 +81,7 @@ export function builtinKinds(
         delete loops[ctx.nodeID]
         return { next: n.exit }
       }
-      const count = loops[ctx.nodeID] ?? 0
+      const count = Object.hasOwn(loops, ctx.nodeID) ? (loops[ctx.nodeID] as number) : 0
       if (count >= n.maxIterations) {
         delete loops[ctx.nodeID]
         if (!n.onExhausted) throw new FlowNodeFailure({ code: 'loop_exhausted' })
@@ -97,18 +97,19 @@ export function builtinKinds(
     schema: builtinSchemas.action,
     retries: true,
     targets: (n) => [target('next', n.next), ...(n.onError ? [target('onError', n.onError)] : [])],
-    retryable: (error) =>
-      error instanceof FlowRetryableError
+    retryable: (error) => {
+      return error instanceof FlowRetryableError
         ? error.afterMs === undefined
           ? true
           : { afterMs: error.afterMs }
-        : error instanceof TimeoutInterruption && error.cause === 'attempt',
+        : error instanceof TimeoutInterruption && error.cause === 'attempt'
+    },
     execute: async (n, ctx) => {
       ctx.span.setAttribute('flow.action.name', n.name)
       const args = Object.fromEntries(
         Object.entries(n.args ?? {}).map(([key, value]) => [key, ctx.resolve(value as Value)]),
       )
-      const fn = actions?.[n.name]
+      const fn = actions && Object.hasOwn(actions, n.name) ? actions[n.name] : undefined
       if (!fn) throw new FlowNodeFailure({ code: 'unknown_action' })
       const result = await fn({
         args,
@@ -128,13 +129,15 @@ export function builtinKinds(
       target('next', n.next),
       ...(n.timeout ? [target('timeout', n.timeout.to)] : []),
     ],
-    execute: (n, ctx) => ({
-      suspend: {
-        ...(n.prompt ? { prompt: ctx.resolve(n.prompt) } : {}),
-        ...(n.schema ? { schema: n.schema } : {}),
-        ...(n.timeout ? { deadline: toTimestamp(now() + n.timeout.afterMs) } : {}),
-      },
-    }),
+    execute: (n, ctx) => {
+      return {
+        suspend: {
+          ...(n.prompt ? { prompt: ctx.resolve(n.prompt) } : {}),
+          ...(n.schema ? { schema: n.schema } : {}),
+          ...(n.timeout ? { deadline: toTimestamp(now() + n.timeout.afterMs) } : {}),
+        },
+      }
+    },
     resume: (n, _ctx, event) => {
       if (event.type === 'timeout') {
         if (!n.timeout) throw new FlowNodeFailure({ code: 'invalid_suspend' })
@@ -147,20 +150,25 @@ export function builtinKinds(
     kind: 'end',
     schema: builtinSchemas.end,
     targets: () => [],
-    execute: (n, ctx) => ({
-      end: {
-        ...(n.outcome ? { outcome: n.outcome } : {}),
-        ...(n.output
-          ? {
-              output: Object.fromEntries(
-                Object.entries(n.output).map(([key, value]) => [key, ctx.resolve(value as Value)]),
-              ),
-            }
-          : {}),
-      },
-    }),
+    execute: (n, ctx) => {
+      return {
+        end: {
+          ...(n.outcome ? { outcome: n.outcome } : {}),
+          ...(n.output
+            ? {
+                output: Object.fromEntries(
+                  Object.entries(n.output).map(([key, value]) => [
+                    key,
+                    ctx.resolve(value as Value),
+                  ]),
+                ),
+              }
+            : {}),
+        },
+      }
+    },
   }
-  return [branch, set, loop, action, input, end] as Array<NodeKind<never>>
+  return [branch, set, loop, action, input, end] as Array<RegisteredNodeKind>
 }
 
 export class FlowNodeFailure extends Error {

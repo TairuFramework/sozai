@@ -44,6 +44,10 @@ describe('isJSONValue()', () => {
     const array: Array<number> & { extra?: number } = [1]
     array.extra = 2
     expect(isJSONValue(array)).toBe(false)
+    // biome-ignore lint/suspicious/noSparseArray: testing holes
+    const sparse: Array<number | undefined> & { extra?: number } = [1, , 3]
+    sparse.extra = 2
+    expect(isJSONValue(sparse)).toBe(false)
   })
 
   test('rejects symbol keys, accessors and non-enumerable properties', () => {

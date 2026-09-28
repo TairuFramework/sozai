@@ -102,6 +102,9 @@ export function getRetryDelay(
   params: { afterMs?: number; random?: () => number } = {},
 ): number {
   assertRetryPolicy(policy)
+  if (!Number.isInteger(attempt) || attempt < 1) {
+    throw new RangeError('attempt must be an integer at least 1')
+  }
 
   let delay = 0
   if (policy.backoff !== undefined) {
@@ -134,6 +137,9 @@ export function raceAttempt<T>(params: {
 }): Promise<T> {
   const now = params.now ?? Date.now
   if (params.signal?.aborted) return Promise.reject(params.signal.reason)
+  if (params.deadline !== undefined && params.deadline <= now()) {
+    return Promise.reject(timeoutInterruption('deadline', 0))
+  }
 
   const controller = new AbortController()
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -176,11 +182,16 @@ export async function retry<T>(
   const retryable =
     params.retryable ??
     ((error: unknown) => error instanceof TimeoutInterruption && error.cause === 'attempt')
+  let lastError: unknown
 
   for (let attempt = 1; ; attempt += 1) {
     if (signal?.aborted) throw signal.reason
     if (deadline !== undefined && deadline <= now()) {
-      throw new RetryExhaustedError({ attempts: attempt - 1, reason: 'total_timeout' })
+      throw new RetryExhaustedError({
+        attempts: attempt - 1,
+        reason: 'total_timeout',
+        cause: lastError,
+      })
     }
 
     let error: unknown
@@ -199,6 +210,7 @@ export async function retry<T>(
         throw new RetryExhaustedError({ attempts: attempt, reason: 'total_timeout', cause: caught })
       }
       error = caught
+      lastError = caught
     }
 
     const decision = retryable(error)

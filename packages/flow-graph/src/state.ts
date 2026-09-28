@@ -11,22 +11,25 @@ const validate = createValidator(runStateSchema, { strict: false })
 export function assertRunState(
   value: unknown,
   definition: FlowDefinition,
-  kinds?: Map<string, NodeKind>,
+  kinds: Map<string, NodeKind>,
 ): asserts value is RunState {
   if (!isJSONValue(value) || validate(value) instanceof ValidationError) throw new FlowStateError()
   const state = value as unknown as RunState
   if (state.frames.length !== 1) throw new FlowStateError()
   const frame = state.frames[0]
   if (!frame) throw new FlowStateError()
-  const node = definition.nodes[frame.node]
+  const node = Object.hasOwn(definition.nodes, frame.node)
+    ? definition.nodes[frame.node]
+    : undefined
   if (!node || frame.continuation) throw new FlowStateError()
   const attemptKeys = Object.keys(frame.attempts)
   if (attemptKeys.length > 1 || (attemptKeys.length === 1 && attemptKeys[0] !== frame.node))
     throw new FlowStateError()
-  const attempts = frame.attempts[frame.node]
+  const attempts = Object.hasOwn(frame.attempts, frame.node)
+    ? frame.attempts[frame.node]
+    : undefined
   if (attempts) {
-    if (kinds ? !kinds.get(node.kind)?.retries : node.kind !== 'action' && !('retry' in node))
-      throw new FlowStateError()
+    if (!kinds.get(node.kind)?.retries) throw new FlowStateError()
     try {
       assertRetryPolicy(attempts.policy)
     } catch {
@@ -67,7 +70,7 @@ export function assertRunState(
   )
     throw new FlowStateError()
   for (const [id, count] of Object.entries(frame.loops)) {
-    const loop = definition.nodes[id]
+    const loop = Object.hasOwn(definition.nodes, id) ? definition.nodes[id] : undefined
     if (loop?.kind !== 'loop' || count < 0 || count > (loop.maxIterations as number))
       throw new FlowStateError()
   }

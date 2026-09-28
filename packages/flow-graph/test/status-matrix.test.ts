@@ -2,6 +2,9 @@ import { expect, test } from 'vitest'
 
 import type { FlowDefinition, RunState } from '../src/index.js'
 import { assertRunState, FlowStateError } from '../src/index.js'
+import { builtinKinds } from '../src/kinds.js'
+
+const kinds = new Map(builtinKinds().map((kind) => [kind.kind, kind as never]))
 
 const definition: FlowDefinition = {
   id: 'matrix',
@@ -238,7 +241,7 @@ const fixtures: Array<Fixture> = [
 
 test.each(fixtures)('$name violates run state invariants', ({ state: make, mutate }) => {
   const state = make()
-  expect(() => assertRunState(state, definition)).not.toThrow()
+  expect(() => assertRunState(state, definition, kinds)).not.toThrow()
   mutate(state)
-  expect(() => assertRunState(state, definition)).toThrow(FlowStateError)
+  expect(() => assertRunState(state, definition, kinds)).toThrow(FlowStateError)
 })

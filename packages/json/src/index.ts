@@ -68,7 +68,8 @@ function checkJSONValue(value: unknown, ancestors: Ancestors): boolean {
   if (!isArray && prototype !== Object.prototype && prototype !== null) return false
   if (Object.getOwnPropertySymbols(value).length > 0) return false
   const names = Object.getOwnPropertyNames(value)
-  // Arrays carry an own `length`; any other extra or missing name means holes or extra properties.
+  // Arrays carry an own `length`; a count mismatch means extra properties. Holes are caught below,
+  // since a hole plus an extra property keeps the count equal.
   if (isArray && names.length !== value.length + 1) return false
   for (const name of names) {
     if (isArray && name === 'length') continue
@@ -78,8 +79,13 @@ function checkJSONValue(value: unknown, ancestors: Ancestors): boolean {
   }
   ancestors.add(value)
   try {
-    const items: Array<unknown> = isArray ? value : Object.values(value)
-    return items.every((item) => checkJSONValue(item, ancestors))
+    if (isArray) {
+      for (let index = 0; index < value.length; index++) {
+        if (!Object.hasOwn(value, index) || !checkJSONValue(value[index], ancestors)) return false
+      }
+      return true
+    }
+    return Object.values(value).every((item) => checkJSONValue(item, ancestors))
   } finally {
     ancestors.delete(value)
   }

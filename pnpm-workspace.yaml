@@ -18,13 +18,13 @@ publicHoistPattern:
 
 catalog:
   '@kigu/dev': ^0.3.1
-  '@logtape/logtape': ^2.3.2
+  '@logtape/logtape': ^2.3.8
   '@opentelemetry/api': ^1.9.1
   '@opentelemetry/api-logs': ^0.222.0
   '@standard-schema/spec': ^1.1.0
   ajv: ^8.20.0
   ajv-formats: ^3.0.1
-  expo-crypto: ^57.0.2
+  expo-crypto: ^57.0.3
   json-schema-to-ts: ^3.1.1
   uint8arrays: ^6.1.1
 

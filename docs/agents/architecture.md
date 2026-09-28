@@ -5,7 +5,7 @@ packages with no upward dependencies.
 
 ## Packages
 
-async, codec, event, execution, flow, generator, json, lock, log, otel, patch, result, runtime,
+async, codec, event, execution, flow, flow-graph, generator, json, lock, log, otel, patch, result, runtime,
 schema, stream -- the stable group. Every package versions independently, via pnpm's native
 versioning (`pnpm change` / `pnpm version -r`); `versioning.fixed` in `pnpm-workspace.yaml` is
 unset, so there is no lock between them and versions legitimately diverge. `runtime-expo` is bound

@@ -7,13 +7,13 @@ description: Use when exploring sozai capabilities - progressive discovery of th
 
 Sozai (素材 — "raw material") is the core-utilities layer of the stack: stable,
 environment-agnostic packages that everything else depends on downward. One exception,
-`@sozai/lock`, is filesystem-based. 16 packages across 5 domains.
+`@sozai/lock`, is filesystem-based. 17 packages across 5 domains.
 
 ## By domain
 
 - **Dataflow** — streaming, async, events, generators, stateful flow. Web Streams creation and
   transformation, deferred promises and disposers, typed event emitters, async-generator state
-  machines, emitter and stream adapters, chainable cancellable execution. → `/sozai:dataflow`
+  machines, persistent JSON flow graphs, emitter and stream adapters, chainable cancellable execution. → `/sozai:dataflow`
 - **Validation** — JSON Schema with compile-time type generation (`FromSchema`), message encoding
   and decoding, plus canonical JSON and hardened parsing. → `/sozai:validation`
 - **Runtime** — environment-agnostic `fetch` and randomness via `createRuntime`, the Expo /
@@ -41,8 +41,9 @@ environment-agnostic packages that everything else depends on downward. One exce
 
 ## Packages
 
-**Dataflow** — `@sozai/stream`, `@sozai/async`, `@sozai/event`, `@sozai/flow`,
-`@sozai/generator`, `@sozai/execution`
+**Dataflow** — `@sozai/stream`, `@sozai/async`, `@sozai/event`, `@sozai/flow`, `@sozai/flow-graph`,
+`@sozai/generator`, `@sozai/execution`. `flow-graph` executes JSON node kinds directly and does not
+depend on `flow`.
 
 **Validation** — `@sozai/schema`, `@sozai/codec`, `@sozai/json`
 

@@ -33,6 +33,12 @@ fetch('/api', { signal: resource.signal }) // tie work to the disposer's signal
 // leaving the block aborts the signal and runs `dispose`
 ```
 
-Also provides `sleep`, `raceSignal` (race a promise against an `AbortSignal`), `ScheduledTimeout`,
+Also provides `sleep` (optionally abortable), `raceSignal` (race a promise against an `AbortSignal`), `ScheduledTimeout`,
 and a structured `Interruption` hierarchy (`AbortInterruption`, `CancelInterruption`,
 `DisposeInterruption`, `TimeoutInterruption`) for distinguishing why an operation stopped.
+
+Retry utilities include `RetryBackoff`, `RetryPolicy`, and `RetryDecision`, plus
+`getRetryDelay()` for policy delay calculations, `raceAttempt()` for enforcing attempt timeouts
+and deadlines, and `retry()` for running a retry loop. `assertRetryPolicy()` validates policy
+bounds, `MAX_DELAY_MS` is the maximum supported delay, and exhausted loops reject with
+`RetryExhaustedError`.

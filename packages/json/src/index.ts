@@ -38,6 +38,103 @@ export function canonicalize(value: unknown): string | undefined {
   return encodeMember(value, '', new Set())
 }
 
+/** A value that round-trips through JSON unchanged. Numbers must be finite. */
+export type JSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | Array<JSONValue>
+  | { [key: string]: JSONValue }
+
+/**
+ * Check that a value is a {@link JSONValue} that `JSON.parse(JSON.stringify(value))` reproduces
+ * exactly.
+ *
+ * Stricter than what `JSON.stringify` accepts: non-finite numbers, class instances, `toJSON`,
+ * symbol keys, accessors, non-enumerable properties, sparse arrays and circular references are all
+ * rejected rather than coerced or dropped.
+ */
+export function isJSONValue(value: unknown): value is JSONValue {
+  return checkJSONValue(value, new Set())
+}
+
+function checkJSONValue(value: unknown, ancestors: Ancestors): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return true
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+
+  if (typeof value !== 'object' || ancestors.has(value)) {
+    return false
+  }
+
+  const isArray = Array.isArray(value)
+  const prototype = Object.getPrototypeOf(value)
+
+  if (!isArray && prototype !== Object.prototype && prototype !== null) {
+    return false
+  }
+
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    return false
+  }
+
+  const names = Object.getOwnPropertyNames(value)
+  // Arrays carry an own `length`; a count mismatch means extra properties. Holes are caught below,
+  // since a hole plus an extra property keeps the count equal.
+  if (isArray && names.length !== value.length + 1) {
+    return false
+  }
+
+  for (const name of names) {
+    if (isArray && name === 'length') {
+      continue
+    }
+
+    const descriptor = Object.getOwnPropertyDescriptor(value, name)
+    // Accessors are rejected so a getter cannot return different values on later reads.
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      return false
+    }
+  }
+
+  ancestors.add(value)
+
+  try {
+    if (isArray) {
+      for (let index = 0; index < value.length; index++) {
+        if (!Object.hasOwn(value, index) || !checkJSONValue(value[index], ancestors)) {
+          return false
+        }
+      }
+
+      return true
+    }
+
+    return Object.values(value).every((item) => checkJSONValue(item, ancestors))
+  } finally {
+    ancestors.delete(value)
+  }
+}
+
+/**
+ * Serialize a {@link JSONValue} to canonical JSON, always returning a string.
+ *
+ * Throws a `TypeError` when the value fails {@link isJSONValue}, instead of the lenient handling
+ * {@link canonicalize} inherits from `JSON.stringify`.
+ */
+export function canonicalizeJSON(value: JSONValue): string {
+  if (!isJSONValue(value)) {
+    throw new TypeError('Expected a JSON value')
+  }
+
+  return canonicalize(value) as string
+}
+
 /**
  * References enclosing the value being encoded. Membership means the value is its own ancestor,
  * which is the only cycle canonical JSON cannot represent — a value repeated across siblings is

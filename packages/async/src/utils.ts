@@ -20,6 +20,21 @@ export function raceSignal<T>(promise: PromiseLike<T>, signal: AbortSignal): Pro
   ])
 }
 
-export async function sleep(delay: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delay))
+export async function sleep(delay: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
+
+    let unsubscribe = () => {}
+    const timeout = setTimeout(() => {
+      unsubscribe()
+      resolve()
+    }, delay)
+    unsubscribe = onAbort(signal, () => {
+      clearTimeout(timeout)
+      reject(signal?.reason)
+    })
+  })
 }

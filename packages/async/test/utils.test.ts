@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { raceSignal, toPromise } from '../src/utils.js'
+import { raceSignal, sleep, toPromise } from '../src/utils.js'
 
 describe('toPromise()', () => {
   test('with sync return', async () => {
@@ -80,5 +80,30 @@ describe('raceSignal()', () => {
     await expect(raceSignal(Promise.resolve('OK'), controller.signal)).resolves.toBe('OK')
     await new Promise((resolve) => setImmediate(resolve))
     expect(remove).toHaveBeenCalled()
+  })
+})
+
+describe('sleep()', () => {
+  test('rejects immediately with the reason of an already aborted signal', async () => {
+    const controller = new AbortController()
+    const reason = Error('aborted')
+    controller.abort(reason)
+
+    await expect(sleep(100, controller.signal)).rejects.toBe(reason)
+  })
+
+  test('clears its timer and rejects when the signal aborts during sleep', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      const reason = Error('aborted')
+      const pending = sleep(100, controller.signal)
+      controller.abort(reason)
+
+      await expect(pending).rejects.toBe(reason)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

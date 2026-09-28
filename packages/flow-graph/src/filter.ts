@@ -3,6 +3,7 @@ import type { JSONValue } from '@sozai/json'
 import type { Path, Scope } from './value.js'
 import { readPath } from './value.js'
 
+/** Predicates that can be applied to a resolved JSON value. */
 export type ValueFilter = {
   isNull?: boolean
   equalTo?: JSONValue
@@ -18,6 +19,8 @@ export type ValueFilter = {
   includesAny?: Array<string | number>
   presence?: 'null' | 'nonNull' | 'empty' | 'nonEmpty' | 'nullOrEmpty'
 }
+
+/** Boolean expression over values in a run scope. */
 export type Filter =
   | { path: Path; is: ValueFilter }
   | { and: Array<Filter> }
@@ -25,9 +28,17 @@ export type Filter =
   | { not: Filter }
 
 const equal = (left: JSONValue, right: JSONValue): boolean => {
-  if (left === right) return true
-  if (Array.isArray(left) && Array.isArray(right))
-    return left.length === right.length && left.every((v, i) => equal(v, right[i] as JSONValue))
+  if (left === right) {
+    return true
+  }
+
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return (
+      left.length === right.length &&
+      left.every((candidate, index) => equal(candidate, right[index] as JSONValue))
+    )
+  }
+
   if (
     left &&
     right &&
@@ -37,6 +48,7 @@ const equal = (left: JSONValue, right: JSONValue): boolean => {
     !Array.isArray(right)
   ) {
     const keys = Object.keys(left)
+
     return (
       keys.length === Object.keys(right).length &&
       keys.every(
@@ -45,58 +57,120 @@ const equal = (left: JSONValue, right: JSONValue): boolean => {
       )
     )
   }
+
   return false
 }
+
 const empty = (value: JSONValue): boolean =>
   value === '' || (Array.isArray(value) && value.length === 0)
+
 const order = (subject: JSONValue, operand: number | string, op: string): boolean => {
   if (
     typeof subject !== typeof operand ||
     (typeof subject !== 'number' && typeof subject !== 'string')
-  )
+  ) {
     return false
-  if (op === 'lessThan') return subject < operand
-  if (op === 'lessThanOrEqualTo') return subject <= operand
-  if (op === 'greaterThan') return subject > operand
+  }
+
+  if (op === 'lessThan') {
+    return subject < operand
+  }
+
+  if (op === 'lessThanOrEqualTo') {
+    return subject <= operand
+  }
+
+  if (op === 'greaterThan') {
+    return subject > operand
+  }
+
   return subject >= operand
 }
 
+/** Evaluate a filter against the current run scope. */
 export function evaluateFilter(filter: Filter, scope: Scope): boolean {
   try {
-    if ('and' in filter)
+    if ('and' in filter) {
       return filter.and.length > 0 && filter.and.every((part) => evaluateFilter(part, scope))
-    if ('or' in filter)
+    }
+
+    if ('or' in filter) {
       return filter.or.length > 0 && filter.or.some((part) => evaluateFilter(part, scope))
-    if ('not' in filter) return !evaluateFilter(filter.not, scope)
+    }
+
+    if ('not' in filter) {
+      return !evaluateFilter(filter.not, scope)
+    }
+
     const subject = readPath(filter.path, scope)
+
     return Object.entries(filter.is).every(([operator, operand]) => {
-      if (operator === 'isNull') return (subject === null) === operand
+      if (operator === 'isNull') {
+        return (subject === null) === operand
+      }
+
       if (operator === 'presence') {
-        if (operand === 'null') return subject === null
-        if (operand === 'nonNull') return subject !== null
-        if (operand === 'empty') return empty(subject)
-        if (operand === 'nonEmpty') return subject !== null && !empty(subject)
+        if (operand === 'null') {
+          return subject === null
+        }
+
+        if (operand === 'nonNull') {
+          return subject !== null
+        }
+
+        if (operand === 'empty') {
+          return empty(subject)
+        }
+
+        if (operand === 'nonEmpty') {
+          return subject !== null && !empty(subject)
+        }
+
         return subject === null || empty(subject)
       }
-      if (subject === null) return false
-      if (operator === 'equalTo') return equal(subject, operand as JSONValue)
-      if (operator === 'notEqualTo') return !equal(subject, operand as JSONValue)
-      if (operator === 'in')
+
+      if (subject === null) {
+        return false
+      }
+
+      if (operator === 'equalTo') {
+        return equal(subject, operand as JSONValue)
+      }
+
+      if (operator === 'notEqualTo') {
+        return !equal(subject, operand as JSONValue)
+      }
+
+      if (operator === 'in') {
         return (operand as Array<JSONValue>).some((item) => equal(subject, item))
-      if (operator === 'notIn')
+      }
+
+      if (operator === 'notIn') {
         return !(operand as Array<JSONValue>).some((item) => equal(subject, item))
-      if (operator === 'contains')
+      }
+
+      if (operator === 'contains') {
         return typeof subject === 'string' && subject.includes(operand as string)
-      if (operator === 'includesAll')
+      }
+
+      if (operator === 'includesAll') {
         return (
           Array.isArray(subject) &&
-          (operand as Array<JSONValue>).every((item) => subject.some((v) => equal(v, item)))
+          (operand as Array<JSONValue>).every((item) =>
+            subject.some((candidate) => equal(candidate, item)),
+          )
         )
-      if (operator === 'includesAny')
+      }
+
+      if (operator === 'includesAny') {
         return (
           Array.isArray(subject) &&
-          (operand as Array<JSONValue>).some((item) => subject.some((v) => equal(v, item)))
+          (operand as Array<JSONValue>).some((item) =>
+            subject.some((candidate) => equal(candidate, item)),
+          )
         )
+      }
+
       return order(subject, operand as number | string, operator)
     })
   } catch {

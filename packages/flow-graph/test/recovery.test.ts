@@ -21,30 +21,43 @@ const definition = {
 test('retry suspension commits a fixed retryAt and rejects an early resume', async () => {
   let clock = 1000
   let calls = 0
+
   const graph = createFlowGraph({
     now: () => clock,
     actions: {
       work: async () => {
         calls++
-        if (calls === 1) throw new FlowRetryableError({ message: 'secret' })
+
+        if (calls === 1) {
+          throw new FlowRetryableError({ message: 'secret' })
+        }
+
         return 2
       },
     },
   })
+
   const first = await graph.run({ definition })
+
   expect(first.status).toBe('suspended')
   expect(first.pending?.resumeAt).toBe('1970-01-01T00:00:01.100Z')
   expect(first.runState.frames[0]?.attempts.a?.lastFailure).toEqual({ type: 'FlowRetryableError' })
+
   const persisted = JSON.parse(JSON.stringify(first.runState))
+
   expect(() => graph.resume({ definition, runState: persisted, event: { type: 'retry' } })).toThrow(
     FlowResumeError,
   )
   expect(persisted).toEqual(first.runState)
+
   clock = 1100
+
   const resumed = graph.resume({ definition, runState: persisted, event: { type: 'retry' } })
+
   for await (const _state of resumed) {
     /* drain */
   }
+
   expect(resumed.getState().status).toBe('ended')
   expect(calls).toBe(2)
 })
@@ -52,19 +65,29 @@ test('retry suspension commits a fixed retryAt and rejects an early resume', asy
 test('entry, checkpoint, retry suspension and resume keep one invocation', async () => {
   let clock = 1000
   const seen: Array<{ attempt: number; invocationID: string }> = []
+
   const graph = createFlowGraph({
     now: () => clock,
     actions: {
       work: async ({ attempt, invocationID }) => {
         seen.push({ attempt, invocationID })
-        if (attempt === 1) throw new FlowRetryableError({ message: 'retry' })
+
+        if (attempt === 1) {
+          throw new FlowRetryableError({ message: 'retry' })
+        }
+
         return 1
       },
     },
   })
+
   const run = graph.start({ definition, runID: 'fixed' })
   const commits = []
-  for await (const state of run) commits.push(state)
+
+  for await (const state of run) {
+    commits.push(state)
+  }
+
   expect(
     commits.map((state) => [
       state.revision,
@@ -81,12 +104,22 @@ test('entry, checkpoint, retry suspension and resume keep one invocation', async
   ])
   expect(commits[2]?.frames[0]?.attempts.a?.invocationID).toBe('fixed:0:1')
   expect(commits[2]?.frames[0]?.attempts.a?.retryAt).toBe('1970-01-01T00:00:01.100Z')
+
   const suspended = commits[2]
-  if (!suspended) throw new Error('Missing retry suspension commit')
+
+  if (!suspended) {
+    throw new Error('Missing retry suspension commit')
+  }
+
   clock = 1100
+
   const resumed = graph.resume({ definition, runState: suspended, event: { type: 'retry' } })
   const rest = []
-  for await (const state of resumed) rest.push(state)
+
+  for await (const state of resumed) {
+    rest.push(state)
+  }
+
   expect(
     rest.map((state) => [
       state.revision,
@@ -109,15 +142,19 @@ test('entry, checkpoint, retry suspension and resume keep one invocation', async
 
 test('non-retryable failure terminates without scheduling another attempt', async () => {
   let calls = 0
+
   const graph = createFlowGraph({
     actions: {
       work: async () => {
         calls++
+
         throw new Error('do not retry')
       },
     },
   })
+
   const result = await graph.run({ definition })
+
   expect(result.error?.reason).toBe('non_retryable')
   expect(result.error?.attempts).toBe(1)
   expect(result.pending).toBeUndefined()
@@ -132,6 +169,7 @@ test('terminal failure commits after its checkpoint without exceeding maxAttempt
       },
     },
   })
+
   const def = {
     ...definition,
     nodes: {
@@ -139,8 +177,13 @@ test('terminal failure commits after its checkpoint without exceeding maxAttempt
       a: { ...definition.nodes.a, retry: { maxAttempts: 2 } },
     },
   }
+
   const states = []
-  for await (const state of graph.start({ definition: def, runID: 'bounded' })) states.push(state)
+
+  for await (const state of graph.start({ definition: def, runID: 'bounded' })) {
+    states.push(state)
+  }
+
   expect(
     states.map((state) => [
       state.revision,
@@ -162,37 +205,50 @@ test('terminal failure commits after its checkpoint without exceeding maxAttempt
 
 test('recover replays an in-flight attempt with the same invocation and count', async () => {
   const seen: Array<string> = []
+
   const graph = createFlowGraph({
     actions: {
       work: async ({ invocationID }) => {
         seen.push(invocationID)
+
         return 1
       },
     },
   })
+
   const def = {
     ...definition,
     nodes: { ...definition.nodes, a: { ...definition.nodes.a, retry: { maxAttempts: 1 } } },
   }
+
   const run = graph.start({ definition: def })
+
   await run.next()
+
   const checkpoint = (await run.next()).value
+
   expect(checkpoint.inFlight?.attempt).toBe(1)
+
   const recovered = graph.recover({ definition: def, runState: checkpoint })
   const replay = (await recovered.next()).value
+
   expect(replay.frames[0]?.attempts.a?.count).toBe(1)
   expect(replay.frames[0]?.attempts.a?.interruptions).toBe(1)
+
   for await (const _state of recovered) {
     /* drain */
   }
+
   expect(seen).toEqual([checkpoint.inFlight?.invocationID])
   expect(recovered.getState().status).toBe('ended')
 })
 
 test('attempt timeout rejects a handler that ignores its signal', async () => {
   vi.useFakeTimers()
+
   try {
     let resolveLate: ((value: number) => void) | undefined
+
     const graph = createFlowGraph({
       actions: {
         work: async () =>
@@ -201,6 +257,7 @@ test('attempt timeout rejects a handler that ignores its signal', async () => {
           }),
       },
     })
+
     const def = {
       ...definition,
       nodes: {
@@ -208,13 +265,20 @@ test('attempt timeout rejects a handler that ignores its signal', async () => {
         a: { ...definition.nodes.a, retry: { maxAttempts: 1, attemptTimeoutMs: 25 } },
       },
     }
+
     const pending = graph.run({ definition: def })
+
     await vi.advanceTimersByTimeAsync(25)
+
     const result = await pending
+
     expect(result.status).toBe('error')
     expect(result.error?.lastFailure?.type).toBe('TimeoutInterruption')
+
     resolveLate?.(1)
+
     await Promise.resolve()
+
     expect(result.runState.status).toBe('error')
   } finally {
     vi.useRealTimers()
@@ -229,11 +293,13 @@ test.each([
   async ({ attemptTimeoutMs, totalTimeoutMs, expectedReason }) => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
+
     try {
       const graph = createFlowGraph({
         now: () => Date.now(),
         actions: { work: async () => new Promise<number>(() => {}) },
       })
+
       const def = {
         ...definition,
         nodes: {
@@ -241,9 +307,13 @@ test.each([
           a: { ...definition.nodes.a, retry: { maxAttempts: 1, attemptTimeoutMs, totalTimeoutMs } },
         },
       }
+
       const pending = graph.run({ definition: def })
+
       await vi.advanceTimersByTimeAsync(10)
+
       const result = await pending
+
       expect(result.status).toBe('error')
       expect(result.error?.reason).toBe(expectedReason)
       expect(result.error?.lastFailure?.type).toBe('TimeoutInterruption')
@@ -256,32 +326,41 @@ test.each([
 test('retry uses the saved policy after defaults change in another graph', async () => {
   let clock = 0
   let calls = 0
+
   const def = {
     ...definition,
     nodes: { ...definition.nodes, a: { kind: 'action', name: 'work', next: 'end' } },
   }
+
   const actions = {
     work: async () => {
       calls++
+
       throw new FlowRetryableError({ message: 'private' })
     },
   }
+
   const first = await createFlowGraph({
     now: () => clock,
     actions,
     retryDefaults: { action: { maxAttempts: 2, backoff: { initialMs: 20 }, suspendAfterMs: 0 } },
   }).run({ definition: def })
+
   expect(first.status).toBe('suspended')
   expect(first.runState.frames[0]?.attempts.a?.policy.maxAttempts).toBe(2)
+
   clock = 20
+
   const resumed = createFlowGraph({
     now: () => clock,
     actions,
     retryDefaults: { action: { maxAttempts: 10 } },
   }).resume({ definition: def, runState: first.runState, event: { type: 'retry' } })
+
   for await (const _state of resumed) {
     /* drain */
   }
+
   expect(resumed.getState().error?.attempts).toBe(2)
   expect(calls).toBe(2)
 })
@@ -289,6 +368,7 @@ test('retry uses the saved policy after defaults change in another graph', async
 test('late retry exhausts the total deadline without another action call', async () => {
   let clock = 0
   let calls = 0
+
   const def = {
     ...definition,
     nodes: {
@@ -304,26 +384,34 @@ test('late retry exhausts the total deadline without another action call', async
       },
     },
   }
+
   const graph = createFlowGraph({
     now: () => clock,
     actions: {
       work: async () => {
         calls++
+
         throw new FlowRetryableError({})
       },
     },
   })
+
   const first = await graph.run({ definition: def })
+
   expect(first.status).toBe('suspended')
+
   clock = 60
+
   const resumed = graph.resume({
     definition: def,
     runState: first.runState,
     event: { type: 'retry' },
   })
+
   for await (const _state of resumed) {
     /* drain */
   }
+
   expect(resumed.getState().error?.reason).toBe('total_timeout')
   expect(calls).toBe(1)
 })
@@ -344,6 +432,7 @@ test('a retry wait beyond the total deadline is never scheduled', async () => {
       },
     },
   }
+
   const graph = createFlowGraph({
     now: () => 0,
     actions: {
@@ -352,7 +441,9 @@ test('a retry wait beyond the total deadline is never scheduled', async () => {
       },
     },
   })
+
   const result = await graph.run({ definition: def })
+
   expect(result.status).toBe('error')
   expect(result.error?.reason).toBe('total_timeout')
   expect(result.pending).toBeUndefined()
@@ -360,6 +451,7 @@ test('a retry wait beyond the total deadline is never scheduled', async () => {
 
 test('recovery stops after maxInterruptions without consuming another attempt', async () => {
   let calls = 0
+
   const def = {
     ...definition,
     nodes: {
@@ -367,21 +459,28 @@ test('recovery stops after maxInterruptions without consuming another attempt', 
       a: { ...definition.nodes.a, retry: { maxAttempts: 1, maxInterruptions: 0 } },
     },
   }
+
   const graph = createFlowGraph({
     actions: {
       work: async () => {
         calls++
+
         return 1
       },
     },
   })
+
   const run = graph.start({ definition: def })
+
   await run.next()
+
   const checkpoint = (await run.next()).value
   const recovered = graph.recover({ definition: def, runState: checkpoint })
+
   for await (const _state of recovered) {
     /* drain */
   }
+
   expect(recovered.getState().error?.reason).toBe('interrupted')
   expect(recovered.getState().error?.attempts).toBe(1)
   expect(calls).toBe(0)
@@ -398,6 +497,7 @@ test('FlowRetryableError afterMs controls the saved retryAt', async () => {
       },
     },
   }
+
   const graph = createFlowGraph({
     now: () => 1000,
     actions: {
@@ -406,13 +506,16 @@ test('FlowRetryableError afterMs controls the saved retryAt', async () => {
       },
     },
   })
+
   const result = await graph.run({ definition: def })
+
   expect(result.pending?.resumeAt).toBe('1970-01-01T00:00:01.080Z')
 })
 
 test('resume uses committed jitter without drawing random again', async () => {
   let clock = 0
   let calls = 0
+
   const def = {
     ...definition,
     nodes: {
@@ -423,36 +526,50 @@ test('resume uses committed jitter without drawing random again', async () => {
       },
     },
   }
+
   const actions = {
     work: async () => {
       calls++
-      if (calls === 1) throw new FlowRetryableError({})
+
+      if (calls === 1) {
+        throw new FlowRetryableError({})
+      }
+
       return 1
     },
   }
+
   const first = await createFlowGraph({ now: () => clock, random: () => 0.5, actions }).run({
     definition: def,
   })
+
   expect(first.pending?.resumeAt).toBe('1970-01-01T00:00:00.050Z')
+
   clock = 50
+
   const random = vi.fn(() => 0.9)
+
   const second = createFlowGraph({ now: () => clock, random, actions }).resume({
     definition: def,
     runState: first.runState,
     event: { type: 'retry' },
   })
+
   for await (const _state of second) {
     /* drain */
   }
+
   expect(second.getState().status).toBe('ended')
   expect(random).not.toHaveBeenCalled()
 })
 
 test('recover waits for a committed retryAt before checkpointing the next attempt', async () => {
   vi.useFakeTimers()
+
   try {
     let clock = 0
     let calls = 0
+
     const def = {
       ...definition,
       nodes: {
@@ -463,43 +580,64 @@ test('recover waits for a committed retryAt before checkpointing the next attemp
         },
       },
     }
+
     const graph = createFlowGraph({
       now: () => clock,
       random: () => 1,
       actions: {
         work: async () => {
           calls++
-          if (calls === 1) throw new FlowRetryableError({})
+
+          if (calls === 1) {
+            throw new FlowRetryableError({})
+          }
+
           return 1
         },
       },
     })
+
     const run = graph.start({ definition: def })
+
     await run.next()
     await run.next()
+
     const failed = (await run.next()).value
+
     expect(failed.frames[0]?.attempts.a?.retryAt).toBe('1970-01-01T00:00:00.100Z')
+
     const random = vi.fn(() => 0.25)
+
     const recovered = createFlowGraph({
       now: () => clock,
       random,
       actions: {
         work: async () => {
           calls++
+
           return 1
         },
       },
     }).recover({ definition: def, runState: failed })
+
     const waiting = recovered.next()
+
     await vi.advanceTimersByTimeAsync(99)
+
     expect(recovered.getState().revision).toBe(failed.revision)
+
     clock = 100
+
     await vi.advanceTimersByTimeAsync(1)
+
     const checkpoint = (await waiting).value
+
     expect(checkpoint.frames[0]?.attempts.a?.count).toBe(2)
+
     for await (const _state of recovered) {
       /* drain */
     }
+
     expect(recovered.getState().status).toBe('ended')
     expect(random).not.toHaveBeenCalled()
   } finally {
@@ -531,6 +669,7 @@ test('describeError sanitizes non-finite metadata and restores a missing type', 
       },
     ],
   })
+
   const result = await graph.run({
     definition: {
       id: 'meta',
@@ -540,14 +679,17 @@ test('describeError sanitizes non-finite metadata and restores a missing type', 
       nodes: { fail: { kind: 'fail' }, end: { kind: 'end' } },
     },
   })
+
   expect(result.error?.lastFailure).toEqual({ type: 'Error' })
   expect(JSON.stringify(result.runState)).not.toContain('private')
 })
 
 test('late completion of an abandoned attempt cannot replace the next attempt result', async () => {
   vi.useFakeTimers()
+
   try {
     const pending: Array<(value: number) => void> = []
+
     const graph = createFlowGraph({
       actions: {
         work: async () =>
@@ -556,6 +698,7 @@ test('late completion of an abandoned attempt cannot replace the next attempt re
           }),
       },
     })
+
     const def = {
       id: 'late',
       name: 'Late',
@@ -571,13 +714,21 @@ test('late completion of an abandoned attempt cannot replace the next attempt re
         end: { kind: 'end', output: { value: { ref: ['results', 'a'] } } },
       },
     }
+
     const run = graph.run({ definition: def })
+
     await vi.advanceTimersByTimeAsync(10)
+
     expect(pending).toHaveLength(2)
+
     pending[0]?.(111)
+
     await Promise.resolve()
+
     pending[1]?.(222)
+
     const result = await run
+
     expect(result.output).toEqual({ value: 222 })
   } finally {
     vi.useRealTimers()

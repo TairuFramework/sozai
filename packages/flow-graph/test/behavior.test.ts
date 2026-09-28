@@ -27,6 +27,7 @@ test('loop limit resets its counter before ending with an error', async () => {
       end: { kind: 'end' },
     },
   }
+
   let count = 0
   const graph = createFlowGraph({ actions: { increment: async () => ++count } })
   const result = await graph.run({ definition })
@@ -42,14 +43,17 @@ test('loop limit resets its counter before ending with an error', async () => {
 test('loop resets its counter on a false filter and re-entry gets a new invocation', async () => {
   const invocations: Array<string> = []
   let count = 0
+
   const graph = createFlowGraph({
     actions: {
       tick: async ({ invocationID }) => {
         invocations.push(invocationID)
+
         return ++count
       },
     },
   })
+
   const definition = {
     id: 'exit',
     name: 'Exit',
@@ -77,7 +81,9 @@ test('loop resets its counter on a false filter and re-entry gets a new invocati
       end: { kind: 'end' },
     },
   }
+
   const result = await graph.run({ definition })
+
   expect(result.status).toBe('ended')
   expect(result.runState.frames[0]?.loops).toEqual({})
   expect(invocations).toHaveLength(2)
@@ -103,9 +109,11 @@ test('onError receives a safe error result and discards staged data', async () =
     ],
     execute: (_node, ctx) => {
       ctx.setResult({ secret: 'must-discard' })
+
       throw new Error('backend secret')
     },
   })
+
   const definition = {
     id: 'fail',
     name: 'Failure',
@@ -123,8 +131,10 @@ test('onError receives a safe error result and discards staged data', async () =
       },
     },
   }
+
   const graph = createFlowGraph({ kinds: [kind] })
   const result = await graph.run({ definition })
+
   expect(result.status).toBe('ended')
   expect(result.output).toEqual({ errorType: 'Error', secret: null })
   expect(JSON.stringify(result.runState)).not.toContain('backend secret')
@@ -142,6 +152,7 @@ test('invalid extension transition fails with invalid_target', async () => {
     targets: () => [{ path: ['next'], id: 'end' }],
     execute: () => ({ next: 'ghost' }),
   })
+
   const result = await createFlowGraph({ kinds: [kind] }).run({
     definition: {
       id: 'bad',
@@ -151,6 +162,7 @@ test('invalid extension transition fails with invalid_target', async () => {
       nodes: { bad: { kind: 'bad' }, end: { kind: 'end' } },
     },
   })
+
   expect(result.status).toBe('error')
   expect(result.error?.code).toBe('invalid_target')
 })
@@ -167,6 +179,7 @@ test('non-JSON extension result fails with invalid_value', async () => {
     targets: () => [{ path: ['next'], id: 'end' }],
     execute: () => ({ next: 'end', result: Number.NaN }),
   }
+
   const result = await createFlowGraph({ kinds: [kind] }).run({
     definition: {
       id: 'bad',
@@ -176,6 +189,7 @@ test('non-JSON extension result fails with invalid_value', async () => {
       nodes: { bad: { kind: 'bad' }, end: { kind: 'end' } },
     },
   })
+
   expect(result.error?.code).toBe('invalid_value')
 })
 
@@ -190,7 +204,9 @@ test('maxSteps stops a bounded graph before the next entry', async () => {
       end: { kind: 'end' },
     },
   }
+
   const result = await createFlowGraph({ maxSteps: 1 }).run({ definition })
+
   expect(result.error?.code).toBe('max_steps')
   expect(result.runState.steps).toBe(1)
 })
@@ -198,6 +214,7 @@ test('maxSteps stops a bounded graph before the next entry', async () => {
 test('an aborted action closes the run without applying a late result', async () => {
   const controller = new AbortController()
   const graph = createFlowGraph({ actions: { wait: async () => new Promise<number>(() => {}) } })
+
   const definition = {
     id: 'abort',
     name: 'Abort',
@@ -205,16 +222,22 @@ test('an aborted action closes the run without applying a late result', async ()
     start: 'a',
     nodes: { a: { kind: 'action', name: 'wait', next: 'end' }, end: { kind: 'end' } },
   }
+
   const pending = graph.run({ definition, signal: controller.signal })
+
   await Promise.resolve()
+
   controller.abort()
+
   const result = await pending
+
   expect(result.status).toBe('aborted')
   expect(result.runState.frames[0]?.results).toEqual({})
 })
 
 test('unconfigured logging reports run errors even with an injected logger', async () => {
   const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
   try {
     const graph = createFlowGraph({
       logger: getSozaiLogger('custom'),
@@ -224,6 +247,7 @@ test('unconfigured logging reports run errors even with an injected logger', asy
         },
       },
     })
+
     const result = await graph.run({
       definition: {
         id: 'logging',
@@ -233,6 +257,7 @@ test('unconfigured logging reports run errors even with an injected logger', asy
         nodes: { a: { kind: 'action', name: 'fail', next: 'end' }, end: { kind: 'end' } },
       },
     })
+
     expect(result.status).toBe('error')
     expect(spy).toHaveBeenCalledOnce()
     expect(JSON.stringify(spy.mock.calls)).not.toContain('private text')

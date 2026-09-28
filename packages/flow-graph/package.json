@@ -42,7 +42,8 @@
     "@sozai/log": "workspace:^",
     "@sozai/otel": "workspace:^",
     "@sozai/runtime": "workspace:^",
-    "@sozai/schema": "workspace:^"
+    "@sozai/schema": "workspace:^",
+    "@standard-schema/spec": "catalog:"
   },
   "devDependencies": {
     "@opentelemetry/api": "catalog:",

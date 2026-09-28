@@ -49,6 +49,8 @@ console.log(resumed.getState().output)
 
 `graph.check()` reports repairable issues with a code, path, and hint. `formatIssues()` turns them into compact text. Definition digests hash the canonical JSON produced by `@sozai/json`.
 
+`FlowDefinitionError`, `FlowInputError`, `FlowStateError`, and `FlowResumeError` expose Standard Schema compatible `issues` arrays with messages and paths. Input and state schema failures preserve the validator's issues. State invariant messages use fixed text and never include payload values.
+
 ## Persistence and delivery
 
 `graph.start()`, `graph.resume()`, and `graph.recover()` return a `FlowRun`. Each `next()` returns one committed `RunState`. Commits include node entry, attempt checkpoints, retry decisions, transitions, and suspensions. `graph.run()` consumes a new run until it ends or suspends.

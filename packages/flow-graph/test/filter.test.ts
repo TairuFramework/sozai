@@ -53,6 +53,7 @@ test.each([
 
 test('authoring schema rejects empty filter combinators', () => {
   const graph = createFlowGraph()
+
   const definition = {
     id: 'f',
     name: 'Filter',
@@ -63,12 +64,14 @@ test('authoring schema rejects empty filter combinators', () => {
       end: { kind: 'end' },
     },
   }
-  expect(graph.check(definition).issues.map((i) => i.code)).toContain('schema')
+
+  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('schema')
 })
 
 test('combinators and multi-operator leaves use Boolean semantics', () => {
   const scope = { input: 2, state: {}, results: {}, loops: {} }
   const leaf = { path: ['input'], is: { greaterThan: 1, lessThan: 3 } }
+
   expect(evaluateFilter(leaf, scope)).toBe(true)
   expect(
     evaluateFilter({ and: [leaf, { not: { path: ['input'], is: { equalTo: 3 } } }] }, scope),
@@ -88,6 +91,7 @@ test.each([
   { path: ['input'], is: { includesAny: [] } },
 ])('authoring schema rejects an empty filter shape %j', (filter) => {
   const graph = createFlowGraph()
+
   const definition = {
     id: 'empty-filter',
     name: 'Empty filter',
@@ -98,5 +102,6 @@ test.each([
       end: { kind: 'end' },
     },
   }
+
   expect(graph.check(definition).issues.map((item) => item.code)).toContain('schema')
 })

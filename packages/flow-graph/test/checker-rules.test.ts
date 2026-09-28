@@ -4,6 +4,7 @@ import type { FlowGraph, FlowIssue, FlowNode } from '../src/index.js'
 import { createFlowGraph, defineNodeKind } from '../src/index.js'
 
 const graph = createFlowGraph({ actions: { ok: async () => 1 } })
+
 const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   id: 'rules',
   name: 'Rules',
@@ -11,7 +12,9 @@ const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   start,
   nodes,
 })
+
 const end = { kind: 'end' }
+
 const resultGraph = createFlowGraph({
   kinds: [
     defineNodeKind({
@@ -35,6 +38,7 @@ type RuleFixture = {
   definition: unknown
   graph?: FlowGraph
 }
+
 const fixtures: Array<RuleFixture> = [
   { code: 'schema', path: [], definition: { ...definition({ start: end }), version: Number.NaN } },
   {
@@ -149,10 +153,12 @@ const fixtures: Array<RuleFixture> = [
 
 test.each(fixtures)('$code reports its repair path and hint', (fixture) => {
   const issues = (fixture.graph ?? graph).check(fixture.definition).issues
+
   const matching = issues.find(
     (item: FlowIssue) =>
       item.code === fixture.code && JSON.stringify(item.path) === JSON.stringify(fixture.path),
   )
+
   expect(matching, JSON.stringify(issues)).toBeDefined()
   expect(matching?.hint.trim().length).toBeGreaterThan(0)
 })

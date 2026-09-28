@@ -281,6 +281,9 @@ importers:
       '@sozai/schema':
         specifier: workspace:^
         version: link:../schema
+      '@standard-schema/spec':
+        specifier: 'catalog:'
+        version: 1.1.0
     devDependencies:
       '@opentelemetry/api':
         specifier: 'catalog:'

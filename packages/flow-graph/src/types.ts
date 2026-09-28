@@ -5,11 +5,15 @@ import type { Logger } from '@sozai/log'
 import type { Context, Span } from '@sozai/otel'
 import type { Runtime } from '@sozai/runtime'
 import type { Schema } from '@sozai/schema'
+import type { StandardSchemaV1 } from '@standard-schema/spec'
 
 import type { Filter } from './filter.js'
 import type { Scope, Value } from './value.js'
 
+/** Retry policy with suspension and recovery limits. */
 export type FlowRetryPolicy = RetryPolicy & { suspendAfterMs?: number; maxInterruptions?: number }
+
+/** Persistable graph definition with a stable identifier and version. */
 export type FlowDefinition = {
   id: string
   name: string
@@ -19,25 +23,47 @@ export type FlowDefinition = {
   start: string
   nodes: Record<string, FlowNode>
 }
+
+/** Base shape shared by built-in and registered nodes. */
 export type FlowNode = { kind: string; description?: string; [key: string]: unknown }
-export type FlowIssue = {
+/** A Standard Schema issue with repair metadata for flow definitions. */
+export type FlowIssue = StandardSchemaV1.Issue & {
   severity: 'error' | 'warning'
   path: Array<string | number>
   code: string
   message: string
   hint: string
 }
+
+/** Details used to report a flow definition issue. */
+export type IssueParams = {
+  code: string
+  path: Array<string | number>
+  message: string
+  hint: string
+  severity?: 'error' | 'warning'
+}
+
+/** Definition and issue reporter supplied to a node kind check. */
 export type CheckContext = {
   definition: FlowDefinition
   nodeID: string
-  issue: (code: string, path: Array<string | number>, message: string, hint: string) => FlowIssue
+  issue: (params: IssueParams) => FlowIssue
 }
+
+/** Safe error dimensions recorded in run state. */
 export type ErrorMetadata = { type: string; code?: string; status?: number; retryAfterMs?: number }
+
+/** External input or timeout delivered to a suspended node. */
 export type ResumeEvent = { type: 'value'; value: JSONValue } | { type: 'timeout' }
+
+/** Transition, completion, or suspension produced by a node. */
 export type NodeResult =
   | { next: string; result?: JSONValue }
   | { end: { outcome?: string; output?: Record<string, JSONValue> } }
   | { suspend: { prompt?: JSONValue; schema?: Schema; data?: JSONValue; deadline?: string } }
+
+/** Runtime services and scoped data supplied to a node. */
 export type ExecuteContext = {
   nodeID: string
   runID: string
@@ -53,20 +79,30 @@ export type ExecuteContext = {
   logger: Logger
   runtime: Runtime
 }
-export type NodeKind<N extends { kind: string } = FlowNode> = {
-  kind: N['kind']
+
+/** Schema and behaviour for one executable node kind. */
+export type NodeKind<Node extends { kind: string } = FlowNode> = {
+  kind: Node['kind']
   schema: Schema
-  targets: (node: N) => Array<{ path: Array<string | number>; id: string }>
-  resultSchema?: (node: N) => Schema
+  targets: (node: Node) => Array<{ path: Array<string | number>; id: string }>
+  resultSchema?: (node: Node) => Schema
   retries?: boolean
   describeError?: (error: unknown) => ErrorMetadata
-  check?: (node: N, ctx: CheckContext) => Array<FlowIssue>
-  execute: (node: N, ctx: ExecuteContext) => NodeResult | Promise<NodeResult>
-  resume?: (node: N, ctx: ExecuteContext, event: ResumeEvent) => NodeResult | Promise<NodeResult>
+  check?: (node: Node, ctx: CheckContext) => Array<FlowIssue>
+  execute: (node: Node, ctx: ExecuteContext) => NodeResult | Promise<NodeResult>
+  resume?: (node: Node, ctx: ExecuteContext, event: ResumeEvent) => NodeResult | Promise<NodeResult>
   retryable?: (error: unknown) => RetryDecision
 }
-export const defineNodeKind = <N extends { kind: string }>(kind: NodeKind<N>): NodeKind<N> => kind
+
+/** Preserve a custom node kind type during registration. */
+export const defineNodeKind = <Node extends { kind: string }>(
+  kind: NodeKind<Node>,
+): NodeKind<Node> => kind
+
+/** Node kind after its concrete node type is erased. */
 export type RegisteredNodeKind = Omit<NodeKind<never>, 'kind'> & { kind: string }
+
+/** Host operation invoked by an action node. */
 export type Action = (ctx: {
   args: Record<string, JSONValue>
   signal: AbortSignal
@@ -75,6 +111,8 @@ export type Action = (ctx: {
   invocationID: string
   attempt: number
 }) => JSONValue | Promise<JSONValue>
+
+/** Active graph frame persisted with a run. */
 export type Frame = {
   flow: { id: string; version: number; digest: string }
   node: string
@@ -91,6 +129,8 @@ export type Frame = {
     onError?: string
   }
 }
+
+/** Retry progress persisted for an active node. */
 export type NodeAttempts = {
   invocationID: string
   policy: FlowRetryPolicy
@@ -100,6 +140,8 @@ export type NodeAttempts = {
   retryAt?: string
   lastFailure?: ErrorMetadata
 }
+
+/** External work required before a run can continue. */
 export type Pending = {
   node: string
   reason: 'suspend' | 'retry'
@@ -109,6 +151,8 @@ export type Pending = {
   deadline?: string
   resumeAt?: string
 }
+
+/** Safe terminal error summary stored in run state. */
 export type RunError = {
   code: string
   name: string
@@ -117,6 +161,8 @@ export type RunError = {
   attempts?: number
   lastFailure?: ErrorMetadata
 }
+
+/** JSON state committed at each durable execution point. */
 export type RunState = {
   runID: string
   revision: number
@@ -130,6 +176,8 @@ export type RunState = {
   output?: Record<string, JSONValue>
   error?: RunError
 }
+
+/** Events emitted at node and run transitions. */
 export type FlowEvents = {
   'node:enter': { node: string; runState: RunState }
   'node:exit': { node: string; runState: RunState }
@@ -137,11 +185,15 @@ export type FlowEvents = {
   suspend: { node: string; runState: RunState }
   end: { runState: RunState }
 }
+
+/** Async iterator over committed run states. */
 export type FlowRun = AsyncIterable<RunState> & {
   next(): Promise<IteratorResult<RunState, RunState>>
   getState(): RunState
   events: EventEmitter<FlowEvents>
 }
+
+/** Registration, retry, clock, and observability options. */
 export type FlowGraphOptions = {
   kinds?: Array<RegisteredNodeKind>
   actions?: Record<string, Action>
@@ -153,6 +205,8 @@ export type FlowGraphOptions = {
   random?: () => number
   now?: () => number
 }
+
+/** Definition and input for a new run. */
 export type StartParams = {
   definition: FlowDefinition
   input?: JSONValue
@@ -160,6 +214,8 @@ export type StartParams = {
   signal?: AbortSignal
   parentContext?: Context
 }
+
+/** Persisted suspension and event used to continue a run. */
 export type ResumeParams = {
   definition: FlowDefinition
   runState: RunState
@@ -167,12 +223,16 @@ export type ResumeParams = {
   signal?: AbortSignal
   parentContext?: Context
 }
+
+/** Persisted running state used after a process interruption. */
 export type RecoverParams = {
   definition: FlowDefinition
   runState: RunState
   signal?: AbortSignal
   parentContext?: Context
 }
+
+/** Checked graph runtime and its lifecycle operations. */
 export type FlowGraph = {
   authoringSchema: Schema
   storageSchema: Schema

@@ -3,6 +3,7 @@ import { expect, test } from 'vitest'
 import { createFlowGraph, formatIssues } from '../src/index.js'
 
 const graph = createFlowGraph({ actions: { ok: async () => 1 } })
+
 const base = {
   id: 'example',
   name: 'Example',
@@ -14,20 +15,24 @@ const base = {
 test('accepts a minimal graph', () => {
   expect(graph.check(base)).toEqual({ ok: true, issues: [] })
 })
+
 test('flags unknown targets with repair paths', () => {
   const issues = graph.check({ ...base, start: 'missing' }).issues
+
   expect(issues).toContainEqual(
     expect.objectContaining({ code: 'unknown_target', path: ['start'] }),
   )
   expect(issues[0]?.hint).toBeTruthy()
 })
+
 test('rejects reserved storage shapes for authoring', () => {
   expect(
     graph
       .check({ ...base, nodes: { start: { kind: 'goto', flow: 'other' } } })
-      .issues.map((i) => i.code),
+      .issues.map((issue) => issue.code),
   ).toContain('unsupported')
 })
+
 test('rejects unsafe paths', () => {
   const definition = {
     ...base,
@@ -40,8 +45,10 @@ test('rejects unsafe paths', () => {
       end: { kind: 'end' },
     },
   }
-  expect(graph.check(definition).issues.map((i) => i.code)).toContain('invalid_path')
+
+  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('invalid_path')
 })
+
 test('rejects unbounded cycles through exit edges', () => {
   const definition = {
     ...base,
@@ -56,7 +63,8 @@ test('rejects unbounded cycles through exit edges', () => {
       done: { kind: 'end' },
     },
   }
-  expect(graph.check(definition).issues.map((i) => i.code)).toContain('unbounded_cycle')
+
+  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('unbounded_cycle')
 })
 
 test('checks handled error paths for action nodes', () => {
@@ -73,13 +81,17 @@ test('checks handled error paths for action nodes', () => {
       },
     },
   }
+
   const issues = graph.check(definition).issues
-  expect(issues.filter((i) => i.code === 'invalid_error_path')).toMatchObject([
+
+  expect(issues.filter((issue) => issue.code === 'invalid_error_path')).toMatchObject([
     { path: ['nodes', 'done', 'output', 'bad', 'ref'] },
   ])
   expect(
     issues.some(
-      (i) => i.path.join('.') === 'nodes.done.output.type.ref' && i.code === 'invalid_error_path',
+      (issue) =>
+        issue.path.join('.') === 'nodes.done.output.type.ref' &&
+        issue.code === 'invalid_error_path',
     ),
   ).toBe(false)
 })
@@ -93,7 +105,9 @@ test('reports unknown action, invalid retry and invalid nested JSON Schema', () 
       end: { kind: 'end' },
     },
   }
-  const codes = graph.check(definition).issues.map((i) => i.code)
+
+  const codes = graph.check(definition).issues.map((issue) => issue.code)
+
   expect(codes).toContain('unknown_action')
   expect(codes).toContain('invalid_retry')
   expect(codes).toContain('invalid_schema')
@@ -107,25 +121,28 @@ test('reports unreachable node and an invalid result producer', () => {
       dead: { kind: 'end' },
     },
   }
-  const codes = graph.check(definition).issues.map((i) => i.code)
+
+  const codes = graph.check(definition).issues.map((issue) => issue.code)
+
   expect(codes).toContain('unreachable')
   expect(codes).toContain('invalid_path')
 })
 
 test('formats actionable issue text for repair loops', () => {
   const text = formatIssues(graph.check({ ...base, start: 'missing' }).issues)
+
   expect(text).toContain('unknown_target start')
   expect(text).toContain('Fix:')
 })
 
 test('malformed nodes return repair issues instead of throwing', () => {
-  expect(graph.check({ ...base, nodes: { start: null } }).issues.map((i) => i.code)).toContain(
-    'schema',
-  )
+  expect(
+    graph.check({ ...base, nodes: { start: null } }).issues.map((issue) => issue.code),
+  ).toContain('schema')
   expect(
     graph
       .check({ ...base, nodes: { start: { kind: 'branch', default: 'start' } } })
-      .issues.map((i) => i.code),
+      .issues.map((issue) => issue.code),
   ).toContain('schema')
 })
 
@@ -140,6 +157,8 @@ test('a registered kind with a schema that cannot compile yields invalid_schema'
       },
     ],
   })
+
   const result = custom.check({ ...base, nodes: { start: { kind: 'broken' } } })
-  expect(result.issues.map((i) => i.code)).toContain('invalid_schema')
+
+  expect(result.issues.map((issue) => issue.code)).toContain('invalid_schema')
 })

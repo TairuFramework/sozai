@@ -13,19 +13,25 @@ import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createFlowGraph, FlowRetryableError } from '../src/index.js'
 
 const exporter = new InMemorySpanExporter()
+
 const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+
 const storage = new AsyncLocalStorage<Context>()
+
 const manager = {
   active: () => storage.getStore() ?? ROOT_CONTEXT,
-  with<A extends Array<unknown>, F extends (...args: A) => ReturnType<F>>(
+  with<
+    Arguments extends Array<unknown>,
+    Callback extends (...args: Arguments) => ReturnType<Callback>,
+  >(
     ctx: Context,
-    fn: F,
-    thisArg?: ThisParameterType<F>,
-    ...args: A
-  ): ReturnType<F> {
+    fn: Callback,
+    thisArg?: ThisParameterType<Callback>,
+    ...args: Arguments
+  ): ReturnType<Callback> {
     return storage.run(ctx, () => fn.apply(thisArg, args))
   },
-  bind: <T>(_ctx: Context, target: T) => target,
+  bind: <Target>(_ctx: Context, target: Target) => target,
   enable() {
     return this
   },
@@ -33,18 +39,23 @@ const manager = {
     return this
   },
 }
+
 beforeAll(() => {
   expect(context.setGlobalContextManager(manager)).toBe(true)
   expect(trace.setGlobalTracerProvider(provider)).toBe(true)
 })
+
 afterAll(() => {
   trace.disable()
+
   context.disable()
 })
 
 test('spans form a parented tree and resume links to origin without payloads', async () => {
   exporter.reset()
+
   const host = provider.getTracer('host').startSpan('host')
+
   const definition = {
     id: 'trace',
     name: 'Trace',
@@ -55,33 +66,45 @@ test('spans form a parented tree and resume links to origin without payloads', a
       done: { kind: 'end' },
     },
   }
+
   const graph = createFlowGraph()
+
   const first = await context.with(trace.setSpan(context.active(), host), () =>
     graph.run({ definition, input: 'secret input' }),
   )
+
   host.end()
+
   expect(first.status).toBe('suspended')
   expect(first.runState.origin?.traceparent).toBeTruthy()
+
   const resumed = graph.resume({
     definition,
     runState: first.runState,
     event: { type: 'value', value: 'secret answer' },
   })
+
   for await (const _state of resumed) {
     /* drain */
   }
+
   const spans = exporter.getFinishedSpans()
+
   const firstSegment = spans.find(
     (span) => span.name === 'flow.segment' && span.attributes['flow.segment.kind'] === 'start',
   )
+
   const secondSegment = spans.find(
     (span) => span.name === 'flow.segment' && span.attributes['flow.segment.kind'] === 'resume',
   )
+
   expect(firstSegment?.parentSpanContext?.spanId).toBe(host.spanContext().spanId)
   expect(secondSegment?.links[0]?.context.spanId).toBe(firstSegment?.spanContext().spanId)
   expect(secondSegment?.links[0]?.context.traceId).toBe(firstSegment?.spanContext().traceId)
   expect(secondSegment?.links[0]?.context.isRemote).toBe(true)
+
   const nodes = spans.filter((span) => span.name === 'flow.node')
+
   expect(nodes).toHaveLength(3)
   expect(nodes.map((span) => span.parentSpanContext?.spanId)).toEqual([
     firstSegment?.spanContext().spanId,
@@ -110,16 +133,23 @@ test('spans form a parented tree and resume links to origin without payloads', a
 
 test('retry span records a safe event without exception text', async () => {
   exporter.reset()
+
   let count = 0
+
   const graph = createFlowGraph({
     actions: {
       work: async () => {
         count++
-        if (count === 1) throw new FlowRetryableError({ message: 'secret backend' })
+
+        if (count === 1) {
+          throw new FlowRetryableError({ message: 'secret backend' })
+        }
+
         return 1
       },
     },
   })
+
   await graph.run({
     definition: {
       id: 'retry',
@@ -132,7 +162,9 @@ test('retry span records a safe event without exception text', async () => {
       },
     },
   })
+
   const spans = exporter.getFinishedSpans()
+
   expect(
     spans.some(
       (span) =>
@@ -152,15 +184,19 @@ test('retry span records a safe event without exception text', async () => {
 
 test('an action creates host spans beneath its node span', async () => {
   exporter.reset()
+
   const graph = createFlowGraph({
     actions: {
       work: async () => {
         const span = provider.getTracer('host').startSpan('host.action')
+
         span.end()
+
         return 1
       },
     },
   })
+
   await graph.run({
     definition: {
       id: 'nested',
@@ -170,17 +206,22 @@ test('an action creates host spans beneath its node span', async () => {
       nodes: { work: { kind: 'action', name: 'work', next: 'end' }, end: { kind: 'end' } },
     },
   })
+
   const spans = exporter.getFinishedSpans()
+
   const action = spans.find(
     (span) => span.name === 'flow.node' && span.attributes['flow.node.kind'] === 'action',
   )
+
   const host = spans.find((span) => span.name === 'host.action')
+
   expect(host?.parentSpanContext?.spanId).toBe(action?.spanContext().spanId)
   expect(action?.attributes['flow.action.name']).toBe('work')
 })
 
 test('configured logging emits one record per retry and terminal failure with trace IDs', async () => {
   const records: Array<LogRecord> = []
+
   setup({
     sinks: {
       memory: (record: LogRecord) => {
@@ -192,6 +233,7 @@ test('configured logging emits one record per retry and terminal failure with tr
       { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
     ],
   })
+
   try {
     const graph = createFlowGraph({
       logger: getSozaiLogger('flow-graph'),
@@ -201,6 +243,7 @@ test('configured logging emits one record per retry and terminal failure with tr
         },
       },
     })
+
     const result = await graph.run({
       definition: {
         id: 'log',
@@ -213,6 +256,7 @@ test('configured logging emits one record per retry and terminal failure with tr
         },
       },
     })
+
     expect(result.status).toBe('error')
     expect(records.map((record) => record.level)).toEqual(['warning', 'error'])
     expect(records.every((record) => typeof record.properties.traceID === 'string')).toBe(true)
@@ -233,7 +277,9 @@ test('configured logging emits one record per retry and terminal failure with tr
 
 test('handled node failure emits one safe warning in the active node span', async () => {
   exporter.reset()
+
   const records: Array<LogRecord> = []
+
   setup({
     sinks: {
       memory: (record: LogRecord) => {
@@ -245,6 +291,7 @@ test('handled node failure emits one safe warning in the active node span', asyn
       { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
     ],
   })
+
   try {
     const result = await createFlowGraph({
       actions: {
@@ -264,14 +311,17 @@ test('handled node failure emits one safe warning in the active node span', asyn
         },
       },
     })
+
     expect(result.status).toBe('ended')
     expect(records).toHaveLength(1)
     expect(records[0]?.level).toBe('warning')
     expect(records[0]?.properties.traceID).toBeTruthy()
     expect(records[0]?.properties.spanID).toBeTruthy()
+
     const handled = exporter
       .getFinishedSpans()
       .find((span) => span.events.some((event) => event.name === 'flow.error.handled'))
+
     expect(handled?.spanContext().spanId).toBe(records[0]?.properties.spanID)
     expect(
       Object.values(records[0]?.properties ?? {}).every((value) => !(value instanceof Error)),
@@ -284,6 +334,7 @@ test('handled node failure emits one safe warning in the active node span', asyn
 
 test('definition, version and state validation each log once', async () => {
   const records: Array<LogRecord> = []
+
   setup({
     sinks: {
       memory: (record: LogRecord) => {
@@ -295,8 +346,10 @@ test('definition, version and state validation each log once', async () => {
       { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
     ],
   })
+
   try {
     const graph = createFlowGraph()
+
     const definition = {
       id: 'validate',
       name: 'Validate',
@@ -304,8 +357,11 @@ test('definition, version and state validation each log once', async () => {
       start: 'ask',
       nodes: { ask: { kind: 'input', next: 'end' }, end: { kind: 'end' } },
     }
+
     expect(() => graph.start({ definition: { ...definition, version: Number.NaN } })).toThrow()
+
     const first = await graph.run({ definition })
+
     expect(() =>
       graph.resume({
         definition: { ...definition, version: 2 },
@@ -338,7 +394,9 @@ test('definition, version and state validation each log once', async () => {
 
 test('segment span ends when a single next call yields suspension', async () => {
   exporter.reset()
+
   const graph = createFlowGraph()
+
   const run = graph.start({
     definition: {
       id: 'single',
@@ -348,13 +406,16 @@ test('segment span ends when a single next call yields suspension', async () => 
       nodes: { ask: { kind: 'input', next: 'end' }, end: { kind: 'end' } },
     },
   })
+
   const commit = await run.next()
+
   expect(commit.value.status).toBe('suspended')
   expect(exporter.getFinishedSpans().filter((span) => span.name === 'flow.segment')).toHaveLength(1)
 })
 
 test('an unhandled failure marks the exported segment as an error', async () => {
   exporter.reset()
+
   const graph = createFlowGraph({
     actions: {
       fail: async () => {
@@ -362,6 +423,7 @@ test('an unhandled failure marks the exported segment as an error', async () => 
       },
     },
   })
+
   const result = await graph.run({
     definition: {
       id: 'error',
@@ -371,25 +433,35 @@ test('an unhandled failure marks the exported segment as an error', async () => 
       nodes: { a: { kind: 'action', name: 'fail', next: 'end' }, end: { kind: 'end' } },
     },
   })
+
   expect(result.status).toBe('error')
+
   const segment = exporter.getFinishedSpans().find((span) => span.name === 'flow.segment')
+
   expect(segment?.status.code).toBe(SpanStatusCode.ERROR)
   expect(segment?.attributes['flow.error.code']).toBe('node_failed')
 })
 
 test('recorded handled and retried failures leave node spans without error status', async () => {
   exporter.reset()
+
   let attempts = 0
+
   const graph = createFlowGraph({
     recordErrorMessages: true,
     actions: {
       work: async () => {
         attempts++
-        if (attempts === 1) throw new FlowRetryableError({ message: 'retry' })
+
+        if (attempts === 1) {
+          throw new FlowRetryableError({ message: 'retry' })
+        }
+
         throw new Error('handled')
       },
     },
   })
+
   const result = await graph.run({
     definition: {
       id: 'handled-retry',
@@ -408,6 +480,7 @@ test('recorded handled and retried failures leave node spans without error statu
       },
     },
   })
+
   expect(result.status).toBe('ended')
   expect(
     exporter

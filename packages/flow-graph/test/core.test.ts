@@ -10,6 +10,7 @@ describe('digest and values', () => {
   })
   test('resolves nested refs and missing refs', () => {
     const scope = { input: { x: 2 }, state: {}, results: {}, loops: {} }
+
     expect(
       resolveValue(
         { object: { a: { ref: ['input', 'x'] }, b: { array: [{ ref: ['state', 'missing'] }] } } },
@@ -19,6 +20,7 @@ describe('digest and values', () => {
   })
   test('literal objects never interpret nested ref-like keys', () => {
     const scope = { input: { x: 2 }, state: {}, results: {}, loops: {} }
+
     expect(resolveValue({ value: { ref: ['input', 'x'] } }, scope)).toEqual({ ref: ['input', 'x'] })
   })
 })
@@ -30,6 +32,7 @@ describe('filters', () => {
     results: {},
     loops: {},
   }
+
   test('evaluates deep equality and array inclusion', () => {
     expect(
       evaluateFilter({ path: ['input', 'x'], is: { equalTo: [1, 2], includesAll: [1, 2] } }, scope),

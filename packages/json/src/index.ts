@@ -60,31 +60,61 @@ export function isJSONValue(value: unknown): value is JSONValue {
 }
 
 function checkJSONValue(value: unknown, ancestors: Ancestors): boolean {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
-  if (typeof value === 'number') return Number.isFinite(value)
-  if (typeof value !== 'object' || ancestors.has(value)) return false
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return true
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+  }
+
+  if (typeof value !== 'object' || ancestors.has(value)) {
+    return false
+  }
+
   const isArray = Array.isArray(value)
   const prototype = Object.getPrototypeOf(value)
-  if (!isArray && prototype !== Object.prototype && prototype !== null) return false
-  if (Object.getOwnPropertySymbols(value).length > 0) return false
+
+  if (!isArray && prototype !== Object.prototype && prototype !== null) {
+    return false
+  }
+
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    return false
+  }
+
   const names = Object.getOwnPropertyNames(value)
   // Arrays carry an own `length`; a count mismatch means extra properties. Holes are caught below,
   // since a hole plus an extra property keeps the count equal.
-  if (isArray && names.length !== value.length + 1) return false
+  if (isArray && names.length !== value.length + 1) {
+    return false
+  }
+
   for (const name of names) {
-    if (isArray && name === 'length') continue
+    if (isArray && name === 'length') {
+      continue
+    }
+
     const descriptor = Object.getOwnPropertyDescriptor(value, name)
     // Accessors are rejected so a getter cannot return different values on later reads.
-    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return false
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      return false
+    }
   }
+
   ancestors.add(value)
+
   try {
     if (isArray) {
       for (let index = 0; index < value.length; index++) {
-        if (!Object.hasOwn(value, index) || !checkJSONValue(value[index], ancestors)) return false
+        if (!Object.hasOwn(value, index) || !checkJSONValue(value[index], ancestors)) {
+          return false
+        }
       }
+
       return true
     }
+
     return Object.values(value).every((item) => checkJSONValue(item, ancestors))
   } finally {
     ancestors.delete(value)
@@ -101,6 +131,7 @@ export function canonicalizeJSON(value: JSONValue): string {
   if (!isJSONValue(value)) {
     throw new TypeError('Expected a JSON value')
   }
+
   return canonicalize(value) as string
 }
 

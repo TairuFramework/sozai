@@ -14,3 +14,5 @@ Use `createFlowGraph()` for JSON flow definitions that can be checked, persisted
 | `runStateSchema` / `assertRunState` | Validate persisted run state |
 
 See [the package README](../../../../../packages/flow-graph/README.md) for a run/resume example and persistence rules. Persist every yielded revision with optimistic concurrency. Execution is at least once.
+
+`FlowDefinitionError`, `FlowInputError`, `FlowStateError`, and `FlowResumeError` expose Standard Schema compatible `issues` with paths. State invariant issues use fixed messages without payload values.

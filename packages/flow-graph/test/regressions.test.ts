@@ -5,7 +5,7 @@ import { createFlowGraph, defineNodeKind, readPath } from '../src/index.js'
 
 const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   id: 'regressions',
-  name: 'Review',
+  name: 'Regressions',
   version: 1,
   start,
   nodes,
@@ -370,4 +370,39 @@ test('run preserves an empty outcome', async () => {
     definition: definition({ start: { kind: 'finish', next: 'end' }, end: { kind: 'end' } }),
   })
   expect(result).toHaveProperty('outcome', '')
+})
+
+test('a custom kind field named path is not checked as a scope path', () => {
+  const fetcher = defineNodeKind<{ kind: 'fetch'; path: Array<string>; next: string }>({
+    kind: 'fetch',
+    schema: {
+      type: 'object',
+      required: ['kind', 'path', 'next'],
+      additionalProperties: false,
+      properties: {
+        kind: { const: 'fetch' },
+        path: { type: 'array', items: { type: 'string' } },
+        next: { type: 'string' },
+      },
+    },
+    targets: (node) => [{ path: ['next'], id: node.next }],
+    execute: (node) => {
+      return { next: node.next }
+    },
+  })
+  const graph = createFlowGraph({ kinds: [fetcher] })
+  const result = graph.check(
+    definition({
+      start: { kind: 'fetch', path: ['api', 'users'], next: 'check' },
+      check: {
+        kind: 'branch',
+        cases: [{ when: { path: ['nowhere', 'x'], is: { isNull: true } }, to: 'end' }],
+        default: 'end',
+      },
+      end: { kind: 'end' },
+    }),
+  )
+  expect(result.issues.map((issue) => [issue.code, issue.path])).toEqual([
+    ['invalid_path', ['nodes', 'check', 'cases', 0, 'when', 'path']],
+  ])
 })

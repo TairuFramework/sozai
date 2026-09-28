@@ -305,9 +305,11 @@ export function checkDefinition(
         return
       if (Array.isArray(obj.ref))
         nodeReads.push({ path: obj.ref as Array<string>, location: [...location, 'ref'] })
-      if (Array.isArray(obj.path) && obj.path.every((part) => typeof part === 'string')) {
+      const writing = n.kind === 'set' && location.length === 4 && location[2] === 'assign'
+      // Only filter leaves and set targets are paths; kinds may use `path` fields for other data.
+      const isPath = writing || (Object.hasOwn(obj, 'is') && typeof obj.is === 'object')
+      if (isPath && Array.isArray(obj.path) && obj.path.every((part) => typeof part === 'string')) {
         const p = obj.path as Array<string>
-        const writing = n.kind === 'set' && location[2] === 'assign'
         if (writing && (p[0] !== 'state' || p.length < 2))
           issues.push(
             issue(

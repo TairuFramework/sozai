@@ -14,6 +14,7 @@ import {
   defineNodeKind,
   FlowDefinitionError,
 } from '../src/index.js'
+import { failedIssues, passedWarnings, reportedIssues } from './check-result.js'
 
 function flow(id: string, nodes: Record<string, FlowNode>, extra: Partial<FlowDefinition> = {}) {
   return {
@@ -30,9 +31,10 @@ function makeGraph(definitions: Array<FlowDefinition>, options: FlowGraphOptions
   return createFlowGraph({ resolver: createMapResolver(definitions), ...options })
 }
 
-const codes = (issues: Array<FlowIssue>) => issues.map((item) => item.code)
+const codes = (issues: ReadonlyArray<FlowIssue>) => issues.map((item) => item.code)
 
-const find = (issues: Array<FlowIssue>, code: string) => issues.filter((item) => item.code === code)
+const find = (issues: ReadonlyArray<FlowIssue>, code: string) =>
+  issues.filter((item) => item.code === code)
 
 const callee = (id: string, output: Record<string, unknown> = { total: { value: 1 } }) =>
   flow(id, { done: { kind: 'end', output } })
@@ -49,7 +51,7 @@ test('checkFlows accepts a valid pinned reference set', async () => {
     }),
   )
 
-  expect(result).toEqual({ ok: true, issues: [] })
+  expect(result).toEqual({ value: expect.objectContaining({ id: 'root' }), warnings: [] })
 })
 
 test('checkFlows stops on local check errors without resolving', async () => {
@@ -60,8 +62,9 @@ test('checkFlows stops on local check errors without resolving', async () => {
     caller({ c: { kind: 'call', flow: 'sum', version: 1, next: 'missing' } }),
   )
 
-  expect(result.ok).toBe(false)
-  expect(codes(result.issues)).toContain('unknown_target')
+  const issues = failedIssues(result)
+
+  expect(codes(issues)).toContain('unknown_target')
   expect(resolve).not.toHaveBeenCalled()
 })
 
@@ -75,8 +78,9 @@ test('checkFlows reports missing_flow when the resolver throws', async () => {
     }),
   )
 
-  expect(result.ok).toBe(false)
-  expect(find(result.issues, 'missing_flow')).toEqual([
+  const issues = failedIssues(result)
+
+  expect(find(issues, 'missing_flow')).toEqual([
     expect.objectContaining({ severity: 'error', path: ['nodes', 'c', 'flow'] }),
   ])
 })
@@ -98,7 +102,7 @@ test('checkFlows reports missing_flow when the resolved definition does not matc
     }),
   )
 
-  expect(find(result.issues, 'missing_flow')).toEqual([
+  expect(find(reportedIssues(result), 'missing_flow')).toEqual([
     expect.objectContaining({ path: ['nodes', 'l', 'body', 'flow'] }),
   ])
 })
@@ -110,8 +114,9 @@ test('checkFlows reports unbounded_cycle when flows goto each other', async () =
 
   const result = await graph.checkFlows(a)
 
-  expect(result.ok).toBe(false)
-  expect(find(result.issues, 'unbounded_cycle')).toEqual([
+  const issues = failedIssues(result)
+
+  expect(find(issues, 'unbounded_cycle')).toEqual([
     expect.objectContaining({ severity: 'error', path: ['nodes', 'g', 'flow'] }),
   ])
 })
@@ -125,11 +130,12 @@ test('checkFlows reports recursive_call when a flow calls itself', async () => {
   const graph = makeGraph([self])
   const result = await graph.checkFlows(self)
 
-  expect(result.ok).toBe(true)
-  expect(find(result.issues, 'recursive_call')).toEqual([
+  const warnings = passedWarnings(result)
+
+  expect(find(warnings, 'recursive_call')).toEqual([
     expect.objectContaining({ severity: 'warning', path: ['nodes', 'c', 'flow'] }),
   ])
-  expect(find(result.issues, 'recursive_call')[0]?.hint).toContain('maxDepth')
+  expect(find(warnings, 'recursive_call')[0]?.hint).toContain('maxDepth')
 })
 
 test('checkFlows reports input_mismatch when reference input does not fit the callee', async () => {
@@ -162,8 +168,9 @@ test('checkFlows reports input_mismatch when reference input does not fit the ca
     }),
   )
 
-  expect(result.ok).toBe(false)
-  expect(find(result.issues, 'input_mismatch').map((item) => item.path)).toEqual([
+  const issues = failedIssues(result)
+
+  expect(find(issues, 'input_mismatch').map((item) => item.path)).toEqual([
     ['nodes', 'c', 'input', 'b'],
     ['nodes', 'c', 'input', 'c'],
     // An omitted input counts as `{}`.
@@ -195,7 +202,7 @@ test('input_mismatch is skipped for non-simple input schemas', async () => {
     }),
   )
 
-  expect(result).toEqual({ ok: true, issues: [] })
+  expect(result).toEqual({ value: expect.objectContaining({ id: 'root' }), warnings: [] })
 })
 
 test('checkFlows reports invalid_result_path when the callee does not return the key', async () => {
@@ -215,8 +222,9 @@ test('checkFlows reports invalid_result_path when the callee does not return the
     }),
   )
 
-  expect(result.ok).toBe(false)
-  expect(find(result.issues, 'invalid_result_path')).toEqual([
+  const issues = failedIssues(result)
+
+  expect(find(issues, 'invalid_result_path')).toEqual([
     expect.objectContaining({ path: ['nodes', 'done', 'output', 'other', 'ref'] }),
   ])
 })
@@ -237,7 +245,7 @@ test('checkFlows reports invalid_result_path for flow-body loop results', async 
     }),
   )
 
-  expect(find(result.issues, 'invalid_result_path')).toEqual([
+  expect(find(reportedIssues(result), 'invalid_result_path')).toEqual([
     expect.objectContaining({ path: ['nodes', 'done', 'output', 'x', 'ref'] }),
   ])
 })
@@ -267,7 +275,7 @@ test('invalid_result_path is skipped when the callee set has a terminal custom k
     }),
   )
 
-  expect(result).toEqual({ ok: true, issues: [] })
+  expect(result).toEqual({ value: expect.objectContaining({ id: 'root' }), warnings: [] })
 })
 
 test('output keys from goto-reachable flows are accepted', async () => {
@@ -298,7 +306,7 @@ test('output keys from goto-reachable flows are accepted', async () => {
     }),
   )
 
-  expect(find(result.issues, 'invalid_result_path')).toEqual([
+  expect(find(reportedIssues(result), 'invalid_result_path')).toEqual([
     expect.objectContaining({ path: ['nodes', 'done', 'output', 'nope', 'ref'] }),
   ])
 })
@@ -306,20 +314,40 @@ test('output keys from goto-reachable flows are accepted', async () => {
 test('checkFlows reports unversioned_reference when a reference has no version', async () => {
   const graph = makeGraph([callee('sum')])
 
-  const result = await graph.checkFlows(
-    caller({
-      c: { kind: 'call', flow: 'sum', next: 'done' },
-      done: { kind: 'end' },
-    }),
-  )
+  const root = caller({
+    c: { kind: 'call', flow: 'sum', next: 'done' },
+    done: { kind: 'end' },
+  })
 
-  expect(result.ok).toBe(true)
-  expect(result.issues).toEqual([
-    expect.objectContaining({
-      code: 'unversioned_reference',
-      severity: 'warning',
-      path: ['nodes', 'c', 'flow'],
-    }),
+  const result = await graph.checkFlows(root)
+
+  // A passing check has no `issues`; its warnings travel with the checked definition.
+  expect(result).toStrictEqual({
+    value: root,
+    warnings: [
+      expect.objectContaining({
+        code: 'unversioned_reference',
+        severity: 'warning',
+        path: ['nodes', 'c', 'flow'],
+      }),
+    ],
+  })
+})
+
+test('checkFlows returns warnings with every error when the flow set fails', async () => {
+  const graph = makeGraph([callee('sum')])
+  const root = caller({
+    c: { kind: 'call', flow: 'sum', next: 'g' },
+    g: { kind: 'call', flow: 'gone', version: 1, next: 'done' },
+    done: { kind: 'end' },
+  })
+
+  const result = await graph.checkFlows(root)
+
+  expect(result).not.toHaveProperty('value')
+  expect(failedIssues(result).map((item) => [item.code, item.severity])).toEqual([
+    ['unversioned_reference', 'warning'],
+    ['missing_flow', 'error'],
   ])
 })
 
@@ -337,8 +365,9 @@ test('checkFlows prefixes issues inside resolved flows', async () => {
     }),
   )
 
-  expect(result.ok).toBe(false)
-  expect(result.issues).toContainEqual(
+  const issues = failedIssues(result)
+
+  expect(issues).toContainEqual(
     expect.objectContaining({
       code: 'unknown_target',
       path: ['flows', 'sum', 1, 'nodes', 'c', 'next'],
@@ -361,7 +390,7 @@ test('checkFlows prefixes cross-flow issues found in resolved flows', async () =
     }),
   )
 
-  expect(result.issues).toEqual([
+  expect(reportedIssues(result)).toEqual([
     expect.objectContaining({
       code: 'missing_flow',
       path: ['flows', 'sum', 1, 'nodes', 'c', 'flow'],
@@ -401,7 +430,7 @@ test('checkFlows resolves each reference once, breadth first', async () => {
     }),
   )
 
-  expect(result.ok).toBe(true)
+  expect(result.issues).toBeUndefined()
   expect(seen).toEqual(['mid@1', 'side@1', 'leaf@1'])
 })
 
@@ -463,8 +492,8 @@ test('checkFlows distinguishes a throwing resolver from a mismatched definition'
     resolver: { resolve: () => ({ ...callee('sum'), version: 2 }) },
   }).checkFlows(reference)
 
-  const [thrownIssue] = find(thrown.issues, 'missing_flow')
-  const [mismatchedIssue] = find(mismatched.issues, 'missing_flow')
+  const [thrownIssue] = find(failedIssues(thrown), 'missing_flow')
+  const [mismatchedIssue] = find(failedIssues(mismatched), 'missing_flow')
 
   expect(thrownIssue?.message).toBeDefined()
   expect(mismatchedIssue?.message).toBeDefined()
@@ -523,13 +552,10 @@ test('checkFlows results are never shared between calls', async () => {
   const graph = makeGraph([])
   const root = caller({ c: { kind: 'call', flow: 'sum', version: 1, next: 'missing' } })
 
-  const first = await graph.checkFlows(root)
+  const first = failedIssues(await graph.checkFlows(root)) as Array<FlowIssue>
+  const expected = [...first]
 
-  expect(first.ok).toBe(false)
-
-  const expected = [...first.issues]
-
-  first.issues.length = 0
+  first.length = 0
 
   const second = await graph.checkFlows(root)
 
@@ -562,7 +588,7 @@ test('resolved callee checks are cached in a bounded LRU', async () => {
       ]),
     )
 
-  expect((await graph.checkFlows(callAll(ids))).ok).toBe(true)
+  expect((await graph.checkFlows(callAll(ids))).issues).toBeUndefined()
   expect(checked).toEqual(ids)
 
   checked.length = 0
@@ -578,8 +604,8 @@ test('a goto-only cycle is unbounded_cycle, never recursive_call', async () => {
   const b = flow('b', { g: { kind: 'goto', flow: 'a', version: 1 } })
   const result = await makeGraph([a, b]).checkFlows(a)
 
-  expect(codes(result.issues)).toContain('unbounded_cycle')
-  expect(find(result.issues, 'recursive_call')).toEqual([])
+  expect(codes(reportedIssues(result))).toContain('unbounded_cycle')
+  expect(find(reportedIssues(result), 'recursive_call')).toEqual([])
 })
 
 test('checkFlows reports recursive_call through a loop body edge', async () => {
@@ -596,11 +622,12 @@ test('checkFlows reports recursive_call through a loop body edge', async () => {
 
   const result = await makeGraph([self]).checkFlows(self)
 
-  expect(result.ok).toBe(true)
-  expect(find(result.issues, 'recursive_call')).toEqual([
+  const warnings = passedWarnings(result)
+
+  expect(find(warnings, 'recursive_call')).toEqual([
     expect.objectContaining({ severity: 'warning', path: ['nodes', 'l', 'body', 'flow'] }),
   ])
-  expect(find(result.issues, 'unbounded_cycle')).toEqual([])
+  expect(find(warnings, 'unbounded_cycle')).toEqual([])
 })
 
 test('a mixed call and goto cycle warns recursive_call without an error', async () => {
@@ -612,9 +639,10 @@ test('a mixed call and goto cycle warns recursive_call without an error', async 
   const b = flow('b', { g: { kind: 'goto', flow: 'a', version: 1 } })
   const result = await makeGraph([a, b]).checkFlows(a)
 
-  expect(result.ok).toBe(true)
-  expect(find(result.issues, 'unbounded_cycle')).toEqual([])
-  expect(find(result.issues, 'recursive_call')).toEqual([
+  const warnings = passedWarnings(result)
+
+  expect(find(warnings, 'unbounded_cycle')).toEqual([])
+  expect(find(warnings, 'recursive_call')).toEqual([
     expect.objectContaining({ severity: 'warning', path: ['nodes', 'c', 'flow'] }),
   ])
 })

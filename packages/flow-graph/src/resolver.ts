@@ -2,10 +2,10 @@ import { isJSONValue, type JSONValue } from '@sozai/json'
 
 import { digestDefinition } from './digest.js'
 import { FlowReferenceError, FlowStateError, FlowVersionMismatchError } from './errors.js'
-import type { FlowDefinition, FlowIssue, FlowResolver, Frame } from './types.js'
+import type { FlowCheckResult, FlowDefinition, FlowIssue, FlowResolver, Frame } from './types.js'
 
 /** Local definition check used while preparing a snapshot. */
-export type DefinitionCheck = (definition: unknown) => { ok: boolean; issues: Array<FlowIssue> }
+export type DefinitionCheck = (definition: unknown) => FlowCheckResult
 
 /** Checked definition snapshot and the pin that identifies it in run state. */
 export type PreparedFlow = {
@@ -61,18 +61,18 @@ export function createMapResolver(definitions: Array<FlowDefinition>): FlowResol
 /** Snapshot a JSON definition, check it, and compute its pin. */
 export function prepareDefinition(
   params: PrepareDefinitionParams,
-): { ok: true; flow: PreparedFlow } | { ok: false; issues: Array<FlowIssue> } {
+): { ok: true; flow: PreparedFlow } | { ok: false; issues: ReadonlyArray<FlowIssue> } {
   const { value, check } = params
 
   if (!isJSONValue(value)) {
     // The checker reports non-JSON input as its `schema` issue.
-    return { ok: false, issues: check(value).issues }
+    return { ok: false, issues: check(value).issues ?? [] }
   }
 
   const definition = structuredClone(value) as unknown as FlowDefinition
   const result = check(definition)
 
-  if (!result.ok) {
+  if (result.issues) {
     return { ok: false, issues: result.issues }
   }
 
@@ -100,7 +100,7 @@ export function preparePinned(params: PreparePinnedParams): PreparedFlow {
 
   const result = check(definition)
 
-  if (!result.ok) {
+  if (result.issues) {
     throw new FlowStateError({ issues: result.issues })
   }
 

@@ -1,11 +1,11 @@
 import { isJSONValue } from '@sozai/json'
 
-import { issue } from './issue.js'
+import { checkResult, issue } from './issue.js'
 import { collectNodeReads } from './reads.js'
 import type { FlowReference } from './reference-kinds.js'
 import type { DefinitionCheck } from './resolver.js'
 import { ANNOTATION_KEYS } from './result-paths.js'
-import type { FlowDefinition, FlowIssue, FlowResolver, NodeKind } from './types.js'
+import type { FlowCheckResult, FlowDefinition, FlowIssue, FlowResolver, NodeKind } from './types.js'
 
 /** Inputs used to check a definition together with the flows it references. */
 export type CheckFlowsParams = {
@@ -19,7 +19,7 @@ export type CheckFlowsParams = {
   /** Passed to the resolver so a lookup can stop once the run aborts. */
   signal?: AbortSignal
   /** Result of `check` for `definition` when the caller already has it; skips checking it again. */
-  local?: { ok: boolean; issues: Array<FlowIssue> }
+  local?: FlowCheckResult
 }
 
 type Path = Array<string | number>
@@ -355,17 +355,15 @@ function resultPathIssues(params: {
  * Check a definition, then resolve its references breadth first and check the flow set as
  * resolved now. Issues inside a resolved flow are prefixed with `['flows', id, version]`.
  */
-export async function checkFlows(
-  params: CheckFlowsParams,
-): Promise<{ ok: boolean; issues: Array<FlowIssue> }> {
+export async function checkFlows(params: CheckFlowsParams): Promise<FlowCheckResult> {
   const { definition, check, checkReference, resolver, kinds, signal } = params
   const local = params.local ?? check(definition)
 
-  if (!local.ok) {
-    return { ok: false, issues: [...local.issues] }
+  if (local.issues) {
+    return { issues: [...local.issues] }
   }
 
-  const issues = [...local.issues]
+  const issues = [...local.warnings]
   const root = definition as FlowDefinition
 
   const rootFlow: Flow = {
@@ -408,9 +406,11 @@ export async function checkFlows(
     const snapshot = isJSONValue(value) ? structuredClone(value) : value
     const result = checkReference(snapshot)
 
-    issues.push(...result.issues.map((item) => ({ ...item, path: [...prefix, ...item.path] })))
+    const found = result.issues ?? result.warnings
 
-    if (!result.ok) {
+    issues.push(...found.map((item) => ({ ...item, path: [...prefix, ...item.path] })))
+
+    if (result.issues) {
       invalid.add(key)
 
       return { key }
@@ -524,5 +524,5 @@ export async function checkFlows(
 
   issues.push(...resultPathIssues({ flows, links, kinds }))
 
-  return { ok: !issues.some((item) => item.severity === 'error'), issues }
+  return checkResult(definition, issues)
 }

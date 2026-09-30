@@ -27,6 +27,7 @@ import { required } from './run-utils.js'
 import { makeDefinitionSchema, runStateSchema } from './schemas.js'
 import { assertRunStateDefinitions, assertRunStateShape } from './state.js'
 import type {
+  FlowCheckResult,
   FlowDefinition,
   FlowGraph,
   FlowGraphOptions,
@@ -64,7 +65,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
     })
 
   // Least recently used entries come first; a hit moves its entry to the end.
-  const checked = new Map<string, ReturnType<DefinitionCheck>>()
+  const checked = new Map<string, FlowCheckResult>()
 
   // Local check results of resolved callees, cached by digest. Root drafts use plain `check`.
   const checkCallee: DefinitionCheck = (definition) => {
@@ -82,7 +83,9 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       checked.delete(checked.keys().next().value as string)
     }
 
-    return { ok: result.ok, issues: [...result.issues] }
+    return result.issues
+      ? { issues: [...result.issues] }
+      : { value: definition as unknown as FlowDefinition, warnings: [...result.warnings] }
   }
 
   const prepareReference = async (
@@ -136,10 +139,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   const maxDepth = options.maxDepth ?? defaultMaxDepth
 
   /** Snapshot and check a root definition; `local` is the check result of the snapshot. */
-  const snapshot = (
-    definition: FlowDefinition,
-  ): PreparedFlow & { local: ReturnType<DefinitionCheck> } => {
-    let local: ReturnType<DefinitionCheck> | undefined
+  const snapshot = (definition: FlowDefinition): PreparedFlow & { local: FlowCheckResult } => {
+    let local: FlowCheckResult | undefined
 
     const prepared = prepareDefinition({
       value: definition,
@@ -256,7 +257,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
 
   const preflight = async (params: {
     definition: FlowDefinition
-    local: ReturnType<DefinitionCheck>
+    local: FlowCheckResult
     signal?: AbortSignal
   }): Promise<Array<FlowDefinition>> => {
     const { definition, local, signal } = params
@@ -271,7 +272,7 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       local,
     })
 
-    if (!result.ok) {
+    if (result.issues) {
       logError('Invalid flow set', {
         'flow.id': definition.id,
         code: 'invalid_definition',

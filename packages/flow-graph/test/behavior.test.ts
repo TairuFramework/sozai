@@ -9,6 +9,7 @@ import {
   FlowResumeError,
   FlowRetryableError,
 } from '../src/index.js'
+import { reportedIssues } from './check-result.js'
 
 test('loop limit resets its counter before ending with an error', async () => {
   const definition = {
@@ -372,7 +373,7 @@ test('decline is rejected for a pending retry', async () => {
 })
 
 test('check reports an unknown decline target', () => {
-  const issues = createFlowGraph().check(declineDefinition({ to: 'missing' })).issues
+  const issues = reportedIssues(createFlowGraph().check(declineDefinition({ to: 'missing' })))
 
   expect(issues.find((issue) => issue.code === 'unknown_target')?.path).toEqual([
     'nodes',

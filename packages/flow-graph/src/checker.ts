@@ -3,10 +3,17 @@ import { isJSONValue } from '@sozai/json'
 import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
-import { issue } from './issue.js'
+import { checkResult, issue } from './issue.js'
 import { collectNodeReads, type ReadReference } from './reads.js'
 import { schemaHasPath } from './result-paths.js'
-import type { FlowDefinition, FlowIssue, FlowNode, FlowRetryPolicy, NodeKind } from './types.js'
+import type {
+  FlowCheckResult,
+  FlowDefinition,
+  FlowIssue,
+  FlowNode,
+  FlowRetryPolicy,
+  NodeKind,
+} from './types.js'
 import { isSafePathSegment } from './value.js'
 
 type ContainsEndParams = {
@@ -73,7 +80,7 @@ export type CheckDefinitionParams = {
 }
 
 /** Render flow definition issues for people editing a graph. */
-export function formatIssues(issues: Array<FlowIssue>): string {
+export function formatIssues(issues: ReadonlyArray<FlowIssue>): string {
   return issues
     .map(
       (item) =>
@@ -630,11 +637,11 @@ function checkNodes(params: CheckNodesParams): void {
   }
 }
 
-/** Check a flow definition and return all repairable issues. */
-export function checkDefinition(params: CheckDefinitionParams): {
-  ok: boolean
-  issues: Array<FlowIssue>
-} {
+/**
+ * Check a flow definition. Every repairable issue is in `issues` on failure, or in `warnings`
+ * alongside the checked definition on success.
+ */
+export function checkDefinition(params: CheckDefinitionParams): FlowCheckResult {
   const {
     definition,
     kinds,
@@ -648,7 +655,6 @@ export function checkDefinition(params: CheckDefinitionParams): {
 
   if (!isJSONValue(definition)) {
     return {
-      ok: false,
       issues: [
         issue({
           code: 'schema',
@@ -662,7 +668,6 @@ export function checkDefinition(params: CheckDefinitionParams): {
 
   if (typeof definition !== 'object' || definition === null || Array.isArray(definition)) {
     return {
-      ok: false,
       issues: [
         issue({
           code: 'schema',
@@ -700,7 +705,18 @@ export function checkDefinition(params: CheckDefinitionParams): {
   }
 
   if (!raw.nodes || typeof raw.nodes !== 'object' || Array.isArray(raw.nodes)) {
-    return { ok: false, issues }
+    if (!issues.some((item) => item.path[0] === 'nodes' || item.path.length === 0)) {
+      issues.push(
+        issue({
+          code: 'schema',
+          path: ['nodes'],
+          message: 'Definition must have a nodes object.',
+          hint: 'Add a nodes object keyed by node id.',
+        }),
+      )
+    }
+
+    return { issues }
   }
 
   const def = definition as unknown as FlowDefinition
@@ -739,5 +755,5 @@ export function checkDefinition(params: CheckDefinitionParams): {
 
   analyzeGraph({ definition: def, kinds, ids, edges, reads, issues })
 
-  return { ok: !issues.some((issue) => issue.severity === 'error'), issues }
+  return checkResult(definition, issues)
 }

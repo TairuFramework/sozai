@@ -6,6 +6,7 @@ import {
   defineNodeKind,
   FlowRetryableError,
 } from '../src/index.js'
+import { reportedIssues } from './check-result.js'
 
 type Ask = { kind: 'ask'; next: string; prompt: string }
 
@@ -79,7 +80,7 @@ test('checker validates cross-node result paths and dominance', () => {
     },
   }
 
-  const issues = graph.check(definition).issues
+  const issues = reportedIssues(graph.check(definition))
 
   expect(issues.map((issue) => issue.code)).toContain('invalid_result_path')
   expect(issues.map((issue) => issue.code)).toContain('result_maybe_missing')
@@ -271,7 +272,7 @@ test('registration accepts a resultSchema that depends on node fields', () => {
     },
   }
 
-  expect(graph.check(definition).ok).toBe(true)
+  expect(graph.check(definition).issues).toBeUndefined()
 })
 
 test('a retryable resume failure starts the next logical attempt', async () => {
@@ -348,7 +349,7 @@ const finishDefinition = {
 test('terminal custom kind passes no_end and ends the run', async () => {
   const graph = createFlowGraph({ kinds: [finishKind(true)] })
 
-  expect(graph.check(finishDefinition).ok).toBe(true)
+  expect(graph.check(finishDefinition).issues).toBeUndefined()
 
   const state = await graph.run({ definition: finishDefinition })
 

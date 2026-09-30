@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 
 import type { FlowGraph, FlowIssue, FlowNode } from '../src/index.js'
 import { createFlowGraph, defineNodeKind } from '../src/index.js'
+import { passedWarnings, reportedIssues } from './check-result.js'
 
 const graph = createFlowGraph({ actions: { ok: async () => 1 } })
 
@@ -147,7 +148,7 @@ const fixtures: Array<RuleFixture> = [
 ]
 
 test.each(fixtures)('$code reports its repair path and hint', (fixture) => {
-  const issues = (fixture.graph ?? graph).check(fixture.definition).issues
+  const issues = reportedIssues((fixture.graph ?? graph).check(fixture.definition))
 
   const matching = issues.find(
     (item: FlowIssue) =>
@@ -176,19 +177,19 @@ test('call, goto and flow-body loop pass check', () => {
     }),
   )
 
-  expect(result.issues.map((item) => item.code)).not.toContain('unsupported')
-  expect(result.issues.filter((item) => item.severity === 'error')).toEqual([])
-  expect(result.ok).toBe(true)
+  expect(passedWarnings(result).map((item) => item.code)).not.toContain('unsupported')
 })
 
 test('call targets are checked', () => {
-  const issues = graph.check(
-    definition({
-      start: { kind: 'call', flow: 'other', next: 'c' },
-      c: { kind: 'call', flow: 'other', next: 'missing' },
-      end,
-    }),
-  ).issues
+  const issues = reportedIssues(
+    graph.check(
+      definition({
+        start: { kind: 'call', flow: 'other', next: 'c' },
+        c: { kind: 'call', flow: 'other', next: 'missing' },
+        end,
+      }),
+    ),
+  )
 
   expect(issues).toContainEqual(
     expect.objectContaining({ code: 'unknown_target', path: ['nodes', 'c', 'next'] }),
@@ -196,12 +197,14 @@ test('call targets are checked', () => {
 })
 
 test('goto satisfies no_end', () => {
-  const issues = graph.check(
-    definition({
-      start: { kind: 'set', assign: [{ path: ['state', 'a'], value: { value: 1 } }], next: 'go' },
-      go: { kind: 'goto', flow: 'other' },
-    }),
-  ).issues
+  const issues = reportedIssues(
+    graph.check(
+      definition({
+        start: { kind: 'set', assign: [{ path: ['state', 'a'], value: { value: 1 } }], next: 'go' },
+        go: { kind: 'goto', flow: 'other' },
+      }),
+    ),
+  )
 
   expect(issues.map((item) => item.code)).not.toContain('no_end')
 })
@@ -209,22 +212,23 @@ test('goto satisfies no_end', () => {
 test('flow-body loop has no body edge', () => {
   const result = graph.check(definition({ start: flowBodyLoop, end }))
 
-  expect(result.ok).toBe(true)
-  expect(result.issues.map((item) => item.code)).not.toContain('unknown_target')
+  expect(passedWarnings(result).map((item) => item.code)).not.toContain('unknown_target')
 })
 
 test('call rejects attemptTimeoutMs', () => {
-  const issues = graph.check(
-    definition({
-      start: {
-        kind: 'call',
-        flow: 'other',
-        next: 'end',
-        retry: { maxAttempts: 2, attemptTimeoutMs: 1000 },
-      },
-      end,
-    }),
-  ).issues
+  const issues = reportedIssues(
+    graph.check(
+      definition({
+        start: {
+          kind: 'call',
+          flow: 'other',
+          next: 'end',
+          retry: { maxAttempts: 2, attemptTimeoutMs: 1000 },
+        },
+        end,
+      }),
+    ),
+  )
 
   expect(issues).toContainEqual(
     expect.objectContaining({ code: 'invalid_retry', path: ['nodes', 'start', 'retry'] }),
@@ -244,12 +248,12 @@ test('call accepts a retry policy without attemptTimeoutMs', () => {
     }),
   )
 
-  expect(result.ok).toBe(true)
+  expect(result.issues).toBeUndefined()
 })
 
 const resultPathCodes = (producer: FlowNode, path: Array<string>): Array<string> =>
-  graph
-    .check(
+  reportedIssues(
+    graph.check(
       definition(
         {
           c: producer,
@@ -262,8 +266,9 @@ const resultPathCodes = (producer: FlowNode, path: Array<string>): Array<string>
         },
         'c',
       ),
-    )
-    .issues.filter((item) => item.severity === 'error')
+    ),
+  )
+    .filter((item) => item.severity === 'error')
     .map((item) => item.code)
 
 test('call result paths allow outcome and output subtree only', () => {
@@ -301,7 +306,7 @@ test.each([
     { ...flowBodyLoop, body: { flow: 'other', input: { value: { ref: ['results', 'missing'] } } } },
   ],
 ])('%s input key named value is walked for refs', (_name, start) => {
-  const issues = graph.check(definition({ start: start as FlowNode, end })).issues
+  const issues = reportedIssues(graph.check(definition({ start: start as FlowNode, end })))
 
   expect(issues).toContainEqual(
     expect.objectContaining({

@@ -1,7 +1,8 @@
 import type { Schema } from '@sozai/schema'
 import { expect, test } from 'vitest'
 
-import { createFlowGraph, defineNodeKind, formatIssues } from '../src/index.js'
+import { checkDefinition, createFlowGraph, defineNodeKind, formatIssues } from '../src/index.js'
+import { failedIssues, passedWarnings, reportedIssues } from './check-result.js'
 
 const graph = createFlowGraph({ actions: { ok: async () => 1 } })
 
@@ -14,11 +15,46 @@ const base = {
 }
 
 test('accepts a minimal graph', () => {
-  expect(graph.check(base)).toEqual({ ok: true, issues: [] })
+  expect(graph.check(base)).toEqual({ value: base, warnings: [] })
+})
+
+test('a definition without nodes fails with an issue even without an authoring schema', () => {
+  const result = checkDefinition({ definition: { id: 'x', start: 's' }, kinds: new Map() })
+
+  expect(failedIssues(result).map((item) => [item.code, item.path])).toEqual([
+    ['schema', ['nodes']],
+  ])
+})
+
+test('a passing check returns the definition with its warnings and no issues', () => {
+  const definition = { ...base, nodes: { start: { kind: 'end' }, orphan: { kind: 'end' } } }
+  const result = graph.check(definition)
+
+  expect(result).toStrictEqual({
+    value: definition,
+    warnings: [expect.objectContaining({ code: 'unreachable', severity: 'warning' })],
+  })
+  expect(result.issues).toBeUndefined()
+})
+
+test('a failing check returns every issue, warnings included, in order', () => {
+  const result = graph.check({
+    ...base,
+    start: 'missing',
+    nodes: { start: { kind: 'end' }, orphan: { kind: 'end' } },
+  })
+
+  expect(result).not.toHaveProperty('value')
+  expect(failedIssues(result).map((item) => [item.code, item.severity])).toEqual(
+    expect.arrayContaining([
+      ['unknown_target', 'error'],
+      ['unreachable', 'warning'],
+    ]),
+  )
 })
 
 test('flags unknown targets with repair paths', () => {
-  const issues = graph.check({ ...base, start: 'missing' }).issues
+  const issues = reportedIssues(graph.check({ ...base, start: 'missing' }))
 
   expect(issues).toContainEqual(
     expect.objectContaining({ code: 'unknown_target', path: ['start'] }),
@@ -29,8 +65,7 @@ test('flags unknown targets with repair paths', () => {
 test('accepts reference nodes for authoring', () => {
   const result = graph.check({ ...base, nodes: { start: { kind: 'goto', flow: 'other' } } })
 
-  expect(result.issues.map((issue) => issue.code)).not.toContain('unsupported')
-  expect(result.ok).toBe(true)
+  expect(passedWarnings(result).map((issue) => issue.code)).not.toContain('unsupported')
 })
 
 test('rejects unsafe paths', () => {
@@ -46,7 +81,9 @@ test('rejects unsafe paths', () => {
     },
   }
 
-  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('invalid_path')
+  expect(reportedIssues(graph.check(definition)).map((issue) => issue.code)).toContain(
+    'invalid_path',
+  )
 })
 
 test('rejects unbounded cycles through exit edges', () => {
@@ -64,7 +101,9 @@ test('rejects unbounded cycles through exit edges', () => {
     },
   }
 
-  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('unbounded_cycle')
+  expect(reportedIssues(graph.check(definition)).map((issue) => issue.code)).toContain(
+    'unbounded_cycle',
+  )
 })
 
 test('checks handled error paths for action nodes', () => {
@@ -82,7 +121,7 @@ test('checks handled error paths for action nodes', () => {
     },
   }
 
-  const issues = graph.check(definition).issues
+  const issues = reportedIssues(graph.check(definition))
 
   expect(issues.filter((issue) => issue.code === 'invalid_error_path')).toMatchObject([
     { path: ['nodes', 'done', 'output', 'bad', 'ref'] },
@@ -106,7 +145,7 @@ test('reports unknown action, invalid retry and invalid nested JSON Schema', () 
     },
   }
 
-  const codes = graph.check(definition).issues.map((issue) => issue.code)
+  const codes = reportedIssues(graph.check(definition)).map((issue) => issue.code)
 
   expect(codes).toContain('unknown_action')
   expect(codes).toContain('invalid_retry')
@@ -122,14 +161,14 @@ test('reports unreachable node and an invalid result producer', () => {
     },
   }
 
-  const codes = graph.check(definition).issues.map((issue) => issue.code)
+  const codes = reportedIssues(graph.check(definition)).map((issue) => issue.code)
 
   expect(codes).toContain('unreachable')
   expect(codes).toContain('invalid_path')
 })
 
 test('formats actionable issue text for repair loops', () => {
-  const text = formatIssues(graph.check({ ...base, start: 'missing' }).issues)
+  const text = formatIssues(reportedIssues(graph.check({ ...base, start: 'missing' })))
 
   expect(text).toContain('unknown_target start')
   expect(text).toContain('Fix:')
@@ -137,12 +176,12 @@ test('formats actionable issue text for repair loops', () => {
 
 test('malformed nodes return repair issues instead of throwing', () => {
   expect(
-    graph.check({ ...base, nodes: { start: null } }).issues.map((issue) => issue.code),
+    reportedIssues(graph.check({ ...base, nodes: { start: null } })).map((issue) => issue.code),
   ).toContain('schema')
   expect(
-    graph
-      .check({ ...base, nodes: { start: { kind: 'branch', default: 'start' } } })
-      .issues.map((issue) => issue.code),
+    reportedIssues(
+      graph.check({ ...base, nodes: { start: { kind: 'branch', default: 'start' } } }),
+    ).map((issue) => issue.code),
   ).toContain('schema')
 })
 
@@ -160,7 +199,7 @@ test('a registered kind with a schema that cannot compile yields invalid_schema'
 
   const result = custom.check({ ...base, nodes: { start: { kind: 'broken' } } })
 
-  expect(result.issues.map((issue) => issue.code)).toContain('invalid_schema')
+  expect(failedIssues(result).map((issue) => issue.code)).toContain('invalid_schema')
 })
 
 const resultPathGraph = (resultSchema: unknown) =>
@@ -182,15 +221,15 @@ const resultPathGraph = (resultSchema: unknown) =>
   })
 
 const resultPathCodes = (resultSchema: unknown, path: Array<string>): Array<string> =>
-  resultPathGraph(resultSchema)
-    .check({
+  reportedIssues(
+    resultPathGraph(resultSchema).check({
       ...base,
       nodes: {
         start: { kind: 'tool', next: 'end' },
         end: { kind: 'end', output: { value: { ref: ['results', 'start', ...path] } } },
       },
-    })
-    .issues.map((item) => item.code)
+    }),
+  ).map((item) => item.code)
 
 test('result path under true or {} is accepted at any depth', () => {
   const path = ['a', 'b', 'c', '0', 'd']

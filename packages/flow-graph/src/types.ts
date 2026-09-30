@@ -35,6 +35,15 @@ export type FlowIssue = StandardSchemaV1.Issue & {
   hint: string
 }
 
+/**
+ * Result of checking a flow definition, in Standard Schema result shape: the checked definition
+ * with its warnings, or every issue when any has `error` severity.
+ */
+export type FlowCheckResult =
+  | (StandardSchemaV1.SuccessResult<FlowDefinition> & { warnings: Array<FlowIssue> })
+  // `Omit` keeps element access typed as `FlowIssue`; an array intersection resolves to `Issue`.
+  | (Omit<StandardSchemaV1.FailureResult, 'issues'> & { readonly issues: ReadonlyArray<FlowIssue> })
+
 /** Details used to report a flow definition issue. */
 export type IssueParams = {
   code: string
@@ -265,9 +274,9 @@ export type FlowGraph = {
   authoringSchema: Schema
   runStateSchema: Schema
   /** Check one definition locally, without resolving references. */
-  check: (definition: unknown) => { ok: boolean; issues: Array<FlowIssue> }
+  check: (definition: unknown) => FlowCheckResult
   /** Check a definition and every flow it references transitively, as resolved now. */
-  checkFlows: (definition: unknown) => Promise<{ ok: boolean; issues: Array<FlowIssue> }>
+  checkFlows: (definition: unknown) => Promise<FlowCheckResult>
   start: (params: StartParams) => FlowRun
   resume: (params: ResumeParams) => FlowRun
   recover: (params: RecoverParams) => FlowRun

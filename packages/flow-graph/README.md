@@ -13,7 +13,7 @@ pnpm add @sozai/flow-graph
 ## Define and run a flow
 
 ```ts
-import { createFlowGraph, createMapResolver } from '@sozai/flow-graph'
+import { createFlowGraph, createMapResolver, formatIssues } from '@sozai/flow-graph'
 
 const definition = {
   id: 'support/triage',
@@ -31,7 +31,7 @@ const definition = {
 
 const graph = createFlowGraph({ resolver: createMapResolver([definition]) })
 const checked = graph.check(definition)
-if (!checked.ok) throw new Error('Invalid flow')
+if (checked.issues) throw new Error(formatIssues(checked.issues))
 
 const first = await graph.run({ definition }) // suspended at ask
 const resumed = graph.resume({
@@ -46,7 +46,7 @@ console.log(resumed.getState().output)
 
 `graph.authoringSchema` describes executable definitions, including stored ones, for editors and model generation.
 
-`graph.check()` is synchronous and local. It reports repairable issues with a code, path, and hint. `formatIssues()` turns them into compact text. Definition digests hash the canonical JSON produced by `@sozai/json`.
+`graph.check()` is synchronous and local. It reports repairable issues with a code, path, hint, and severity. `formatIssues()` turns them into compact text. `graph.check()` and `graph.checkFlows()` return a `FlowCheckResult` in Standard Schema result shape: `{ value, warnings }` with the checked definition when no issue is an error, otherwise `{ issues }` with every issue, warnings included. Test `result.issues` to tell them apart. Definition digests hash the canonical JSON produced by `@sozai/json`.
 
 `FlowDefinitionError`, `FlowInputError`, `FlowStateError`, and `FlowResumeError` expose Standard Schema compatible `issues` arrays with messages and paths. Input and state schema failures preserve the validator's issues. State invariant messages use fixed text and never include payload values.
 

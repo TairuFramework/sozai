@@ -74,6 +74,12 @@ the first `next()` for definitions with references: errors reject with `FlowDefi
 commit nothing; warnings do not block. The preflight reuses the root's local check from `start`
 instead of checking the root again.
 
+**Check results follow Standard Schema.** `graph.check` and `graph.checkFlows` return one
+`FlowCheckResult`: `{ value, warnings }` when no issue is an error, else `{ issues }` holding every
+issue, warnings included, in report order. `ok` is gone; callers test `result.issues`. Internal
+checks (`DefinitionCheck`, the callee check cache, the preflight's reused local result) share the
+type, and the cache hands out copies.
+
 **FlowRun lifecycle.** `FlowRun.return()` ends the segment span without committing; later `next()`
 calls return `done` with the current state. It is idempotent, safe before any `next()`, after a
 rejected `next()` and after completion, and rejects while a `next()` is pending. A rejected lazy

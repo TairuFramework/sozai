@@ -60,8 +60,3 @@ instead of throwing `Invalid value used as weak map key`; they skip the `WeakMap
 Once released, mokei replaces `src/validators.ts` in `@mokei/decision-flow-server` and the cache
 in `@mokei/host-desktop`'s `src/form.ts` with `createValidatorCache`; host-desktop passes
 `{ factory: { draft: '2020-12', strict: false } }`.
-
-## Out of scope
-
-- Boolean schemas in `toStandardValidator` and `createStandardValidator`.
-- A validator-factory option in `FlowGraphOptions` for `@sozai/flow-graph`.

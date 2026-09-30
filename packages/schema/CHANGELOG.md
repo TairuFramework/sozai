@@ -1,5 +1,11 @@
 # @sozai/schema
 
+## 0.1.3
+
+### Patch Changes
+
+- Add createValidatorFactory: an isolated, disposable AJV instance for schemas that arrive at runtime, with a compile count and an optional logger (false silences AJV warnings).
+
 ## 0.1.1
 
 ### Patch Changes

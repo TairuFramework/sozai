@@ -1,4 +1,4 @@
-# schema — validator cache over isolated, recycled factories
+# schema -- validator cache over isolated, recycled factories
 
 **Status:** design approved · spec awaiting review
 **Date:** 2026-09-30
@@ -56,6 +56,24 @@ break anything.
 **Input is `Schema` only**, as for the factory. A boolean schema (host-desktop compiles `false`)
 still needs a cast at the call site, as it does today.
 
+**The key comes from `canonicalizeJSON`, not `canonicalize`.** `canonicalize` follows
+`JSON.stringify`: it honours `toJSON`, drops `undefined`, and can return `undefined`. A value typed
+as `Schema` can therefore share a key with a schema that compiles differently. `canonicalizeJSON`
+checks the value with `isJSONValue` first and throws a `TypeError` otherwise, so every key maps to
+exactly one compiled shape.
+
+**Schemas are self-contained; each compile starts from an empty registry.** AJV registers every
+`$id` it meets, nested ones included, and keeps them after the compile. `compileValidator` only
+removes the root `$id` after a successful compile. Two consequences, both reproduced: a failed
+compile with `$id: "x"` makes every later compile of a schema with `$id: "x"` fail with "already
+exists", and the cache would store that spurious error; two distinct schemas sharing a nested
+`$id` cannot both compile on one factory. The fix is in `createValidatorFactory`, not the cache:
+after every compile on a factory, success or failure, call `ajv.removeSchema()` with no argument.
+That drops every non-meta schema and ref and AJV's compile cache, and leaves meta-schemas, formats
+and validators already compiled working. A factory never exposed `addSchema`, so no caller could
+rely on cross-schema `$ref`; the change makes that explicit. `$ref` to a location inside the same
+schema is unaffected.
+
 ## API
 
 New file `packages/schema/src/cache.ts`, exported from `src/index.ts`:
@@ -80,7 +98,7 @@ export type ValidatorCacheStats = {
 }
 
 export type ValidatorCache = {
-  get: <T = unknown>(schema: Schema) => Validator<T>
+  get: <S extends Schema, T = FromSchema<S>>(schema: S) => Validator<T>
   stats: () => ValidatorCacheStats
   clear: () => void
   dispose: () => void
@@ -88,6 +106,9 @@ export type ValidatorCache = {
 
 export function createValidatorCache(options?: ValidatorCacheOptions): ValidatorCache
 ```
+
+`get` has the same generic signature as `ValidatorFactory.createValidator`, so a literal schema
+still infers its type.
 
 `packages/schema/package.json` adds `"@sozai/json": "workspace:^"` to `dependencies`.
 
@@ -99,8 +120,8 @@ export function createValidatorCache(options?: ValidatorCacheOptions): Validator
 **`get(schema)`:**
 
 1. If the cache is disposed, throw `Error('Validator cache is disposed')`.
-2. Compute the key: `canonicalize(schema) as string`. A `Schema` always serializes, so the key is
-   never `undefined`.
+2. Compute the key with `canonicalizeJSON(schema)`. A value that is not plain JSON makes it throw a
+   `TypeError`; nothing is cached or counted.
 3. **Hit.** Delete and re-insert the key, moving it to the most recent position. If the entry is
    an `Error`, throw it; otherwise return the validator. A hit never recycles the factory.
 4. **Miss.**
@@ -123,21 +144,33 @@ A cached error is rethrown as the same `Error` object on every hit.
 the LRU and sets `generation` and `compiles` to 0. The cache stays usable; the next miss creates
 a new factory.
 
-**`dispose()`** runs `clear()`, then marks the cache disposed. A second call does nothing.
+**`dispose()`** runs `clear()`, then marks the cache disposed. Disposal is terminal: a second
+`dispose()` does nothing, `clear()` after `dispose()` does nothing, and `get` keeps throwing.
 
 **Validators outlive recycling.** The cache holds a reference only to the current factory. A
 validator handed out before its factory was disposed keeps validating, and keeps that AJV
 instance alive until the validator itself is collected.
 
+## Change to `createValidatorFactory`
+
+In `packages/schema/src/validation.ts`, the factory's `createValidator` wraps its compile in
+`try/finally` and calls `ajv.removeSchema()` (no argument) in the `finally`. The shared instances
+behind `createValidator` keep their current root-`$id` removal; see Out of scope. The `dispose()`
+doc comment and the README are unchanged by this, apart from the README fix below.
+
 ## Documentation
 
-- `packages/schema/README.md`: after the `createValidatorFactory` paragraph, a short example of
-  `createValidatorCache` and the consumer guidance below.
+- `packages/schema/README.md`: correct the `createValidatorFactory` paragraph, which says
+  `dispose()` releases every compiled validator; validators already returned keep working and keep
+  the instance alive. Then add a short example of `createValidatorCache`, the self-contained-schema
+  rule, and the consumer guidance below.
 - `plugins/sozai/skills/validation/reference/schema.md`: add `createValidatorCache`,
   `ValidatorCache`, `ValidatorCacheOptions` and `ValidatorCacheStats` to the exports table.
   Replace the hand-written recycling example under "Runtime schemas" with the cache.
 - `plugins/sozai/skills/validation/SKILL.md`: the closing note says nothing in the repo depends
-  on `@sozai/json` besides `codec`; update it to name `schema` too.
+  on `@sozai/schema` or `@sozai/json` besides `codec`, which is already stale. Rewrite it: `codec`,
+  `flow-graph` and `schema` depend on `@sozai/json`; `flow`, `flow-graph` and `patch` depend on
+  `@sozai/schema`.
 - A `pnpm change` entry: minor for `@sozai/schema`.
 
 Consumer guidance, for the README and the reference:
@@ -148,7 +181,9 @@ Consumer guidance, for the README and the reference:
 ## Tests
 
 New file `packages/schema/test/cache.test.ts`. Small bounds (for example `maxCompiles: 3`,
-`maxEntries: 2`) keep the tests short.
+`maxEntries: 2`) keep the tests short. Fixtures must type-check against `Schema`: the compile-error
+fixture is `{ type: 'string', pattern: '(' }` (an invalid regular expression); a draft 2020-12
+keyword such as `prefixItems` needs a cast, since `Schema` is the draft-07 type.
 
 Ported from mokei:
 
@@ -159,7 +194,7 @@ Ported from mokei:
 - a validator obtained before recycling still validates, both accepting and rejecting;
 - the LRU holds at most `maxEntries` and evicts the least recently used entry: after a hit on
   the oldest-inserted entry, a new miss evicts the other one;
-- a failed compile (for example `{ type: 'nope' }`) counts once, is cached, and is rethrown as the
+- a failed compile counts once, is cached, and is rethrown as the
   same `Error` on the next `get` with an equal schema, without a second compile.
 
 New:
@@ -169,12 +204,26 @@ New:
 - `factory` options are passed through: with `{ draft: '2020-12' }`, a schema using
   `prefixItems` validates as 2020-12;
 - `clear()` resets all stats to zero and the next `get` compiles again;
-- after `dispose()`, `get` throws `Validator cache is disposed`, and a second `dispose()` does
-  not throw;
+- after `dispose()`, `get` throws `Validator cache is disposed`; a second `dispose()` and a
+  `clear()` do not throw, and `get` still throws;
+- a value that is not plain JSON (an object with a `toJSON` method) throws `TypeError`, and
+  `stats()` is unchanged;
+- a literal schema passed to `get` infers its type (type test, `expectTypeOf`).
+
+In `packages/schema/test/lib.test.ts`, for the factory change:
+
+- after a failed compile of a schema with `$id: 'x'`, a valid schema with `$id: 'x'` compiles;
+- two distinct schemas with the same nested `$id` both compile on one factory, and each validator
+  checks its own shape;
+- a schema with an internal `$ref` to its own `definitions` still compiles and validates.
 - `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
 
 ## Out of scope
 
+- The shared instances behind `createValidator` have the same failed-compile `$id` leak: a failed
+  compile with `$id: "x"` blocks `$id: "x"` for the life of the process. Filed as
+  [schema-shared-id-leak](./2026-09-30-schema-shared-id-leak.md); it
+  touches the shared instance, which other packages rely on.
 - A validator-factory option in `FlowGraphOptions` for `@sozai/flow-graph`, so the graph's own
   compiles can use a recycled cache. Separate request.
 - Replacing the two mokei implementations. mokei does this once the release is published.

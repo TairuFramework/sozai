@@ -3,6 +3,7 @@ import { isJSONValue } from '@sozai/json'
 import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
+import { FlowGraphValidatorsError } from './errors.js'
 import { checkResult, issue } from './issue.js'
 import { collectNodeReads, type ReadReference } from './reads.js'
 import { schemaHasPath } from './result-paths.js'
@@ -490,7 +491,11 @@ function checkNodeSchemas(params: CheckNodeSchemasParams): void {
   if (node.kind === 'input' && node.schema) {
     try {
       validatorFor(node.schema as Schema)
-    } catch {
+    } catch (error) {
+      if (error instanceof FlowGraphValidatorsError) {
+        throw error
+      }
+
       issues.push(
         issue({
           code: 'invalid_schema',
@@ -742,7 +747,11 @@ export function checkDefinition(params: CheckDefinitionParams): FlowCheckResult 
   if (def.input) {
     try {
       validatorFor(def.input)
-    } catch {
+    } catch (error) {
+      if (error instanceof FlowGraphValidatorsError) {
+        throw error
+      }
+
       issues.push(
         issue({
           code: 'invalid_schema',

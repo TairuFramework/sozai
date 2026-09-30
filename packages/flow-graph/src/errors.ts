@@ -153,3 +153,12 @@ export class FlowNodeFailure extends Error {
     return this.#code
   }
 }
+
+/** The injected validator cache was disposed while the graph still used it. */
+export class FlowGraphValidatorsError extends Error {
+  constructor() {
+    super('Flow graph validator cache is disposed')
+
+    this.name = 'FlowGraphValidatorsError'
+  }
+}

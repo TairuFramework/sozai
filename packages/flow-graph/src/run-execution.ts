@@ -2,7 +2,7 @@ import { raceAttempt } from '@sozai/async'
 import type { JSONValue } from '@sozai/json'
 import { setSpanOnContext, withActiveContext } from '@sozai/otel'
 
-import { FlowNodeFailure } from './errors.js'
+import { FlowGraphValidatorsError, FlowNodeFailure } from './errors.js'
 import { evaluateFilter } from './filter.js'
 import { defaultMaxDepth, top, topIndex } from './frames.js'
 import type { InternalNodeResult } from './reference-kinds.js'
@@ -186,7 +186,11 @@ export class NodeExecutor {
         if (result.suspend.schema) {
           try {
             this.#runner.validatorFor(result.suspend.schema)
-          } catch {
+          } catch (error) {
+            if (error instanceof FlowGraphValidatorsError) {
+              throw error
+            }
+
             // biome-ignore lint/style/useErrorCause: schema compile errors may carry private data
             throw new FlowNodeFailure({ code: 'invalid_suspend' })
           }

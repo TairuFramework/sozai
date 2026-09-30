@@ -4,7 +4,7 @@ import type { JSONValue } from '@sozai/json'
 import type { Logger } from '@sozai/log'
 import type { Context, Span } from '@sozai/otel'
 import type { Runtime } from '@sozai/runtime'
-import type { Schema } from '@sozai/schema'
+import type { Schema, ValidatorCache } from '@sozai/schema'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 
 import type { Filter } from './filter.js'
@@ -245,6 +245,13 @@ export type FlowGraphOptions = {
   resolver?: FlowResolver
   /** Maximum number of frames, including the root frame (default 16). */
   maxDepth?: number
+  /**
+   * Shared validator cache for schemas that arrive with definitions and runs: definition
+   * `input`, input-node `schema`, suspend and pending `schema`. Its factory options (draft,
+   * strict) apply to those schemas. The graph never clears or disposes it. Default: compiles on
+   * the shared `createValidator` instances, unbounded.
+   */
+  validators?: ValidatorCache
 }
 
 /** Definition and input for a new run. */

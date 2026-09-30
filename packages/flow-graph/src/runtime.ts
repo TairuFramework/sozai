@@ -2,13 +2,20 @@ import { isJSONValue, type JSONValue } from '@sozai/json'
 import { getSozaiLogger, isSetup } from '@sozai/log'
 import { traceLogger } from '@sozai/otel'
 import { createRuntime } from '@sozai/runtime'
-import { ValidationError } from '@sozai/schema'
+import {
+  createValidatorCache,
+  type Schema,
+  ValidationError,
+  type Validator,
+  type ValidatorCache,
+} from '@sozai/schema'
 
 import { checkFlows, matchesReference } from './check-flows.js'
 import { checkDefinition } from './checker.js'
 import { digestDefinition } from './digest.js'
 import {
   FlowDefinitionError,
+  FlowGraphValidatorsError,
   FlowInputError,
   FlowNodeFailure,
   FlowReferenceError,
@@ -18,7 +25,7 @@ import {
 } from './errors.js'
 import { defaultMaxDepth } from './frames.js'
 import type { ReferenceService } from './reference-kinds.js'
-import { createKindRegistry, createValidatorCache } from './registry.js'
+import { createKindRegistry, createValidatorLookup } from './registry.js'
 import type { DefinitionCheck, PreparedFlow } from './resolver.js'
 import { prepareDefinition, preparePinned } from './resolver.js'
 import { validateResumeEvent } from './resume.js'
@@ -53,7 +60,14 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   }
   const kinds = createKindRegistry(options, now, references)
   const authoringSchema = makeDefinitionSchema([...kinds.values()])
-  const validatorFor = createValidatorCache()
+  const { validators } = options
+  const validatorFor = validators ? createValidatorRouter(validators) : createValidatorLookup()
+
+  const assertValidators = () => {
+    if (validators?.disposed) {
+      throw new FlowGraphValidatorsError()
+    }
+  }
 
   const check = (definition: unknown) =>
     checkDefinition({
@@ -186,6 +200,10 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
     try {
       assertRunStateShape(runState, { maxDepth, validatorFor })
     } catch (error) {
+      if (error instanceof FlowGraphValidatorsError) {
+        throw error
+      }
+
       const root = (runState as { frames?: Array<{ flow?: { id?: unknown } }> } | undefined)
         ?.frames?.[0]?.flow?.id
 
@@ -207,6 +225,10 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
       try {
         definitions.push(preparePinned({ value, pin: frame.flow, check }).definition)
       } catch (error) {
+        if (error instanceof FlowGraphValidatorsError) {
+          throw error
+        }
+
         if (error instanceof FlowVersionMismatchError) {
           logError('Flow version mismatch', { 'flow.id': frame.flow.id, code: 'version_mismatch' })
 
@@ -286,6 +308,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   }
 
   function start(params: StartParams): FlowRun {
+    assertValidators()
+
     const { definition, pin, local } = snapshot(params.definition)
     const referencing = hasReferences(definition)
 
@@ -340,6 +364,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   }
 
   function resume(params: ResumeParams): FlowRun {
+    assertValidators()
+
     const resolver = requireResolver('resume')
 
     validateShape(params.runState)
@@ -366,6 +392,8 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   }
 
   function recover(params: RecoverParams): FlowRun {
+    assertValidators()
+
     const resolver = requireResolver('recover')
 
     validateShape(params.runState)
@@ -415,13 +443,48 @@ export function createFlowGraph(options: FlowGraphOptions = {}): FlowGraph {
   return {
     authoringSchema,
     runStateSchema,
-    check,
-    checkFlows: (definition) =>
-      checkFlows({ definition, check, checkReference: checkCallee, resolver: flowResolver, kinds }),
+    check: (definition) => {
+      assertValidators()
+
+      return check(definition)
+    },
+    checkFlows: async (definition) => {
+      assertValidators()
+
+      return await checkFlows({
+        definition,
+        check,
+        checkReference: checkCallee,
+        resolver: flowResolver,
+        kinds,
+      })
+    },
     start,
     resume,
     recover,
     run,
+  }
+}
+
+/**
+ * Route compiles when a host cache is injected: loose internal compiles (`strict: false`) go to a
+ * private bounded cache, data schemas to the host cache.
+ */
+function createValidatorRouter(
+  validators: ValidatorCache,
+): (schema: Schema, strict?: boolean) => Validator<unknown> {
+  const loose = createValidatorCache({ factory: { strict: false } })
+
+  return (schema, strict) => {
+    if (strict === false) {
+      return loose.get(schema)
+    }
+
+    if (validators.disposed) {
+      throw new FlowGraphValidatorsError()
+    }
+
+    return validators.get(schema)
   }
 }
 

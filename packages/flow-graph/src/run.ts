@@ -358,6 +358,21 @@ export class FlowRunner {
     }
   }
 
+  /**
+   * Stop the segment without committing, like a process interruption: close the failed node span
+   * and mark the segment with the error type, then rethrow. The committed state stays as it was.
+   */
+  interrupt(error: Error): never {
+    this.closeFailedSpan((span) => {
+      span?.setStatus({ code: SpanStatusCode.ERROR })
+    })
+
+    this.#segment.setStatus({ code: SpanStatusCode.ERROR })
+    this.#segment.setAttribute('error.type', error.name)
+
+    throw error
+  }
+
   status(next: RunState): void {
     if (this.#segmentEnded) {
       return

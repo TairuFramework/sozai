@@ -9,7 +9,7 @@
 | `Validator` | type | Validator function type |
 | `ValidatorFactory` | type | Isolated validator factory with `createValidator`, `compiled`, `dispose` |
 | `ValidatorFactoryOptions` | type | Factory options: `draft`, `strict`, `logger` (`false` silences AJV warnings) |
-| `ValidatorCache` | type | Bounded validator cache with `get`, `stats`, `clear`, `dispose` |
+| `ValidatorCache` | type | Bounded validator cache with `get`, `stats`, `clear`, `dispose`, `disposed` |
 | `ValidatorCacheOptions` | type | Cache options: `factory`, `maxCompiles` (default 256), `maxEntries` (default 64) |
 | `ValidatorCacheStats` | type | `generation`, `compiles`, `entries` |
 | `ValidatorLogger` | type | Logger receiving AJV warnings |
@@ -102,6 +102,7 @@ const cache = createValidatorCache({
 const validate = cache.get(toolInputSchema) // throws the compile error if the schema is invalid
 cache.stats() // { generation, compiles, entries }
 cache.dispose() // later get() calls throw
+cache.disposed // true
 ```
 
 For finer control, `createValidatorFactory()` gives one isolated instance with `compiled` and

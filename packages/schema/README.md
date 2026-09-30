@@ -46,7 +46,7 @@ if (result instanceof ValidationError) {
 
 For schemas that arrive at runtime, `createValidatorFactory()` owns an isolated AJV instance: `dispose()` drops the instance and every validator it memoised, which the shared instances behind `createValidator` keep for the life of the process. Validators already returned keep working and keep the instance alive until they are dropped too.
 
-`createValidatorCache()` builds on it: a bounded LRU of validators over factories that are disposed and replaced after `maxCompiles` distinct compiles. Schemas equal up to key order share one compile, and a failed compile is cached.
+`createValidatorCache()` builds on it: a bounded LRU of validators over factories that are disposed and replaced after `maxCompiles` distinct compiles. Schemas equal up to key order share one compile, and a failed compile is cached. `dispose()` is terminal: later `get` calls throw, and `disposed` reports it.
 
 ```ts
 import { createValidatorCache } from '@sozai/schema'

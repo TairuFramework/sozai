@@ -155,6 +155,17 @@ describe('createValidatorCache()', () => {
     expect(() => cache.get(str)).toThrow('Validator cache is disposed')
   })
 
+  test('disposed reflects lifecycle', () => {
+    const cache = createValidatorCache()
+    expect(cache.disposed).toBe(false)
+    cache.clear()
+    expect(cache.disposed).toBe(false)
+    cache.dispose()
+    expect(cache.disposed).toBe(true)
+    cache.dispose()
+    expect(cache.disposed).toBe(true)
+  })
+
   test('rejects non-JSON schemas', () => {
     const cache = createValidatorCache()
     expect(() =>

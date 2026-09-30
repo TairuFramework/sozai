@@ -51,6 +51,8 @@ export type ValidatorCache = {
   clear: () => void
   /** Clear the cache and make later `get` calls throw. Idempotent. */
   dispose: () => void
+  /** `true` once `dispose()` has been called. */
+  readonly disposed: boolean
 }
 
 function assertBound(name: string, value: number): void {
@@ -148,6 +150,10 @@ export function createValidatorCache(options: ValidatorCacheOptions = {}): Valid
       reset()
       generation = 0
       disposed = true
+    },
+
+    get disposed() {
+      return disposed
     },
   }
 }

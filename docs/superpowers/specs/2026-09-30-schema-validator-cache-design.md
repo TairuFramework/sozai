@@ -51,7 +51,10 @@ but the factory would return the validator compiled from the object's old shape 
 under the new key (reproduced: a mutated `{ type: 'string' }` kept accepting strings). On a miss
 the cache compiles `JSON.parse(key)` instead, a fresh object that no caller holds. The key is
 already the canonical JSON, so the snapshot costs one parse per miss, and a validator can never
-disagree with its key.
+disagree with its key. Two effects are visible to callers and are documented: a
+`ValidationError`'s `schema` is the snapshot, not the caller's object, and its issues follow the
+snapshot's sorted key order (with `properties` declared `z, a`, issues come as `/a`, then `/z`).
+Both are deterministic, whichever of two key-reordered schemas arrived first.
 
 **Compile errors are always cached.** The request proposed a `cacheErrors` option. Both mokei
 copies always cache, and with the option off a broken schema would be recompiled on every call
@@ -120,7 +123,7 @@ export type ValidatorCacheStats = {
 }
 
 export type ValidatorCache = {
-  get: <S extends Schema, T = FromSchema<S>>(schema: S) => Validator<T>
+  get: <TSchema extends Schema, TValue = FromSchema<TSchema>>(schema: TSchema) => Validator<TValue>
   stats: () => ValidatorCacheStats
   clear: () => void
   dispose: () => void
@@ -129,8 +132,9 @@ export type ValidatorCache = {
 export function createValidatorCache(options?: ValidatorCacheOptions): ValidatorCache
 ```
 
-`get` has the same generic signature as `ValidatorFactory.createValidator`, so a literal schema
-still infers its type.
+`get` infers its type the same way as `ValidatorFactory.createValidator`, so a literal schema
+still infers its type. Its type parameters use descriptive names, as the conventions require for
+new code; the existing `S` and `T` elsewhere in the package are left alone.
 
 `packages/schema/package.json` adds `"@sozai/json": "workspace:^"` to `dependencies`.
 
@@ -185,7 +189,9 @@ In `packages/schema/src/validation.ts`:
   pair; the exact internal shape is left to the implementation.
 - `compileValidator` takes the baseline and runs these steps:
   1. **Reserved `$id` guard, before compiling.** If the schema is an object with a string `$id`,
-     normalise it by removing one trailing `#` (as AJV does). If the result is in the baseline,
+     normalise it as AJV's `normalizeId` does: remove one trailing `#` or `#/` (the regular
+     expression `/#\/?$/`). AJV normalises a root `$id` with `normalizeId` only; `resolveUrl`
+     applies to nested ids, which the key cleanup already covers. If the result is in the baseline,
      throw `Error('Schema $id <id> is reserved')` without compiling. Without this guard, AJV throws
      "already exists" and the cleanup below would then delete the meta-schema it collided with,
      since `removeSchema(object)` removes by normalised `$id` (reproduced on both dialects).
@@ -210,15 +216,23 @@ This applies to both `createValidator` (shared instances) and
 - `packages/schema/README.md`: correct the `createValidatorFactory` paragraph, which says
   `dispose()` releases every compiled validator; validators already returned keep working and keep
   the instance alive. Then add a short example of `createValidatorCache`, the self-contained-schema
-  rule, and the consumer guidance below.
+  rule, and the consumer guidance below. The cache example also states: a validator validates a
+  snapshot of the schema, so `ValidationError.schema` is that snapshot and issues follow sorted
+  key order; a root `$id` equal to a meta-schema id is rejected as reserved; a boolean schema
+  (cast to `Schema`) is accepted by `createValidator`, the factory and the cache.
 - `plugins/sozai/skills/validation/reference/schema.md`: add `createValidatorCache`,
   `ValidatorCache`, `ValidatorCacheOptions` and `ValidatorCacheStats` to the exports table.
-  Replace the hand-written recycling example under "Runtime schemas" with the cache.
+  Replace the hand-written recycling example under "Runtime schemas" with the cache, and add the
+  same three notes as the README.
 - `plugins/sozai/skills/validation/SKILL.md`: the closing note says nothing in the repo depends
   on `@sozai/schema` or `@sozai/json` besides `codec`, which is already stale. Rewrite it: `codec`,
   `flow-graph` and `schema` depend on `@sozai/json`; `flow`, `flow-graph` and `patch` depend on
   `@sozai/schema`.
-- A `pnpm change` entry: minor for `@sozai/schema`, naming both the cache and the `$id` fix.
+- A `pnpm change` entry: minor for `@sozai/schema`, listing each user-visible change: the new
+  `createValidatorCache`; a failed compile or a nested `$id` no longer blocks a later schema
+  with the same `$id`, on `createValidator` and the factory; a root `$id` equal to a meta-schema
+  id now throws `Schema $id <id> is reserved` instead of AJV's "already exists"; a boolean schema
+  no longer throws `Invalid value used as weak map key`.
 
 Consumer guidance, for the README and the reference:
 
@@ -257,6 +271,8 @@ New:
   `stats()` is unchanged;
 - a literal schema passed to `get` infers its type (type test, `expectTypeOf`);
 - a schema with a property set to `undefined` throws `TypeError`, and `stats()` is unchanged;
+- a failing validator's `ValidationError.schema` is the snapshot (equal to, not the same object
+  as, the input), and with `properties` declared `z, a` its issues come as `/a`, then `/z`;
 - mutating one schema object between two `get` calls (`type: 'string'` to `type: 'number'`)
   returns a validator for each shape: the second accepts numbers and rejects strings;
 - `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
@@ -275,14 +291,20 @@ shared instances live for the whole test file):
   draft 07 and draft 2020-12;
 - on draft 2020-12, a schema using `$dynamicRef` with a matching `$dynamicAnchor` compiles, and a
   second one compiles after it (cast, as for `prefixItems`);
-- a `$id` equal to the dialect's meta-schema id, with and without a trailing `#`, throws the
-  reserved-`$id` error, and a later schema declaring that `$schema` still compiles; on draft 07
-  and draft 2020-12;
+- a `$id` equal to a baseline meta-schema id, bare, with a trailing `#` and with a trailing `#/`,
+  including a 2020-12 vocabulary id such as `https://json-schema.org/draft/2020-12/meta/core`,
+  throws the reserved-`$id` error, and a later schema declaring that `$schema` still compiles;
+  on draft 07 and draft 2020-12;
 - a boolean `false` schema (cast) compiles, rejects every value, and a later compile still works;
   through the factory, `compiled` counts each such compile;
 - a validator compiled before a later compile still validates, both accepting and rejecting.
 
 ## Out of scope
+
+- Boolean schemas in `toStandardValidator` and `createStandardValidator`. Their JSON Schema
+  converter returns the schema as given, so a cast boolean comes back as `true` or `false`
+  although the declared return type is `Record<string, unknown>`. `Schema` excludes booleans, so
+  only a cast reaches this, and it is unchanged by this work.
 
 - A validator-factory option in `FlowGraphOptions` for `@sozai/flow-graph`, so the graph's own
   compiles can use a recycled cache. Separate request.

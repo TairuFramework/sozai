@@ -6,6 +6,10 @@
   dir: packages/codec
   intents:
     - codec-strict-base64
+"@sozai/flow-graph@0.2.0":
+  dir: packages/flow-graph
+  intents:
+    - flow-graph-references
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:

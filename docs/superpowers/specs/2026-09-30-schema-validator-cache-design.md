@@ -62,7 +62,7 @@ as `Schema` can therefore share a key with a schema that compiles differently. `
 checks the value with `isJSONValue` first and throws a `TypeError` otherwise, so every key maps to
 exactly one compiled shape.
 
-**Schemas are self-contained; each compile starts from an empty registry.** AJV registers every
+**Schemas are self-contained; each compile leaves the registry as it found it.** AJV registers every
 `$id` it meets, nested ones included, and keeps them after the compile. `compileValidator` only
 removes the root `$id` after a successful compile. Two consequences, both reproduced: a failed
 compile with `$id: "x"` makes every later compile of a schema with `$id: "x"` fail with "already
@@ -70,12 +70,19 @@ exists", and the cache would store that spurious error; two distinct schemas sha
 `$id` cannot both compile on one factory. The shared, process-wide instances behind
 `createValidator` have the same defect, and there it lasts for the life of the process. The fix
 is in `compileValidator`, which both paths use, not in the cache: after every compile, success or
-failure, call `ajv.removeSchema()` with no argument. That drops every non-meta schema and ref and
-AJV's compile cache, and leaves meta-schemas, formats and validators already compiled working.
-Neither path exposes its AJV instance (`getAjv` is module-private, the factory has no
+failure, remove everything the compile registered. Each AJV instance records its baseline keys
+(the keys of `ajv.schemas` and `ajv.refs`) right after creation, once `ajv-formats` is added.
+After a compile, `ajv.removeSchema(schema)` drops the schema's own entry from AJV's compile cache,
+and `ajv.removeSchema(key)` drops every key not in the baseline. A no-argument `removeSchema()` is
+not usable: it also deletes the string alias `http://json-schema.org/schema` that AJV registers
+for its default meta-schema, so the second schema declaring that `$schema` fails with `no schema
+with key or ref`. A probe with AJV 8.20.0, on both `Ajv` and `Ajv2020`, confirmed that the
+baseline cleanup keeps the alias, lets a nested `$id` be reused, cleans up after a failed compile,
+keeps a root `$id` with a `$ref` to itself working, and returns AJV's compile cache to its
+starting size. Formats and validators already compiled keep working. Neither path exposes its AJV instance (`getAjv` is module-private, the factory has no
 `addSchema`), so no caller could rely on cross-schema `$ref`; the change makes that explicit.
 `$ref` to a location inside the same schema is unaffected. Dropping AJV's compile cache costs
-nothing: both paths memoize validators per schema object themselves.
+nothing: both paths memoise validators per schema object themselves.
 
 ## API
 
@@ -123,8 +130,10 @@ still infers its type.
 **`get(schema)`:**
 
 1. If the cache is disposed, throw `Error('Validator cache is disposed')`.
-2. Compute the key with `canonicalizeJSON(schema)`. A value that is not plain JSON makes it throw a
-   `TypeError`; nothing is cached or counted.
+2. Compute the key with `canonicalizeJSON(schema as unknown as JSONValue)`. The cast is needed
+   because `Schema` (readonly arrays among others) is not assignable to `JSONValue`, and it is
+   safe because `canonicalizeJSON` checks the value at runtime. A value that is not plain JSON
+   makes it throw a `TypeError`; nothing is cached or counted.
 3. **Hit.** Delete and re-insert the key, moving it to the most recent position. If the entry is
    an `Error`, throw it; otherwise return the validator. A hit never recycles the factory.
 4. **Miss.**
@@ -156,11 +165,20 @@ instance alive until the validator itself is collected.
 
 ## Change to `compileValidator`
 
-In `packages/schema/src/validation.ts`, `compileValidator` wraps `ajv.compile(schema)` in
-`try/finally` and calls `ajv.removeSchema()` (no argument) in the `finally`, replacing the current
-guarded `removeSchema(schema.$id)` after a successful compile. The comment above it changes to
-say why: every compile starts from an empty registry, so a failed compile or a nested `$id` cannot
-block a later schema. This applies to both `createValidator` (shared instances) and
+In `packages/schema/src/validation.ts`:
+
+- `createAjv` records the instance's baseline keys (`ajv.schemas` and `ajv.refs`) after adding
+  formats, and returns them with the instance. The shared-instance map and the factory keep the
+  pair; the exact internal shape is left to the implementation.
+- `compileValidator` takes the baseline, wraps `ajv.compile(schema)` in `try/finally`, and in the
+  `finally` calls `ajv.removeSchema(schema)`, then `ajv.removeSchema(key)` for every key of
+  `ajv.schemas` and `ajv.refs` not in the baseline. This replaces the current guarded
+  `removeSchema(schema.$id)` after a successful compile.
+- The comment above the cleanup says why: a compile must not leave anything registered, so a
+  failed compile or a nested `$id` cannot block a later schema; the baseline, not a no-argument
+  `removeSchema()`, keeps AJV's meta-schema alias.
+
+This applies to both `createValidator` (shared instances) and
 `createValidatorFactory`. It is a bug fix released in the same minor as the cache.
 
 ## Documentation
@@ -213,8 +231,8 @@ New:
   `clear()` do not throw, and `get` still throws;
 - a value that is not plain JSON (an object with a `toJSON` method) throws `TypeError`, and
   `stats()` is unchanged;
-- a literal schema passed to `get` infers its type (type test, `expectTypeOf`).
-
+- a literal schema passed to `get` infers its type (type test, `expectTypeOf`);
+- a schema with a property set to `undefined` throws `TypeError`, and `stats()` is unchanged;
 - `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
 
 In `packages/schema/test/lib.test.ts`, for the `compileValidator` change, each case run through
@@ -225,6 +243,12 @@ shared instances live for the whole test file):
 - two distinct schemas with the same nested `$id` both compile, and each validator checks its own
   shape;
 - a schema with an internal `$ref` to its own `definitions` still compiles and validates;
+- a schema with a root `$id` and a `$ref` to that `$id` (a recursive schema) compiles and
+  validates nested data;
+- two successive schemas declaring `$schema: 'http://json-schema.org/schema'` both compile, on
+  draft 07 and draft 2020-12;
+- on draft 2020-12, a schema using `$dynamicRef` with a matching `$dynamicAnchor` compiles, and a
+  second one compiles after it (cast, as for `prefixItems`);
 - a validator compiled before a later compile still validates, both accepting and rejecting.
 
 ## Out of scope

@@ -40,10 +40,18 @@ fast non-cryptographic hash can collide, and a collision would validate data aga
 schema; tool schemas come from MCP servers, so a collision can be crafted. Guarding against it
 means keeping the full key anyway.
 
-**No identity fast path.** `canonicalize` runs on every `get`, hits included. A
+**No identity fast path.** `canonicalizeJSON` runs on every `get`, hits included. A
 `WeakMap<Schema, string>` would skip it for a repeated schema object, but both known consumers
 build a fresh schema object per request, and the fast path would bring back the
 mutated-after-first-use caveat of `createValidator`. It can be added later without an API change.
+
+**The cache compiles a snapshot, not the caller's object.** `createValidatorFactory` memoises
+per schema object. A caller that mutates a schema object between two `get` calls gets a new key,
+but the factory would return the validator compiled from the object's old shape and store it
+under the new key (reproduced: a mutated `{ type: 'string' }` kept accepting strings). On a miss
+the cache compiles `JSON.parse(key)` instead, a fresh object that no caller holds. The key is
+already the canonical JSON, so the snapshot costs one parse per miss, and a validator can never
+disagree with its key.
 
 **Compile errors are always cached.** The request proposed a `cacheErrors` option. Both mokei
 copies always cache, and with the option off a broken schema would be recompiled on every call
@@ -54,7 +62,11 @@ break anything.
 `dispose()` resets it and makes later `get` calls throw. Both are idempotent.
 
 **Input is `Schema` only**, as for the factory. A boolean schema (host-desktop compiles `false`)
-still needs a cast at the call site, as it does today.
+still needs a cast at the call site, as it does today. A cast boolean schema currently fails:
+both `createValidator` and the factory memoise in a `WeakMap`, and `WeakMap.set(false, ...)`
+throws `Invalid value used as weak map key` after the compile (reproduced on the factory). So
+host-desktop caches that error for its `false` schema today. Both paths skip memoisation for a
+non-object schema, which is cheap to recompile; the `Schema` type is unchanged.
 
 **The key comes from `canonicalizeJSON`, not `canonicalize`.** `canonicalize` follows
 `JSON.stringify`: it honours `toJSON`, drops `undefined`, and can return `undefined`. A value typed
@@ -141,7 +153,8 @@ still infers its type.
       factory, drop the reference, clear the LRU, set `compiles` to 0 and increment `generation`.
    2. If no factory exists, create one with `createValidatorFactory(options.factory)`. The
       factory is therefore created on the first miss, never at construction.
-   3. Compile with `factory.createValidator(schema)` inside `try/catch`. A thrown `Error` becomes
+   3. Compile with `factory.createValidator(JSON.parse(key) as Schema)` inside `try/catch`, never
+      the caller's object (see the snapshot decision above). A thrown `Error` becomes
       the entry; any other thrown value is wrapped as `new Error(String(value))`. `compiles`
       increments whether the compile succeeded or failed, since AJV can grow its scope on a
       failed compile too.
@@ -170,10 +183,21 @@ In `packages/schema/src/validation.ts`:
 - `createAjv` records the instance's baseline keys (`ajv.schemas` and `ajv.refs`) after adding
   formats, and returns them with the instance. The shared-instance map and the factory keep the
   pair; the exact internal shape is left to the implementation.
-- `compileValidator` takes the baseline, wraps `ajv.compile(schema)` in `try/finally`, and in the
-  `finally` calls `ajv.removeSchema(schema)`, then `ajv.removeSchema(key)` for every key of
-  `ajv.schemas` and `ajv.refs` not in the baseline. This replaces the current guarded
-  `removeSchema(schema.$id)` after a successful compile.
+- `compileValidator` takes the baseline and runs these steps:
+  1. **Reserved `$id` guard, before compiling.** If the schema is an object with a string `$id`,
+     normalise it by removing one trailing `#` (as AJV does). If the result is in the baseline,
+     throw `Error('Schema $id <id> is reserved')` without compiling. Without this guard, AJV throws
+     "already exists" and the cleanup below would then delete the meta-schema it collided with,
+     since `removeSchema(object)` removes by normalised `$id` (reproduced on both dialects).
+  2. Wrap `ajv.compile(schema)` in `try/finally`. In the `finally`:
+     1. if the schema is an object, call `ajv.removeSchema(schema)`, which drops its entry from
+        AJV's compile cache; a boolean schema is skipped, because `removeSchema(false)` throws
+        `ajv.removeSchema: invalid parameter`, which would replace a successful result;
+     2. call `ajv.removeSchema(key)` for every key of `ajv.schemas` and `ajv.refs` not in the
+        baseline. For a boolean schema this also removes its compile-cache entry.
+  This replaces the current guarded `removeSchema(schema.$id)` after a successful compile.
+- `createValidator` and the factory's `createValidator` skip their `WeakMap` lookup and store
+  when the schema is not an object, so a cast boolean schema compiles instead of throwing.
 - The comment above the cleanup says why: a compile must not leave anything registered, so a
   failed compile or a nested `$id` cannot block a later schema; the baseline, not a no-argument
   `removeSchema()`, keeps AJV's meta-schema alias.
@@ -233,6 +257,8 @@ New:
   `stats()` is unchanged;
 - a literal schema passed to `get` infers its type (type test, `expectTypeOf`);
 - a schema with a property set to `undefined` throws `TypeError`, and `stats()` is unchanged;
+- mutating one schema object between two `get` calls (`type: 'string'` to `type: 'number'`)
+  returns a validator for each shape: the second accepts numbers and rejects strings;
 - `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
 
 In `packages/schema/test/lib.test.ts`, for the `compileValidator` change, each case run through
@@ -249,6 +275,11 @@ shared instances live for the whole test file):
   draft 07 and draft 2020-12;
 - on draft 2020-12, a schema using `$dynamicRef` with a matching `$dynamicAnchor` compiles, and a
   second one compiles after it (cast, as for `prefixItems`);
+- a `$id` equal to the dialect's meta-schema id, with and without a trailing `#`, throws the
+  reserved-`$id` error, and a later schema declaring that `$schema` still compiles; on draft 07
+  and draft 2020-12;
+- a boolean `false` schema (cast) compiles, rejects every value, and a later compile still works;
+  through the factory, `compiled` counts each such compile;
 - a validator compiled before a later compile still validates, both accepting and rejecting.
 
 ## Out of scope

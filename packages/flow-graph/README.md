@@ -215,7 +215,7 @@ const validateToolInput = validators.get(toolInputSchema)
 - **Dialect and strictness** come from the host's cache: a `2020-12` cache compiles flow authors' schemas as 2020-12, and a `strict: false` cache accepts unknown keywords that the default path reports as `invalid_schema`.
 - **Issue order**: both caches compile snapshots, so validation issues follow sorted key order, in `FlowInputError`, `FlowResumeError` and kind validation issues from `check`.
 - **Kind schemas must be plain JSON**: with `validators`, `createFlowGraph` throws `TypeError` `Kind <kind> schema is not JSON` for a registered kind whose schema is not (an `undefined` property, a `toJSON` method).
-- **Ownership**: the graph never clears or disposes `validators`. Once the host disposes it, `check`, `checkFlows`, `start`, `resume` and `recover` throw `FlowGraphValidatorsError`, and a run in progress rejects its iterator with it at the next data-schema compile: the node is neither failed nor retried, the segment span records `error.type`, and the last committed state stays `running`, ready for `recover` on a graph with a live cache.
+- **Ownership**: the graph never clears or disposes `validators`. Once the host disposes it, `check`, `checkFlows`, `start`, `resume` and `recover` throw `FlowGraphValidatorsError`, and a run in progress rejects its iterator with it at the next data-schema compile: the node is neither failed nor retried, the segment span records `error.type`, and nothing is committed. The last committed state is unchanged: a `running` state continues with `recover`, and a `suspended` state (an interrupted resume) with `resume` and the same event, on a graph with a live cache.
 
 ## Persistence and delivery
 

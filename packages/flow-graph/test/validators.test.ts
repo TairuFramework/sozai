@@ -337,6 +337,42 @@ describe('disposed host cache', () => {
     )
   })
 
+  test('interrupted resume segment keeps the suspended state', async () => {
+    let host = createValidatorCache()
+    let dispose = true
+    const kind = defineNodeKind<Step>({
+      ...stepKind(() => ({ suspend: { schema: { type: 'number' } } })),
+      resume: (node) => {
+        if (dispose) {
+          host.dispose()
+
+          return { suspend: { schema: { type: 'string' } } }
+        }
+
+        return { next: node.next }
+      },
+    })
+    const definition = stepFlow()
+    const resolver = createMapResolver([definition])
+    const graph = (validators: ValidatorCache) =>
+      createFlowGraph({ validators, kinds: [kind], resolver })
+    const event = { type: 'value', value: 1 } as const
+
+    const suspended = (await graph(host).run({ definition })).runState
+    const resumed = graph(host).resume({ runState: roundTrip(suspended), event })
+
+    await expect(drain(resumed)).rejects.toThrow(FlowGraphValidatorsError)
+    expect(resumed.getState()).toEqual(suspended)
+
+    host = createValidatorCache()
+    dispose = false
+
+    const retried = graph(host).resume({ runState: roundTrip(resumed.getState()), event })
+    await drain(retried)
+
+    expect(retried.getState().status).toBe('ended')
+  })
+
   test('abort wins', async () => {
     const host = createValidatorCache()
     const controller = new AbortController()

@@ -21,8 +21,12 @@ export {
   asType,
   createStandardValidator,
   createValidator,
+  createValidatorFactory,
   isType,
   toStandardValidator,
   type Validator,
+  type ValidatorFactory,
+  type ValidatorFactoryOptions,
+  type ValidatorLogger,
   type ValidatorOptions,
 } from './validation.js'

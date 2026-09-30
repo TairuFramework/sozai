@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import {
   assertType,
   asType,
   createStandardValidator,
   createValidator,
+  createValidatorFactory,
   isType,
+  type Schema,
   toStandardValidator,
   ValidationError,
   ValidationErrorObject,
@@ -483,5 +485,109 @@ describe('JSON Schema 2020-12 support', () => {
     const bad = standard['~standard'].validate(['x'])
     expect(ok).toEqual({ value: [1] })
     expect(bad).toBeInstanceOf(ValidationError)
+  })
+})
+
+describe('createValidatorFactory()', () => {
+  const objectSchema = (id?: string): Schema => ({
+    ...(id != null && { $id: id }),
+    type: 'object',
+    properties: { name: { type: 'string' } },
+    required: ['name'],
+  })
+
+  test('creates validators on its own instance', () => {
+    const factory = createValidatorFactory()
+    const validator = factory.createValidator(objectSchema())
+
+    expect(validator({ name: 'a' })).toEqual({ value: { name: 'a' } })
+    expect(validator({})).toBeInstanceOf(ValidationError)
+  })
+
+  test('applies the draft option', () => {
+    const factory = createValidatorFactory({ draft: '2020-12' })
+    const validator = factory.createValidator({
+      type: 'array',
+      prefixItems: [{ type: 'number' }],
+      items: false,
+    })
+
+    expect(validator([1])).toEqual({ value: [1] })
+    expect(validator([1, 2])).toBeInstanceOf(ValidationError)
+  })
+
+  test('applies the strict option', () => {
+    const schema = { type: 'object', unknownKeyword: true } as never
+
+    expect(() => createValidatorFactory().createValidator(schema)).toThrow()
+    expect(() => createValidatorFactory({ strict: false }).createValidator(schema)).not.toThrow()
+  })
+
+  test('shares no schemas with the default instance or other factories', () => {
+    const schema = { $id: 'factory-isolated', type: 'string', format: 'email' } as const
+    const first = createValidatorFactory()
+    const second = createValidatorFactory()
+
+    expect(isType(createValidator(schema), 'a@b.co')).toBe(true)
+    expect(isType(first.createValidator({ ...schema }), 'a@b.co')).toBe(true)
+    expect(isType(second.createValidator({ ...schema }), 'nope')).toBe(false)
+  })
+
+  test('counts compiles, not memoized lookups', () => {
+    const factory = createValidatorFactory()
+    const schema = objectSchema()
+
+    expect(factory.compiled).toBe(0)
+    const validator = factory.createValidator(schema)
+    expect(factory.createValidator(schema)).toBe(validator)
+    expect(factory.compiled).toBe(1)
+    factory.createValidator(objectSchema())
+    expect(factory.compiled).toBe(2)
+  })
+
+  test('compiles distinct schemas that reuse an $id', () => {
+    const factory = createValidatorFactory()
+    const first = factory.createValidator(objectSchema('form'))
+    const second = factory.createValidator({ $id: 'form', type: 'number' })
+
+    expect(isType(first, { name: 'a' })).toBe(true)
+    expect(isType(second, 1)).toBe(true)
+  })
+
+  test('dispose rejects new compiles and keeps existing validators working', () => {
+    const factory = createValidatorFactory()
+    const validator = factory.createValidator(objectSchema())
+
+    factory.dispose()
+    factory.dispose()
+
+    expect(() => factory.createValidator(objectSchema())).toThrow('disposed')
+    expect(validator({ name: 'a' })).toEqual({ value: { name: 'a' } })
+  })
+
+  test('logger false silences unknown format warnings', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const schema = () => ({ type: 'string', format: 'not-a-format' }) as never
+
+    try {
+      createValidatorFactory({ strict: false, logger: false }).createValidator(schema())
+      expect(warn).not.toHaveBeenCalled()
+
+      createValidatorFactory({ strict: false }).createValidator(schema())
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test('routes warnings to a custom logger', () => {
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() }
+
+    createValidatorFactory({ strict: false, logger }).createValidator({
+      type: 'string',
+      format: 'not-a-format',
+    } as never)
+
+    expect(logger.warn).toHaveBeenCalled()
   })
 })

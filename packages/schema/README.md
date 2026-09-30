@@ -44,4 +44,6 @@ if (result instanceof ValidationError) {
 }
 ```
 
+For schemas that arrive at runtime, `createValidatorFactory()` owns an isolated AJV instance: `dispose()` releases every validator it compiled, which the shared instances behind `createValidator` keep for the life of the process.
+
 Also provides `assertType`, `asType`, `createStandardValidator`, `resolveSchema`, and more — see [the schema reference](../../plugins/sozai/skills/validation/reference/schema.md) (part of the `sozai:validation` skill) for the full API.

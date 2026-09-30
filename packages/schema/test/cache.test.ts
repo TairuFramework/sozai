@@ -107,6 +107,9 @@ describe('createValidatorCache()', () => {
     const second = catchError(() => cache.get(broken))
     expect(second).not.toBe(first)
     expect(cache.stats()).toEqual({ generation: 2, compiles: 1, entries: 1 })
+    const third = catchError(() => cache.get(broken))
+    expect(third).toBe(second)
+    expect(cache.stats().compiles).toBe(1)
   })
 
   test('passes factory options', () => {

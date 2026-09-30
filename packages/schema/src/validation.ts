@@ -160,8 +160,8 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
 
 /**
  * Create a validator factory with its own AJV instance, shared with nothing else. Use it for
- * schemas that arrive at runtime: disposing the factory releases every compiled validator, which
- * the shared instances behind `createValidator` retain for the life of the process.
+ * schemas that arrive at runtime: `dispose()` drops the AJV instance and every validator it
+ * memoised, but validators already returned keep working and keep the instance alive.
  */
 export function createValidatorFactory(options?: ValidatorFactoryOptions): ValidatorFactory {
   let context: AjvContext | null = createAjv({

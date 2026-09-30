@@ -690,6 +690,7 @@ describe.each(compilerMakers)('compile registry cleanup (%s)', (pathName, makeCo
   describe('reserved $id', () => {
     const cases: Array<['07' | '2020-12', string]> = [
       ['07', 'http://json-schema.org/draft-07/schema'],
+      ['07', 'http://json-schema.org/schema'],
       ['2020-12', 'https://json-schema.org/draft/2020-12/schema'],
       ['2020-12', 'https://json-schema.org/draft/2020-12/meta/core'],
     ]

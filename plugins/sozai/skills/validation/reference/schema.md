@@ -86,6 +86,13 @@ errors, and disposes and replaces the factory after `maxCompiles` distinct compi
 ```typescript
 import { createValidatorCache } from '@sozai/schema'
 
+const toolInputSchema = {
+  type: 'object',
+  properties: { input: { type: 'string' } },
+  required: ['input'],
+  additionalProperties: false,
+} as const
+
 const cache = createValidatorCache({
   factory: { draft: '2020-12', strict: false, logger: false },
   maxCompiles: 256, // distinct compiles per factory before it is replaced

@@ -5,8 +5,8 @@
 **Packages:** `@sozai/schema` (minor intent, from 0.1.3), gains a dependency on `@sozai/json`
 **Requested by:** mokei (`@mokei/decision-flow-server` and `@mokei/host-desktop`)
 
-Design: [spec](../../../superpowers/specs/2026-09-30-schema-validator-cache-design.md). The backlog
-request was superseded by the spec and removed earlier (moved to `docs/superpowers/specs`).
+The mokei backlog request became the design spec, and a separate backlog item for the
+shared-instance `$id` leak was folded into this work; both are replaced by this summary.
 
 ## Why
 
@@ -16,8 +16,8 @@ isolated instance; the cache belongs next to it.
 
 ## Key design decisions
 
-**Lives in `@sozai/schema`.** About 100 lines of source; the cost is the first `@sozai` dependency
-of `schema` (`@sozai/json`, dependency-free).
+**Lives in `@sozai/schema`.** About 150 lines of source with doc comments; the cost is the first
+`@sozai` dependency of `schema` (`@sozai/json`, dependency-free).
 
 **A closure over a `Map` used as the LRU.** A hit deletes and re-inserts its key; eviction removes
 the first key. Built only on the public factory API.

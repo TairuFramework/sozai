@@ -67,6 +67,10 @@ frame replacement it triggers draws none, and neither do push, pop and unwind.
 **Unconstrained result paths.** `true`, annotation-only schemas and `additionalProperties: true`
 accept any remaining path; local `$ref`s are followed; `anyOf`/`oneOf` are not walked.
 
+**Strict-clean authoring schema.** Filter operators use `anyOf` instead of union `type` arrays, so the
+built-in authoring schema compiles under default Ajv strict mode without warnings (requested by
+mokei). Result schemas compile without strict mode because they only describe readable paths.
+
 **checkFlows.** Async preflight over the resolved flow set: `missing_flow`, `unbounded_cycle`,
 `recursive_call`, `input_mismatch`, `invalid_result_path` (also through unversioned references,
 against the version resolved at check time) and `unversioned_reference`. `start` runs it lazily on

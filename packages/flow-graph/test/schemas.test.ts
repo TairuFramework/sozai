@@ -124,3 +124,16 @@ test('a suspend schema compiles once across suspend and a round-tripped resume',
   expect(resumed.getState().status).toBe('ended')
   expect(compiles()).toBe(1)
 })
+
+test('authoring schema compiles under default strict mode without warnings', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const strictGraph = createFlowGraph({ actions: { ok: async () => 1 } })
+
+  const validate = createValidator(strictGraph.authoringSchema)
+
+  expect(validate(base)).toEqual({ value: base })
+  expect(warn).not.toHaveBeenCalled()
+  expect(log).not.toHaveBeenCalled()
+  expect(console.error).not.toHaveBeenCalled()
+})

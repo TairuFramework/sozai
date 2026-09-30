@@ -1,5 +1,5 @@
 import type { Schema } from '@sozai/schema'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 
 import { checkDefinition, createFlowGraph, defineNodeKind, formatIssues } from '../src/index.js'
 import { failedIssues, passedWarnings, reportedIssues } from './check-result.js'
@@ -273,4 +273,16 @@ test('properties without type and patternProperties still constrain', () => {
 
 test('unresolvable $ref fails the path', () => {
   expect(resultPathCodes({ $ref: '#/definitions/missing' }, ['a'])).toContain('invalid_result_path')
+})
+
+test('path-only result schemas compile without strict mode warnings', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+  expect(
+    resultPathCodes({ properties: { a: { additionalProperties: { properties: {} } } } }, [
+      'a',
+      'b',
+    ]),
+  ).not.toContain('invalid_schema')
+  expect(warn).not.toHaveBeenCalled()
 })

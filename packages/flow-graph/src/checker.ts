@@ -508,7 +508,8 @@ function checkNodeSchemas(params: CheckNodeSchemasParams): void {
         properties?: Record<string, unknown>
       }
 
-      validatorFor(resultSchema)
+      // Result schemas only describe readable paths; path-only shapes need not be strict.
+      validatorFor(resultSchema, false)
 
       if (resultSchema.properties?.error) {
         issues.push(

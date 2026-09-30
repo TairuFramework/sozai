@@ -44,7 +44,7 @@ for await (const commit of resumed) {
 console.log(resumed.getState().output)
 ```
 
-`graph.authoringSchema` describes executable definitions, including stored ones, for editors and model generation.
+`graph.authoringSchema` describes executable definitions, including stored ones, for editors and model generation. Its built-in parts compile under Ajv strict mode, so `createValidator(graph.authoringSchema)` needs no `{ strict: false }` unless a custom kind schema is not strict-clean.
 
 `graph.check()` is synchronous and local. It reports repairable issues with a code, path, hint, and severity. `formatIssues()` turns them into compact text. `graph.check()` and `graph.checkFlows()` return a `FlowCheckResult` in Standard Schema result shape: `{ value, warnings }` with the checked definition when no issue is an error, otherwise `{ issues }` with every issue, warnings included. Test `result.issues` to tell them apart. Definition digests hash the canonical JSON produced by `@sozai/json`.
 
@@ -186,7 +186,7 @@ A `NodeKind` with `terminal: true` may return `end`, and the checker treats its 
 
 ### Unconstrained result schemas
 
-A `resultSchema` path check accepts any remaining path below `true`, a schema with only annotation keywords (`{}`, `{ description }`), or `additionalProperties: true`. Local `$ref`s are followed. Keywords such as `properties`, `patternProperties` and `anyOf` constrain. An absent `additionalProperties` stays strict.
+A `resultSchema` path check accepts any remaining path below `true`, a schema with only annotation keywords (`{}`, `{ description }`), or `additionalProperties: true`. Local `$ref`s are followed. Keywords such as `properties`, `patternProperties` and `anyOf` constrain. An absent `additionalProperties` stays strict. Result schemas compile without Ajv strict mode, so path-only shapes such as `properties` without `type` are fine.
 
 ## Input decline
 

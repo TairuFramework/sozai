@@ -95,8 +95,10 @@ export type ExecuteContext = {
 /** Schema and behaviour for one executable node kind. */
 export type NodeKind<Node extends { kind: string } = FlowNode> = {
   kind: Node['kind']
+  /** Node schema, embedded in the authoring schema; keep it Ajv strict-clean (no union `type` arrays). */
   schema: Schema
   targets: (node: Node) => Array<{ path: Array<string | number>; id: string }>
+  /** Readable result paths; compiled without strict mode, so path-only schemas are fine. */
   resultSchema?: (node: Node) => Schema
   retries?: boolean
   /** Whether the kind may end the run; terminal kinds count as ends for reachability. */

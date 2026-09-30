@@ -1,10 +1,12 @@
 import { getRetryDelay, TimeoutInterruption } from '@sozai/async'
 import { SpanStatusCode } from '@sozai/otel'
 
-import { FlowNodeFailure } from './kinds.js'
+import { FlowNodeFailure } from './errors.js'
+import { nextInvocationID, top, topIndex } from './frames.js'
+import type { RetryDecision } from './retry-commits.js'
+import { callError, retryTiming, routeToOnError, scheduleRetry } from './retry-commits.js'
 import type { FlowRunner } from './run.js'
 import { clone, required, retryFailureReason, sanitize } from './run-utils.js'
-import { toTimestamp } from './time.js'
 import type {
   ErrorMetadata,
   FlowNode,
@@ -13,6 +15,7 @@ import type {
   RunError,
   RunState,
 } from './types.js'
+import { unwindFailure } from './unwind.js'
 
 export type FailureParams = {
   code: string
@@ -27,6 +30,8 @@ export type NodeFailParams = {
   kind: NodeKind
   reason: RunError['reason']
   meta: ErrorMetadata
+  /** The failure stops a retry scheduled by a callee failure; a `call` records `FlowCallError`. */
+  calleeRetry?: boolean
 }
 
 export type HandleNodeErrorParams = {
@@ -46,40 +51,42 @@ type RetryDecisionParams = {
   random?: () => number
 }
 
-type RetryDecision = {
-  delayMs: number
-  retryAt: number
-  terminalReason?: RunError['reason']
-}
+/** Reference failures of a `call`, `goto` or flow-body loop node; never retried. */
+const referenceFailureCodes = ['missing_flow', 'invalid_flow', 'max_depth', 'invalid_input']
 
-type ScheduleRetryParams = {
-  runner: FlowRunner
-  nodeID: string
-  kind: NodeKind
-  attempt: NodeAttempts
-  meta: ErrorMetadata
-  decision: RetryDecision
-}
+/** Whether a node references another flow: a `call`, a `goto` or a loop with a flow body. */
+const isReferenceNode = (node: FlowNode): boolean =>
+  node.kind === 'call' ||
+  node.kind === 'goto' ||
+  (node.kind === 'loop' && typeof node.body === 'object' && node.body !== null)
 
 export function failRun(runner: FlowRunner, params: FailureParams): RunState {
   const { code, nodeID, detail, meta } = params
+
+  if (topIndex(runner.state) > 0) {
+    // A caller frame may handle the failure; otherwise the stack stays intact.
+    const handled = unwindFailure({ runner, code, reason: detail?.reason, meta })
+
+    if (handled) {
+      return handled
+    }
+  }
+
   const next = clone(runner.state)
 
   next.status = 'error'
   delete next.inFlight
   delete next.pending
 
-  const attempts =
-    next.frames[0] && Object.hasOwn(next.frames[0].attempts, nodeID)
-      ? next.frames[0].attempts[nodeID]
-      : undefined
+  const frame = top(next)
+  const attempts = Object.hasOwn(frame.attempts, nodeID) ? frame.attempts[nodeID] : undefined
 
   if (attempts) {
     delete attempts.retryAt
   }
 
   if (code === 'loop_exhausted') {
-    delete next.frames[0]?.loops[nodeID]
+    delete frame.loops[nodeID]
   }
 
   next.error = {
@@ -88,6 +95,7 @@ export function failRun(runner: FlowRunner, params: FailureParams): RunState {
     node: nodeID,
     ...detail,
     ...(meta ? { lastFailure: meta } : {}),
+    flow: frame.flow.id,
   }
 
   const saved = runner.commit(next, false)
@@ -103,7 +111,7 @@ export function failRun(runner: FlowRunner, params: FailureParams): RunState {
     }
 
     runner.logError('Flow run failed', {
-      'flow.id': runner.definition.id,
+      'flow.id': frame.flow.id,
       runID: saved.runID,
       code,
       node: nodeID,
@@ -126,71 +134,37 @@ export function failRun(runner: FlowRunner, params: FailureParams): RunState {
 }
 
 export function failNode(runner: FlowRunner, params: NodeFailParams): RunState {
-  const { nodeID, node, kind, reason, meta } = params
+  const { nodeID, node, kind, reason, meta, calleeRetry } = params
 
-  const attempts =
-    runner.state.frames[0] && Object.hasOwn(runner.state.frames[0].attempts, nodeID)
-      ? runner.state.frames[0].attempts[nodeID]
-      : undefined
+  const frame = top(runner.state)
+  const attempts = Object.hasOwn(frame.attempts, nodeID) ? frame.attempts[nodeID] : undefined
 
   const count = attempts?.count ?? 1
 
   if (typeof node.onError === 'string') {
-    return routeToOnError({ runner, nodeID, kind, reason, meta, count, target: node.onError })
+    return routeToOnError({
+      runner,
+      nodeID,
+      kind,
+      reason,
+      meta,
+      count,
+      target: node.onError,
+      // A call's own failures keep the default shape; a stopped callee retry is a FlowCallError.
+      ...(calleeRetry && kind.kind === 'call'
+        ? { handled: callError({ code: 'node_failed', reason, attempts: count }) }
+        : {}),
+    })
   }
 
   return runner.failure({ code: 'node_failed', nodeID, detail: { reason, attempts: count }, meta })
-}
-
-function routeToOnError(
-  params: Omit<NodeFailParams, 'node'> & { runner: FlowRunner; count: number; target: string },
-): RunState {
-  const { runner, nodeID, kind, reason, meta, count, target } = params
-  const next = clone(runner.state)
-  const frame = required(next.frames[0], ['frames', 0])
-
-  frame.results[nodeID] = {
-    error: {
-      type: meta.type,
-      ...(meta.code ? { code: meta.code } : {}),
-      ...(meta.status !== undefined ? { status: meta.status } : {}),
-      reason: required(reason, ['error', 'reason']),
-      attempts: count,
-    },
-  }
-  frame.node = target
-  delete frame.attempts[nodeID]
-
-  delete next.inFlight
-  delete next.pending
-  next.status = 'running'
-
-  const saved = runner.commit(next)
-
-  runner.closeFailedSpan((span) => {
-    span?.addEvent('flow.error.handled', { 'error.type': meta.type })
-
-    runner.warn('Flow node failure handled', {
-      'flow.id': runner.definition.id,
-      runID: runner.state.runID,
-      node: nodeID,
-      kind: kind.kind,
-      attempt: count,
-      reason,
-      ...meta,
-    })
-  })
-
-  runner.events.fire('node:exit', { node: nodeID, runState: saved })
-
-  return saved
 }
 
 function classifyRetry(params: RetryDecisionParams): RetryDecision {
   const { error, kind, attempt, meta, now, random } = params
   const expired =
     (error instanceof TimeoutInterruption && error.cause === 'deadline') ||
-    (!!attempt.deadline && now() >= new Date(attempt.deadline).getTime())
+    retryTiming({ deadline: attempt.deadline, now: now() }).expired
 
   let decision: ReturnType<NonNullable<NodeKind['retryable']>> = false
 
@@ -212,15 +186,10 @@ function classifyRetry(params: RetryDecisionParams): RetryDecision {
         random,
       })
 
-  const retryAt = now() + delayMs
+  const timing = retryTiming({ deadline: attempt.deadline, now: now(), delayMs })
+  const terminalReason = reason ?? (timing.expired ? 'total_timeout' : undefined)
 
-  const terminalReason =
-    reason ??
-    (attempt.deadline && retryAt >= new Date(attempt.deadline).getTime()
-      ? 'total_timeout'
-      : undefined)
-
-  return { delayMs, retryAt, terminalReason }
+  return { delayMs, retryAt: timing.retryAt, terminalReason }
 }
 
 export function handleNodeError(runner: FlowRunner, params: HandleNodeErrorParams): RunState {
@@ -231,7 +200,7 @@ export function handleNodeError(runner: FlowRunner, params: HandleNodeErrorParam
 
     entered.steps++
 
-    required(entered.frames[0], ['frames', 0]).invocation++
+    nextInvocationID(entered)
 
     runner.replaceState(entered)
   }
@@ -245,8 +214,17 @@ export function handleNodeError(runner: FlowRunner, params: HandleNodeErrorParam
     return runner.failure({ code: error.code, nodeID, meta })
   }
 
-  const frame = required(runner.state.frames[0], ['frames', 0])
+  const frame = top(runner.state)
   const attempt = Object.hasOwn(frame.attempts, nodeID) ? frame.attempts[nodeID] : undefined
+
+  // Only reference nodes raise reference failures; from any other kind they are ordinary failures.
+  if (
+    error instanceof FlowNodeFailure &&
+    referenceFailureCodes.includes(error.code) &&
+    isReferenceNode(node)
+  ) {
+    return failReference({ runner, code: error.code, nodeID, node, kind, meta, attempt })
+  }
 
   if (!attempt) {
     return runner.nodeFail({ nodeID, node, kind, reason: 'non_retryable', meta })
@@ -264,9 +242,9 @@ export function handleNodeError(runner: FlowRunner, params: HandleNodeErrorParam
   if (decision.terminalReason) {
     const next = clone(runner.state)
 
-    required(required(next.frames[0], ['frames', 0]).attempts[nodeID], [
+    required(top(next).attempts[nodeID], [
       'frames',
-      0,
+      topIndex(next),
       'attempts',
       nodeID,
     ]).lastFailure = meta
@@ -281,60 +259,35 @@ export function handleNodeError(runner: FlowRunner, params: HandleNodeErrorParam
   return scheduleRetry({ runner, nodeID, kind, attempt, meta, decision })
 }
 
-function scheduleRetry(params: ScheduleRetryParams): RunState {
-  const { runner, nodeID, kind, attempt, meta, decision } = params
-  const { delayMs, retryAt } = decision
-  const suspended =
-    attempt.policy.suspendAfterMs !== undefined && delayMs > attempt.policy.suspendAfterMs
+function failReference(params: {
+  runner: FlowRunner
+  code: string
+  nodeID: string
+  node: FlowNode
+  kind: NodeKind
+  meta: ErrorMetadata
+  attempt?: NodeAttempts
+}): RunState {
+  const { runner, code, nodeID, node, kind, attempt } = params
+  const meta = { ...params.meta, code: params.meta.code ?? code }
+  const count = attempt?.count ?? 1
 
-  const next = clone(runner.state)
+  if (typeof node.onError === 'string') {
+    return routeToOnError({
+      runner,
+      nodeID,
+      kind,
+      reason: 'non_retryable',
+      meta,
+      count,
+      target: node.onError,
+    })
+  }
 
-  const updated = required(required(next.frames[0], ['frames', 0]).attempts[nodeID], [
-    'frames',
-    0,
-    'attempts',
+  return runner.failure({
+    code,
     nodeID,
-  ])
-
-  updated.lastFailure = meta
-  updated.retryAt = toTimestamp(retryAt)
-
-  delete next.inFlight
-  delete next.pending
-  next.status = suspended ? 'suspended' : 'running'
-
-  if (suspended) {
-    next.pending = { node: nodeID, reason: 'retry', resumeAt: updated.retryAt }
-  }
-
-  const saved = runner.commit(next, false)
-
-  runner.closeFailedSpan((span) => {
-    span?.addEvent('flow.retry', {
-      'flow.retry.delay_ms': delayMs,
-      'flow.retry.suspended': suspended,
-      'error.type': meta.type,
-    })
-
-    runner.warn('Flow node retry scheduled', {
-      'flow.id': runner.definition.id,
-      runID: saved.runID,
-      node: nodeID,
-      kind: kind.kind,
-      attempt: attempt.count,
-      delayMs,
-      suspended,
-      ...meta,
-    })
+    detail: { reason: 'non_retryable', attempts: count },
+    meta,
   })
-
-  runner.events.fire('retry', { node: nodeID, delayMs, runState: saved })
-
-  if (suspended) {
-    runner.events.fire('suspend', { node: nodeID, runState: saved })
-
-    runner.status(saved)
-  }
-
-  return saved
 }

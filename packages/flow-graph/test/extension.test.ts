@@ -1,6 +1,12 @@
 import { expect, test } from 'vitest'
 
-import { createFlowGraph, defineNodeKind, FlowRetryableError } from '../src/index.js'
+import {
+  createFlowGraph,
+  createMapResolver,
+  defineNodeKind,
+  FlowRetryableError,
+} from '../src/index.js'
+import { reportedIssues } from './check-result.js'
 
 type Ask = { kind: 'ask'; next: string; prompt: string }
 
@@ -38,13 +44,12 @@ test('extension kind suspends and resumes with continuation data', async () => {
     },
   }
 
-  const graph = createFlowGraph({ kinds: [ask] })
+  const graph = createFlowGraph({ kinds: [ask], resolver: createMapResolver([definition]) })
   const first = await graph.run({ definition })
 
   expect(first.pending?.data).toEqual({ job: 'j1' })
 
   const resumed = graph.resume({
-    definition,
     runState: JSON.parse(JSON.stringify(first.runState)),
     event: { type: 'value', value: 'yes' },
   })
@@ -75,7 +80,7 @@ test('checker validates cross-node result paths and dominance', () => {
     },
   }
 
-  const issues = graph.check(definition).issues
+  const issues = reportedIssues(graph.check(definition))
 
   expect(issues.map((issue) => issue.code)).toContain('invalid_result_path')
   expect(issues.map((issue) => issue.code)).toContain('result_maybe_missing')
@@ -116,13 +121,17 @@ test('recover accepts an extension kind with a snapshotted retry default', async
     nodes: { task: { kind: 'task', next: 'end' }, end: { kind: 'end' } },
   }
 
-  const graph = createFlowGraph({ kinds: [task], retryDefaults: { task: { maxAttempts: 1 } } })
+  const graph = createFlowGraph({
+    kinds: [task],
+    retryDefaults: { task: { maxAttempts: 1 } },
+    resolver: createMapResolver([definition]),
+  })
   const run = graph.start({ definition })
 
   await run.next()
 
   const checkpoint = (await run.next()).value
-  const recovered = graph.recover({ definition, runState: checkpoint })
+  const recovered = graph.recover({ runState: checkpoint })
 
   for await (const _state of recovered) {
     /* drain */
@@ -164,16 +173,16 @@ test('a retrying kind keeps its invocation and policy while suspended', async ()
     nodes: { job: { kind: 'job', next: 'end' }, end: { kind: 'end' } },
   }
 
-  const graph = createFlowGraph({ kinds: [kind], retryDefaults: { job: { maxAttempts: 2 } } })
+  const graph = createFlowGraph({
+    kinds: [kind],
+    retryDefaults: { job: { maxAttempts: 2 } },
+    resolver: createMapResolver([definition]),
+  })
   const first = await graph.run({ definition })
 
   expect(first.runState.frames[0]?.attempts.job?.count).toBe(1)
 
-  const second = graph.resume({
-    definition,
-    runState: first.runState,
-    event: { type: 'value', value: 1 },
-  })
+  const second = graph.resume({ runState: first.runState, event: { type: 'value', value: 1 } })
 
   for await (const _state of second) {
     /* drain */
@@ -263,7 +272,7 @@ test('registration accepts a resultSchema that depends on node fields', () => {
     },
   }
 
-  expect(graph.check(definition).ok).toBe(true)
+  expect(graph.check(definition).issues).toBeUndefined()
 })
 
 test('a retryable resume failure starts the next logical attempt', async () => {
@@ -298,14 +307,14 @@ test('a retryable resume failure starts the next logical attempt', async () => {
     nodes: { job: { kind: 'job', next: 'end' }, end: { kind: 'end' } },
   }
 
-  const graph = createFlowGraph({ kinds: [job], retryDefaults: { job: { maxAttempts: 2 } } })
+  const graph = createFlowGraph({
+    kinds: [job],
+    retryDefaults: { job: { maxAttempts: 2 } },
+    resolver: createMapResolver([definition]),
+  })
   const first = await graph.run({ definition })
 
-  const second = graph.resume({
-    definition,
-    runState: first.runState,
-    event: { type: 'value', value: 1 },
-  })
+  const second = graph.resume({ runState: first.runState, event: { type: 'value', value: 1 } })
 
   for await (const _state of second) {
     /* drain */
@@ -313,4 +322,51 @@ test('a retryable resume failure starts the next logical attempt', async () => {
 
   expect(second.getState().status).toBe('ended')
   expect(attempts).toEqual([1, 2])
+})
+
+const finishKind = (terminal: boolean) =>
+  defineNodeKind<{ kind: 'finish' }>({
+    kind: 'finish',
+    schema: {
+      type: 'object',
+      required: ['kind'],
+      additionalProperties: false,
+      properties: { kind: { const: 'finish' } },
+    },
+    targets: () => (terminal ? [] : [{ path: [], id: 'end' }]),
+    ...(terminal ? { terminal: true } : {}),
+    execute: () => ({ end: { outcome: 'done', output: { x: 1 } } }),
+  })
+
+const finishDefinition = {
+  id: 'fin',
+  name: 'Finish',
+  version: 1,
+  start: 'finish',
+  nodes: { finish: { kind: 'finish' } },
+}
+
+test('terminal custom kind passes no_end and ends the run', async () => {
+  const graph = createFlowGraph({ kinds: [finishKind(true)] })
+
+  expect(graph.check(finishDefinition).issues).toBeUndefined()
+
+  const state = await graph.run({ definition: finishDefinition })
+
+  expect(state.status).toBe('ended')
+  expect(state.outcome).toBe('done')
+  expect(state.output).toEqual({ x: 1 })
+})
+
+test('non-terminal kind returning end fails with invalid_value', async () => {
+  const graph = createFlowGraph({ kinds: [finishKind(false)] })
+  const state = await graph.run({
+    definition: {
+      ...finishDefinition,
+      nodes: { finish: { kind: 'finish' }, end: { kind: 'end' } },
+    },
+  })
+
+  expect(state.status).toBe('error')
+  expect(state.error?.code).toBe('invalid_value')
 })

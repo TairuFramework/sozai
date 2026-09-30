@@ -14,6 +14,12 @@ export type FlowStateErrorParams = { issues: ReadonlyArray<StandardSchemaV1.Issu
 /** Issues found while validating a resume event. */
 export type FlowResumeErrorParams = { issues: ReadonlyArray<StandardSchemaV1.Issue> }
 
+/** Flow reference that a resolver could not find. */
+export type FlowReferenceErrorParams = { id: string; version?: number }
+
+/** Safe error code for a node failure. */
+export type FlowNodeFailureParams = { code: string }
+
 /** Optional retry delay requested by an action. */
 export type FlowRetryableErrorParams = { message?: string; afterMs?: number }
 
@@ -74,6 +80,32 @@ export class FlowVersionMismatchError extends Error {
   }
 }
 
+/** Flow definition that a resolver cannot find. */
+export class FlowReferenceError extends Error {
+  #id: string
+  #version?: number
+
+  constructor(params: FlowReferenceErrorParams) {
+    super(
+      params.version === undefined
+        ? `Flow definition not found: ${params.id}`
+        : `Flow definition not found: ${params.id} version ${params.version}`,
+    )
+
+    this.name = 'FlowReferenceError'
+    this.#id = params.id
+    this.#version = params.version
+  }
+
+  get id(): string {
+    return this.#id
+  }
+
+  get version(): number | undefined {
+    return this.#version
+  }
+}
+
 /** Resume event that does not match pending work. */
 export class FlowResumeError extends Error implements StandardSchemaV1.FailureResult {
   #issues: ReadonlyArray<StandardSchemaV1.Issue>
@@ -103,5 +135,21 @@ export class FlowRetryableError extends Error {
 
   get afterMs(): number | undefined {
     return this.#afterMs
+  }
+}
+
+/** Node failure carrying a safe run error code, such as `invalid_suspend`. */
+export class FlowNodeFailure extends Error {
+  #code: string
+
+  constructor(params: FlowNodeFailureParams) {
+    super(params.code)
+
+    this.name = 'FlowNodeFailure'
+    this.#code = params.code
+  }
+
+  get code(): string {
+    return this.#code
   }
 }

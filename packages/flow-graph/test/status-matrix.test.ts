@@ -3,8 +3,14 @@ import { expect, test } from 'vitest'
 import type { FlowDefinition, RunState } from '../src/index.js'
 import { assertRunState, FlowStateError } from '../src/index.js'
 import { builtinKinds } from '../src/kinds.js'
+import { unavailableReferences } from '../src/reference-kinds.js'
 
-const kinds = new Map(builtinKinds().map((kind) => [kind.kind, kind as never]))
+const kinds = new Map(
+  builtinKinds({ now: Date.now, references: unavailableReferences }).map((kind) => [
+    kind.kind,
+    kind as never,
+  ]),
+)
 
 const definition: FlowDefinition = {
   id: 'matrix',
@@ -34,12 +40,11 @@ const frame = (node: string): RunState['frames'][number] => ({
   state: {},
   results: {},
   loops: {},
-  invocation: 1,
   attempts: {},
 })
 
 const attempt = () => ({
-  invocationID: 'run:0:1',
+  invocationID: 'run:1',
   policy: { maxAttempts: 2, maxInterruptions: 1 },
   count: 1,
   interruptions: 0,
@@ -54,6 +59,7 @@ const base = (status: RunState['status']): RunState => {
     status,
     frames: [frame(node)],
     steps: 1,
+    invocation: 1,
   }
 
   if (status === 'suspended') {
@@ -105,7 +111,7 @@ const fixtures: Array<Fixture> = [
     name: `${status}: inFlight`,
     state: () => retry(status),
     mutate: (state: RunState) => {
-      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:0:1' }
+      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:1' }
     },
   })),
   ...(['ended', 'error', 'aborted'] as const).map((status) => ({
@@ -151,7 +157,7 @@ const fixtures: Array<Fixture> = [
     name: 'running: inFlight with retryAt',
     state: () => retry('running'),
     mutate: (state) => {
-      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:0:1' }
+      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:1' }
     },
   },
   {
@@ -244,7 +250,7 @@ const fixtures: Array<Fixture> = [
 
       top.attempts.work = attempt()
 
-      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:0:1' }
+      state.inFlight = { node: 'work', attempt: 1, invocationID: 'run:1' }
 
       return state
     },
@@ -309,9 +315,11 @@ const fixtures: Array<Fixture> = [
 test.each(fixtures)('$name violates run state invariants', ({ state: make, mutate }) => {
   const state = make()
 
-  expect(() => assertRunState(state, definition, kinds)).not.toThrow()
+  expect(() => assertRunState(state, { definitions: [definition], kinds: kinds })).not.toThrow()
 
   mutate(state)
 
-  expect(() => assertRunState(state, definition, kinds)).toThrow(FlowStateError)
+  expect(() => assertRunState(state, { definitions: [definition], kinds: kinds })).toThrow(
+    FlowStateError,
+  )
 })

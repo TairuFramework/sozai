@@ -19,7 +19,7 @@ export function validateResumeEvent(params: ValidateResumeEventParams): void {
   if (
     pending.reason === 'retry'
       ? event.type !== 'retry'
-      : event.type !== 'value' && event.type !== 'timeout'
+      : event.type !== 'value' && event.type !== 'timeout' && event.type !== 'decline'
   ) {
     throw new FlowResumeError({
       issues: [
@@ -43,6 +43,17 @@ export function validateResumeEvent(params: ValidateResumeEventParams): void {
   ) {
     throw new FlowResumeError({
       issues: [{ message: 'Input deadline has not arrived.', path: ['pending', 'deadline'] }],
+    })
+  }
+
+  if (
+    event.type === 'decline' &&
+    event.reason !== undefined &&
+    event.reason !== 'decline' &&
+    event.reason !== 'cancel'
+  ) {
+    throw new FlowResumeError({
+      issues: [{ message: 'Decline reason is not recognised.', path: ['event', 'reason'] }],
     })
   }
 

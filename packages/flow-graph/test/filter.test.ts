@@ -2,6 +2,7 @@ import type { JSONValue } from '@sozai/json'
 import { expect, test } from 'vitest'
 
 import { createFlowGraph, evaluateFilter } from '../src/index.js'
+import { reportedIssues } from './check-result.js'
 
 const check = (subject: JSONValue, is: Record<string, unknown>) =>
   evaluateFilter({ path: ['input'], is }, { input: subject, state: {}, results: {}, loops: {} })
@@ -65,7 +66,7 @@ test('authoring schema rejects empty filter combinators', () => {
     },
   }
 
-  expect(graph.check(definition).issues.map((issue) => issue.code)).toContain('schema')
+  expect(reportedIssues(graph.check(definition)).map((issue) => issue.code)).toContain('schema')
 })
 
 test('combinators and multi-operator leaves use Boolean semantics', () => {
@@ -103,5 +104,5 @@ test.each([
     },
   }
 
-  expect(graph.check(definition).issues.map((item) => item.code)).toContain('schema')
+  expect(reportedIssues(graph.check(definition)).map((item) => item.code)).toContain('schema')
 })

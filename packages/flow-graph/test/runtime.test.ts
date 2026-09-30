@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 
 import type { FlowNode } from '../src/index.js'
-import { createFlowGraph, FlowRetryableError } from '../src/index.js'
+import { createFlowGraph, createMapResolver, FlowRetryableError } from '../src/index.js'
 
 const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   id: 'test',
@@ -59,7 +59,7 @@ test('yields durable entry, checkpoint and transition commits', async () => {
     states.map((state) => [
       state.revision,
       state.steps,
-      state.frames[0]?.invocation,
+      state.invocation,
       state.frames[0]?.attempts.start?.count,
       state.inFlight?.attempt,
     ]),
@@ -81,8 +81,7 @@ test('suspends input and resumes from JSON in a fresh graph', async () => {
 
   expect(first.status).toBe('suspended')
 
-  const second = createFlowGraph().resume({
-    definition: def,
+  const second = createFlowGraph({ resolver: createMapResolver([def]) }).resume({
     runState: JSON.parse(JSON.stringify(first.runState)),
     event: { type: 'value', value: 42 },
   })

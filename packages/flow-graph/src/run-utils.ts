@@ -2,8 +2,7 @@ import { MAX_DELAY_MS } from '@sozai/async'
 import { isJSONValue } from '@sozai/json'
 import { createTracerFactory } from '@sozai/otel'
 
-import { FlowStateError } from './errors.js'
-import { FlowNodeFailure } from './kinds.js'
+import { FlowNodeFailure, FlowStateError } from './errors.js'
 import type { ErrorMetadata, NodeAttempts, NodeKind, RunState } from './types.js'
 
 export const tracer = createTracerFactory('sozai')('flow-graph')

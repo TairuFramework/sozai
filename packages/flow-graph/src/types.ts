@@ -35,6 +35,15 @@ export type FlowIssue = StandardSchemaV1.Issue & {
   hint: string
 }
 
+/**
+ * Result of checking a flow definition, in Standard Schema result shape: the checked definition
+ * with its warnings, or every issue when any has `error` severity.
+ */
+export type FlowCheckResult =
+  | (StandardSchemaV1.SuccessResult<FlowDefinition> & { warnings: Array<FlowIssue> })
+  // `Omit` keeps element access typed as `FlowIssue`; an array intersection resolves to `Issue`.
+  | (Omit<StandardSchemaV1.FailureResult, 'issues'> & { readonly issues: ReadonlyArray<FlowIssue> })
+
 /** Details used to report a flow definition issue. */
 export type IssueParams = {
   code: string
@@ -54,8 +63,11 @@ export type CheckContext = {
 /** Safe error dimensions recorded in run state. */
 export type ErrorMetadata = { type: string; code?: string; status?: number; retryAfterMs?: number }
 
-/** External input or timeout delivered to a suspended node. */
-export type ResumeEvent = { type: 'value'; value: JSONValue } | { type: 'timeout' }
+/** External input, timeout or decline delivered to a suspended node. */
+export type ResumeEvent =
+  | { type: 'value'; value: JSONValue }
+  | { type: 'timeout' }
+  | { type: 'decline'; reason?: 'decline' | 'cancel' }
 
 /** Transition, completion, or suspension produced by a node. */
 export type NodeResult =
@@ -83,10 +95,14 @@ export type ExecuteContext = {
 /** Schema and behaviour for one executable node kind. */
 export type NodeKind<Node extends { kind: string } = FlowNode> = {
   kind: Node['kind']
+  /** Node schema, embedded in the authoring schema; keep it Ajv strict-clean (no union `type` arrays). */
   schema: Schema
   targets: (node: Node) => Array<{ path: Array<string | number>; id: string }>
+  /** Readable result paths; compiled without strict mode, so path-only schemas are fine. */
   resultSchema?: (node: Node) => Schema
   retries?: boolean
+  /** Whether the kind may end the run; terminal kinds count as ends for reachability. */
+  terminal?: boolean
   describeError?: (error: unknown) => ErrorMetadata
   check?: (node: Node, ctx: CheckContext) => Array<FlowIssue>
   execute: (node: Node, ctx: ExecuteContext) => NodeResult | Promise<NodeResult>
@@ -120,7 +136,6 @@ export type Frame = {
   state: Record<string, JSONValue>
   results: Record<string, JSONValue>
   loops: Record<string, number>
-  invocation: number
   attempts: Record<string, NodeAttempts>
   continuation?: {
     kind: 'call' | 'loopBody'
@@ -160,6 +175,8 @@ export type RunError = {
   reason?: 'attempts' | 'total_timeout' | 'non_retryable' | 'interrupted'
   attempts?: number
   lastFailure?: ErrorMetadata
+  /** Flow id of the frame where the failure originated. */
+  flow?: string
 }
 
 /** JSON state committed at each durable execution point. */
@@ -169,6 +186,8 @@ export type RunState = {
   status: 'running' | 'suspended' | 'ended' | 'error' | 'aborted'
   frames: Array<Frame>
   steps: number
+  /** Run-level invocation counter; invocation IDs are `${runID}:${n}` with `1 <= n <= invocation`. */
+  invocation: number
   inFlight?: { node: string; attempt: number; invocationID: string }
   origin?: { traceparent: string }
   pending?: Pending
@@ -189,8 +208,26 @@ export type FlowEvents = {
 /** Async iterator over committed run states. */
 export type FlowRun = AsyncIterable<RunState> & {
   next(): Promise<IteratorResult<RunState, RunState>>
+  /**
+   * Stop driving this segment: end its span (an error when the last lazy preparation failed)
+   * without committing anything. Later `next()` calls return `done` with the current state.
+   * Idempotent; rejects while a `next()` is pending.
+   */
+  return(): Promise<IteratorResult<RunState, RunState>>
   getState(): RunState
   events: EventEmitter<FlowEvents>
+}
+
+/**
+ * Source of flow definitions by id and optional version (highest version when omitted). The runtime
+ * passes the run's `signal` (when the run has one) so an async lookup can stop once it aborts.
+ */
+export type FlowResolver = {
+  resolve(
+    id: string,
+    version?: number,
+    options?: { signal?: AbortSignal },
+  ): FlowDefinition | Promise<FlowDefinition>
 }
 
 /** Registration, retry, clock, and observability options. */
@@ -204,6 +241,10 @@ export type FlowGraphOptions = {
   recordErrorMessages?: boolean
   random?: () => number
   now?: () => number
+  /** Source of definitions for pinned frames; required by `resume` and `recover`. */
+  resolver?: FlowResolver
+  /** Maximum number of frames, including the root frame (default 16). */
+  maxDepth?: number
 }
 
 /** Definition and input for a new run. */
@@ -217,7 +258,6 @@ export type StartParams = {
 
 /** Persisted suspension and event used to continue a run. */
 export type ResumeParams = {
-  definition: FlowDefinition
   runState: RunState
   event: ResumeEvent | { type: 'retry' }
   signal?: AbortSignal
@@ -226,7 +266,6 @@ export type ResumeParams = {
 
 /** Persisted running state used after a process interruption. */
 export type RecoverParams = {
-  definition: FlowDefinition
   runState: RunState
   signal?: AbortSignal
   parentContext?: Context
@@ -235,9 +274,11 @@ export type RecoverParams = {
 /** Checked graph runtime and its lifecycle operations. */
 export type FlowGraph = {
   authoringSchema: Schema
-  storageSchema: Schema
   runStateSchema: Schema
-  check: (definition: unknown) => { ok: boolean; issues: Array<FlowIssue> }
+  /** Check one definition locally, without resolving references. */
+  check: (definition: unknown) => FlowCheckResult
+  /** Check a definition and every flow it references transitively, as resolved now. */
+  checkFlows: (definition: unknown) => Promise<FlowCheckResult>
   start: (params: StartParams) => FlowRun
   resume: (params: ResumeParams) => FlowRun
   recover: (params: RecoverParams) => FlowRun

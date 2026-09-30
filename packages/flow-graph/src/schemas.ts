@@ -79,13 +79,21 @@ const valueFilter = {
     notEqualTo: { allOf: [{ $ref: '#/definitions/json' }, { not: { type: 'null' } }] },
     in: { type: 'array', minItems: 1, items: { $ref: '#/definitions/json' } },
     notIn: { type: 'array', minItems: 1, items: { $ref: '#/definitions/json' } },
-    lessThan: { type: ['number', 'string'] },
-    lessThanOrEqualTo: { type: ['number', 'string'] },
-    greaterThan: { type: ['number', 'string'] },
-    greaterThanOrEqualTo: { type: ['number', 'string'] },
+    lessThan: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+    lessThanOrEqualTo: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+    greaterThan: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+    greaterThanOrEqualTo: { anyOf: [{ type: 'number' }, { type: 'string' }] },
     contains: { type: 'string' },
-    includesAll: { type: 'array', minItems: 1, items: { type: ['string', 'number'] } },
-    includesAny: { type: 'array', minItems: 1, items: { type: ['string', 'number'] } },
+    includesAll: {
+      type: 'array',
+      minItems: 1,
+      items: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+    },
+    includesAny: {
+      type: 'array',
+      minItems: 1,
+      items: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+    },
     presence: { enum: ['null', 'nonNull', 'empty', 'nonEmpty', 'nullOrEmpty'] },
   },
 }
@@ -154,6 +162,20 @@ const filterReference = { $ref: '#/definitions/filter' }
 
 const values = { type: 'object', propertyNames: segment, additionalProperties: valueReference }
 
+const flowVersion = describeSchema('Pinned flow version; omit to resolve the highest version', {
+  type: 'integer',
+  minimum: 0,
+})
+
+const flowInput = describeSchema('Referenced flow input; omitted input is {}', values)
+
+const flowBody = {
+  type: 'object',
+  required: ['flow'],
+  additionalProperties: false,
+  properties: { flow: string, version: flowVersion, input: flowInput },
+}
+
 const makeNodeSchema = (params: MakeNodeSchemaParams) => ({
   type: 'object',
   required: ['kind', ...params.required],
@@ -210,10 +232,33 @@ export const builtinSchemas = {
     properties: {
       maxIterations: { type: 'integer', minimum: 1 },
       while: filterReference,
-      body: string,
+      body: describeSchema('Local body node ID or flow body reference', {
+        oneOf: [string, flowBody],
+      }),
       exit: string,
       onExhausted: string,
     },
+  }) as Schema,
+  call: makeNodeSchema({
+    kind: 'call',
+    required: ['flow', 'next'],
+    properties: {
+      flow: string,
+      version: flowVersion,
+      input: flowInput,
+      next: string,
+      onError: string,
+      retry: {
+        ...retryPolicySchema,
+        description:
+          'Call retry policy. totalTimeoutMs is a retry deadline from call entry: it never interrupts a running or suspended callee. attemptTimeoutMs is not supported.',
+      },
+    },
+  }) as Schema,
+  goto: makeNodeSchema({
+    kind: 'goto',
+    required: ['flow'],
+    properties: { flow: string, version: flowVersion, input: flowInput },
   }) as Schema,
   action: makeNodeSchema({
     kind: 'action',
@@ -228,6 +273,12 @@ export const builtinSchemas = {
       prompt: valueReference,
       schema: { type: 'object' },
       next: string,
+      decline: {
+        type: 'object',
+        required: ['to'],
+        additionalProperties: false,
+        properties: { to: string },
+      },
       timeout: {
         type: 'object',
         required: ['afterMs', 'to'],
@@ -246,42 +297,6 @@ export const builtinSchemas = {
 for (const schema of Object.values(builtinSchemas)) {
   Object.assign(schema, { definitions: { json, value, filter } })
 }
-
-const reserved = [
-  makeNodeSchema({
-    kind: 'call',
-    required: ['flow', 'next'],
-    properties: {
-      flow: string,
-      version: { type: 'integer', minimum: 0 },
-      input: values,
-      next: string,
-      onError: string,
-    },
-    retries: true,
-  }),
-  makeNodeSchema({
-    kind: 'goto',
-    required: ['flow'],
-    properties: { flow: string, version: { type: 'integer', minimum: 0 }, input: values },
-  }),
-  makeNodeSchema({
-    kind: 'loop',
-    required: ['maxIterations', 'while', 'body', 'exit'],
-    properties: {
-      maxIterations: { type: 'integer', minimum: 1 },
-      while: filterReference,
-      body: {
-        type: 'object',
-        required: ['flow'],
-        additionalProperties: false,
-        properties: { flow: string, version: { type: 'integer', minimum: 0 } },
-      },
-      exit: string,
-      onExhausted: string,
-    },
-  }),
-]
 
 function annotateFields(schema: Record<string, unknown>): Schema {
   const root = structuredClone(schema)
@@ -337,7 +352,7 @@ function annotateFields(schema: Record<string, unknown>): Schema {
 }
 
 /** Build a definition schema from registered node kinds. */
-export function makeDefinitionSchema(kinds: Array<NodeKind>, storage = false): Schema {
+export function makeDefinitionSchema(kinds: Array<NodeKind>): Schema {
   return annotateFields({
     type: 'object',
     required: ['id', 'name', 'version', 'start', 'nodes'],
@@ -358,7 +373,7 @@ export function makeDefinitionSchema(kinds: Array<NodeKind>, storage = false): S
         minProperties: 1,
         propertyNames: segment,
         additionalProperties: {
-          oneOf: [...kinds.map((kind) => kind.schema), ...(storage ? reserved : [])],
+          oneOf: kinds.map((kind) => kind.schema),
         },
       },
     },
@@ -409,7 +424,7 @@ const attempts = {
 
 const frame = {
   type: 'object',
-  required: ['flow', 'node', 'input', 'state', 'results', 'loops', 'invocation', 'attempts'],
+  required: ['flow', 'node', 'input', 'state', 'results', 'loops', 'attempts'],
   additionalProperties: false,
   properties: {
     flow: {
@@ -427,7 +442,6 @@ const frame = {
     state: { type: 'object', additionalProperties: { $ref: '#/definitions/json' } },
     results: { type: 'object', additionalProperties: { $ref: '#/definitions/json' } },
     loops: { type: 'object', additionalProperties: { type: 'integer', minimum: 0 } },
-    invocation: { type: 'integer', minimum: 0 },
     attempts: { type: 'object', additionalProperties: attempts },
     continuation: {
       type: 'object',
@@ -446,7 +460,7 @@ const frame = {
 /** JSON Schema for persisted run state. */
 export const runStateSchema = {
   type: 'object',
-  required: ['runID', 'revision', 'status', 'frames', 'steps'],
+  required: ['runID', 'revision', 'status', 'frames', 'steps', 'invocation'],
   additionalProperties: false,
   properties: {
     runID: { type: 'string' },
@@ -454,6 +468,7 @@ export const runStateSchema = {
     status: { enum: ['running', 'suspended', 'ended', 'error', 'aborted'] },
     frames: { type: 'array', minItems: 1, items: frame },
     steps: { type: 'integer', minimum: 0 },
+    invocation: { type: 'integer', minimum: 0 },
     inFlight: {
       type: 'object',
       required: ['node', 'attempt', 'invocationID'],
@@ -497,6 +512,7 @@ export const runStateSchema = {
         reason: { enum: ['attempts', 'total_timeout', 'non_retryable', 'interrupted'] },
         attempts: { type: 'integer', minimum: 0 },
         lastFailure: metadata,
+        flow: { type: 'string' },
       },
     },
   },

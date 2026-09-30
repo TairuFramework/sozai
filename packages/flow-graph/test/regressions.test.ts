@@ -1,7 +1,8 @@
 import { expect, test, vi } from 'vitest'
 
 import type { FlowNode } from '../src/index.js'
-import { createFlowGraph, defineNodeKind, readPath } from '../src/index.js'
+import { createFlowGraph, createMapResolver, defineNodeKind, readPath } from '../src/index.js'
+import { failedIssues, reportedIssues } from './check-result.js'
 
 const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   id: 'regressions',
@@ -131,27 +132,27 @@ test('an aborted run does not invoke the node kind', async () => {
 test('checks cycles reachable only through a loop body edge', () => {
   const graph = createFlowGraph()
 
-  const issues = graph.check(
-    definition({
-      start: {
-        kind: 'loop',
-        maxIterations: 2,
-        while: { path: ['input'], is: { isNull: false } },
-        body: 'a',
-        exit: 'end',
-      },
-      a: { kind: 'set', assign: [{ path: ['state', 'x'], value: { value: 1 } }], next: 'b' },
-      b: { kind: 'set', assign: [{ path: ['state', 'x'], value: { value: 2 } }], next: 'a' },
-      end: { kind: 'end' },
-    }),
-  ).issues
+  const issues = reportedIssues(
+    graph.check(
+      definition({
+        start: {
+          kind: 'loop',
+          maxIterations: 2,
+          while: { path: ['input'], is: { isNull: false } },
+          body: 'a',
+          exit: 'end',
+        },
+        a: { kind: 'set', assign: [{ path: ['state', 'x'], value: { value: 1 } }], next: 'b' },
+        b: { kind: 'set', assign: [{ path: ['state', 'x'], value: { value: 2 } }], next: 'a' },
+        end: { kind: 'end' },
+      }),
+    ),
+  )
 
   expect(issues.map((item) => item.code)).toContain('unbounded_cycle')
 })
 
 test('a ref assignment remains independent before and after a JSON round trip', async () => {
-  const graph = createFlowGraph()
-
   const def = definition({
     start: {
       kind: 'set',
@@ -166,12 +167,12 @@ test('a ref assignment remains independent before and after a JSON round trip', 
     end: { kind: 'end', output: { a: { ref: ['state', 'a'] }, b: { ref: ['state', 'b'] } } },
   })
 
+  const graph = createFlowGraph({ resolver: createMapResolver([def]) })
   const first = await graph.run({ definition: def })
 
   expect(first.runState.frames[0]?.state).toEqual({ a: { x: 0 }, b: { x: 1 } })
 
   const resumed = graph.resume({
-    definition: def,
     runState: JSON.parse(JSON.stringify(first.runState)),
     event: { type: 'value', value: null },
   })
@@ -187,16 +188,18 @@ test('prototype names are not accepted as targets, actions or scope keys', async
   const graph = createFlowGraph({ actions: { ok: async () => 1 } })
 
   expect(
-    graph.check(
-      definition({
-        start: {
-          kind: 'branch',
-          cases: [{ when: { path: ['input'], is: { isNull: true } }, to: 'toString' }],
-          default: 'end',
-        },
-        end: { kind: 'end' },
-      }),
-    ).issues,
+    reportedIssues(
+      graph.check(
+        definition({
+          start: {
+            kind: 'branch',
+            cases: [{ when: { path: ['input'], is: { isNull: true } }, to: 'toString' }],
+            default: 'end',
+          },
+          end: { kind: 'end' },
+        }),
+      ),
+    ),
   ).toContainEqual(
     expect.objectContaining({ code: 'unknown_target', path: ['nodes', 'start', 'cases', 0, 'to'] }),
   )
@@ -206,7 +209,7 @@ test('prototype names are not accepted as targets, actions or scope keys', async
     end: { kind: 'end' },
   })
 
-  expect(graph.check(action).issues.map((item) => item.code)).toContain('unknown_action')
+  expect(reportedIssues(graph.check(action)).map((item) => item.code)).toContain('unknown_action')
 
   const unchecked = createFlowGraph()
 
@@ -219,7 +222,6 @@ test('prototype names are not accepted as targets, actions or scope keys', async
 test('recovery expires an in-flight attempt before replay', async () => {
   let clock = 1000
   const work = vi.fn(async () => 1)
-  const graph = createFlowGraph({ now: () => clock, actions: { work } })
 
   const def = definition({
     start: {
@@ -231,6 +233,12 @@ test('recovery expires an in-flight attempt before replay', async () => {
     end: { kind: 'end' },
   })
 
+  const graph = createFlowGraph({
+    now: () => clock,
+    actions: { work },
+    resolver: createMapResolver([def]),
+  })
+
   const run = graph.start({ definition: def })
 
   await run.next()
@@ -239,7 +247,7 @@ test('recovery expires an in-flight attempt before replay', async () => {
 
   clock = 1010
 
-  const recovered = graph.recover({ definition: def, runState: checkpoint })
+  const recovered = graph.recover({ runState: checkpoint })
 
   for await (const _state of recovered) {
     /* drain */
@@ -250,16 +258,18 @@ test('recovery expires an in-flight attempt before replay', async () => {
 })
 
 test('schema errors identify the invalid filter operator', () => {
-  const issues = createFlowGraph().check(
-    definition({
-      start: {
-        kind: 'branch',
-        cases: [{ when: { path: ['input'], is: { equals: 1 } }, to: 'end' }],
-        default: 'end',
-      },
-      end: { kind: 'end' },
-    }),
-  ).issues
+  const issues = reportedIssues(
+    createFlowGraph().check(
+      definition({
+        start: {
+          kind: 'branch',
+          cases: [{ when: { path: ['input'], is: { equals: 1 } }, to: 'end' }],
+          default: 'end',
+        },
+        end: { kind: 'end' },
+      }),
+    ),
+  )
 
   expect(issues).toContainEqual(
     expect.objectContaining({
@@ -273,12 +283,12 @@ test('schema errors identify the invalid filter operator', () => {
 })
 
 test('an empty nodes map gets a field-level schema issue', () => {
-  const issues = createFlowGraph().check(definition({})).issues
+  const issues = reportedIssues(createFlowGraph().check(definition({})))
 
   expect(issues).toContainEqual(expect.objectContaining({ code: 'schema', path: ['nodes'] }))
 })
 
-const reservedDefinitions: Array<Record<string, FlowNode>> = [
+const referenceDefinitions: Array<Record<string, FlowNode>> = [
   { start: { kind: 'goto', flow: 'other' } },
   { start: { kind: 'call', flow: 'other', next: 'end' }, end: { kind: 'end' } },
   {
@@ -293,16 +303,11 @@ const reservedDefinitions: Array<Record<string, FlowNode>> = [
   },
 ]
 
-test.each(reservedDefinitions)(
-  'reserved nodes receive only an unsupported issue at their node path',
-  (nodes) => {
-    const issues = createFlowGraph().check(definition(nodes)).issues
+test.each(referenceDefinitions)('reference nodes pass local check', (nodes) => {
+  const checked = definition(nodes)
 
-    expect(issues).toEqual([
-      expect.objectContaining({ code: 'unsupported', path: ['nodes', 'start'] }),
-    ])
-  },
-)
+  expect(createFlowGraph().check(checked)).toEqual({ value: checked, warnings: [] })
+})
 
 test('an array item declared in resultSchema can be referenced', () => {
   const graph = createFlowGraph({
@@ -334,30 +339,34 @@ test('an array item declared in resultSchema can be referenced', () => {
     ],
   })
 
-  const issues = graph.check(
-    definition({
-      start: { kind: 'produce', next: 'end' },
-      end: { kind: 'end', output: { name: { ref: ['results', 'start', 'rows', '0', 'name'] } } },
-    }),
-  ).issues
+  const issues = reportedIssues(
+    graph.check(
+      definition({
+        start: { kind: 'produce', next: 'end' },
+        end: { kind: 'end', output: { name: { ref: ['results', 'start', 'rows', '0', 'name'] } } },
+      }),
+    ),
+  )
 
   expect(issues.map((item) => item.code)).not.toContain('invalid_result_path')
 })
 
 test('a node named assign still checks a filter path as a read', () => {
-  const issues = createFlowGraph().check(
-    definition(
-      {
-        assign: {
-          kind: 'branch',
-          cases: [{ when: { path: ['wrong'], is: { isNull: true } }, to: 'end' }],
-          default: 'end',
+  const issues = reportedIssues(
+    createFlowGraph().check(
+      definition(
+        {
+          assign: {
+            kind: 'branch',
+            cases: [{ when: { path: ['wrong'], is: { isNull: true } }, to: 'end' }],
+            default: 'end',
+          },
+          end: { kind: 'end' },
         },
-        end: { kind: 'end' },
-      },
-      'assign',
+        'assign',
+      ),
     ),
-  ).issues
+  )
 
   expect(issues).toContainEqual(
     expect.objectContaining({ code: 'invalid_path', message: 'Invalid scope path.' }),
@@ -444,6 +453,7 @@ test('run preserves an empty outcome', async () => {
           properties: { kind: { const: 'finish' }, next: { type: 'string' } },
         },
         targets: (node) => [{ path: ['next'], id: node.next }],
+        terminal: true,
         execute: () => ({ end: { outcome: '' } }),
       }),
     ],
@@ -489,7 +499,7 @@ test('a custom kind field named path is not checked as a scope path', () => {
     }),
   )
 
-  expect(result.issues.map((issue) => [issue.code, issue.path])).toEqual([
+  expect(failedIssues(result).map((issue) => [issue.code, issue.path])).toEqual([
     ['invalid_path', ['nodes', 'check', 'cases', 0, 'when', 'path']],
   ])
 })

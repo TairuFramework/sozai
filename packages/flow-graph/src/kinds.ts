@@ -2,8 +2,16 @@ import { TimeoutInterruption } from '@sozai/async'
 import type { JSONValue } from '@sozai/json'
 import type { Schema } from '@sozai/schema'
 
-import { FlowRetryableError } from './errors.js'
+import { FlowNodeFailure, FlowRetryableError } from './errors.js'
 import type { Filter } from './filter.js'
+import type { FlowReference, ReferenceService } from './reference-kinds.js'
+import {
+  internalResult,
+  referenceKinds,
+  referenceResultSchema,
+  referenceTarget,
+  resolveReferenceInput,
+} from './reference-kinds.js'
 import { builtinSchemas } from './schemas.js'
 import { toTimestamp } from './time.js'
 import type { Action, NodeKind, RegisteredNodeKind } from './types.js'
@@ -18,7 +26,7 @@ type LoopNode = {
   kind: 'loop'
   while: Filter
   maxIterations: number
-  body: string
+  body: string | FlowReference
   exit: string
   onExhausted?: string
 }
@@ -36,21 +44,25 @@ type InputNode = {
   prompt?: Value
   schema?: Schema
   next: string
+  decline?: { to: string }
   timeout?: { afterMs: number; to: string }
 }
 
 type EndNode = { kind: 'end'; outcome?: string; output?: Record<string, Value> }
 
-/** Safe error code for a node failure. */
-export type FlowNodeFailureParams = { code: string }
+/** Actions, clock and reference service used by the built-in node kinds. */
+export type BuiltinKindsParams = {
+  actions?: Record<string, Action>
+  now: () => number
+  references: ReferenceService
+}
 
 const target = (path: string, id: string) => ({ path: [path], id })
 
 /** Create the built-in node kinds for one graph runtime. */
-export function builtinKinds(
-  actions?: Record<string, Action>,
-  now: () => number = Date.now,
-): Array<RegisteredNodeKind> {
+export function builtinKinds(params: BuiltinKindsParams): Array<RegisteredNodeKind> {
+  const { actions, now, references } = params
+
   const branch: NodeKind<BranchNode> = {
     kind: 'branch',
     schema: builtinSchemas.branch,
@@ -88,10 +100,12 @@ export function builtinKinds(
     kind: 'loop',
     schema: builtinSchemas.loop,
     targets: (node) => [
-      target('body', node.body),
+      // A flow body runs in a pushed frame, so it has no local body edge.
+      ...(typeof node.body === 'string' ? [target('body', node.body)] : []),
       target('exit', node.exit),
       ...(node.onExhausted ? [target('onExhausted', node.onExhausted)] : []),
     ],
+    resultSchema: (node) => (typeof node.body === 'object' ? referenceResultSchema : {}),
     execute: (node, ctx) => {
       const loops = ctx.scope.loops as Record<string, number>
 
@@ -116,6 +130,18 @@ export function builtinKinds(
       loops[ctx.nodeID] = count + 1
 
       ctx.span.setAttribute('flow.loop.iteration', count + 1)
+
+      if (typeof node.body !== 'string') {
+        // The runner resolves, snapshots and validates the body flow before pushing it; the
+        // pop returns to this loop with the body result in `results.<loop>`.
+        return internalResult({
+          push: {
+            ref: referenceTarget(node.body),
+            input: resolveReferenceInput(node.body, ctx),
+            continuation: { kind: 'loopBody', callerNode: ctx.nodeID, returnTo: ctx.nodeID },
+          },
+        })
+      }
 
       return { next: node.body }
     },
@@ -168,6 +194,7 @@ export function builtinKinds(
     schema: builtinSchemas.input,
     targets: (node) => [
       target('next', node.next),
+      ...(node.decline ? [target('decline', node.decline.to)] : []),
       ...(node.timeout ? [target('timeout', node.timeout.to)] : []),
     ],
     execute: (node, ctx) => {
@@ -188,12 +215,21 @@ export function builtinKinds(
         return { next: node.timeout.to }
       }
 
+      if (event.type === 'decline') {
+        if (!node.decline) {
+          throw new FlowNodeFailure({ code: 'invalid_suspend' })
+        }
+
+        return { next: node.decline.to, result: { declined: event.reason ?? 'decline' } }
+      }
+
       return { next: node.next, result: event.value }
     },
   }
 
   const end: NodeKind<EndNode> = {
     kind: 'end',
+    terminal: true,
     schema: builtinSchemas.end,
     targets: () => [],
     execute: (node, ctx) => {
@@ -215,21 +251,13 @@ export function builtinKinds(
     },
   }
 
-  return [branch, set, loop, action, input, end] as Array<RegisteredNodeKind>
-}
-
-/** Internal failure carrying a safe node error code. */
-export class FlowNodeFailure extends Error {
-  #code: string
-
-  constructor(params: FlowNodeFailureParams) {
-    super(params.code)
-
-    this.name = 'FlowNodeFailure'
-    this.#code = params.code
-  }
-
-  get code(): string {
-    return this.#code
-  }
+  return [
+    branch,
+    set,
+    loop,
+    action,
+    input,
+    end,
+    ...referenceKinds({ references }),
+  ] as Array<RegisteredNodeKind>
 }

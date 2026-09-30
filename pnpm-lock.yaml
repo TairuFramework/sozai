@@ -168,8 +168,8 @@ catalogs:
       specifier: ^0.3.1
       version: 0.3.1
     '@logtape/logtape':
-      specifier: ^2.3.9
-      version: 2.3.9
+      specifier: ^2.3.10
+      version: 2.3.10
     '@noble/hashes':
       specifier: ^2.0.1
       version: 2.4.0
@@ -314,7 +314,7 @@ importers:
     devDependencies:
       '@logtape/logtape':
         specifier: 'catalog:'
-        version: 2.3.9
+        version: 2.3.10
 
   packages/otel:
     dependencies:
@@ -1142,8 +1142,8 @@ packages:
     resolution: {integrity: sha512-hwloSBA7gqo9PdI70PKvQ6QFGJDNEviz8A4SHKxRfkADfhJTaEZ4ZUMUgmDvXELPNbmgq/auznJsOSgrBQnLOw==}
     hasBin: true
 
-  '@logtape/logtape@2.3.9':
-    resolution: {integrity: sha512-VwrfX+GSWEtk+v17nQzANwt3/8iAZw1Kbk6HvwPiKHadrAv/P/AiDTTxar1l1XNkSmkRZICfPEUBdxTPRDLcHQ==}
+  '@logtape/logtape@2.3.10':
+    resolution: {integrity: sha512-IdOrFCHMSGYz+fq7xrxKCjXxItHHdiVenNaHeFJhXOkaVXFAHCdrPPBQJvJVmYbAUY5PCP8kSMxY+GIoxkmwHA==}
 
   '@napi-rs/nice-android-arm-eabi@1.1.1':
     resolution: {integrity: sha512-kjirL3N6TnRPv5iuHw36wnucNqXAO46dzK9oPb0wj076R5Xm8PfUVA9nAFB5ZNMmfJQJVKACAPd/Z2KYMppthw==}
@@ -4759,7 +4759,7 @@ snapshots:
       - supports-color
       - vite
 
-  '@logtape/logtape@2.3.9': {}
+  '@logtape/logtape@2.3.10': {}
 
   '@napi-rs/nice-android-arm-eabi@1.1.1':
     optional: true

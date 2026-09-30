@@ -138,6 +138,11 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
   const strict = options?.strict ?? 'default'
   const cacheKey = `${draft}:${strict}`
 
+  // Boolean schemas cannot key a WeakMap and are cheap to recompile.
+  if (typeof schema !== 'object') {
+    return compileValidator<T>(getAjv(draft, options?.strict), schema)
+  }
+
   let byOptions = validators.get(schema)
   if (byOptions == null) {
     byOptions = new Map()
@@ -172,6 +177,12 @@ export function createValidatorFactory(options?: ValidatorFactoryOptions): Valid
       if (context == null) {
         throw new Error('Validator factory is disposed')
       }
+      // Boolean schemas cannot key a WeakMap and are cheap to recompile.
+      if (typeof schema !== 'object') {
+        compiled++
+        return compileValidator<T>(context, schema)
+      }
+
       const cached = validators.get(schema)
       if (cached != null) {
         return cached as Validator<T>

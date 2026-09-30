@@ -706,11 +706,34 @@ describe.each(compilerMakers)('compile registry cleanup (%s)', (pathName, makeCo
     })
   })
 
+  test('boolean false schema', () => {
+    const compile = makeCompiler()
+    const schema = false as unknown as Schema
+    let validator: Validator<unknown> | undefined
+    expect(() => {
+      validator = compile(schema)
+    }).not.toThrow()
+    for (const value of [1, 'a', null]) {
+      expect(validator?.(value)).toBeInstanceOf(ValidationError)
+    }
+    const later = compile({ type: 'string' })
+    expect(isType(later, 'a')).toBe(true)
+  })
+
   test('earlier validator keeps working', () => {
     const compile = makeCompiler()
     const first = compile({ type: 'string' })
     compile({ type: 'number' })
     expect(isType(first, 'a')).toBe(true)
     expect(isType(first, 1)).toBe(false)
+  })
+})
+
+describe('factory boolean schemas', () => {
+  test('factory counts boolean compiles', () => {
+    const factory = createValidatorFactory()
+    factory.createValidator(false as unknown as Schema)
+    factory.createValidator(false as unknown as Schema)
+    expect(factory.compiled).toBe(2)
   })
 })

@@ -12,9 +12,39 @@ import type { Schema } from './types.js'
  */
 export type ValidatorOptions = { draft?: '07' | '2020-12'; strict?: boolean | 'log' }
 
+/**
+ * Logger receiving AJV warnings, such as unknown formats under non-strict mode.
+ */
+export type ValidatorLogger = {
+  log: (...args: Array<unknown>) => unknown
+  warn: (...args: Array<unknown>) => unknown
+  error: (...args: Array<unknown>) => unknown
+}
+
+/**
+ * Options for creating a validator factory. `logger: false` silences AJV warnings.
+ */
+export type ValidatorFactoryOptions = ValidatorOptions & { logger?: ValidatorLogger | false }
+
+/**
+ * Validator factory owning an isolated AJV instance.
+ */
+export type ValidatorFactory = {
+  /** Create a validator on this factory's instance, memoized per schema object. */
+  createValidator: <S extends Schema, T = FromSchema<S>>(schema: S) => Validator<T>
+  /** Number of schemas compiled, excluding memoized lookups. */
+  readonly compiled: number
+  /**
+   * Drop the AJV instance and every validator memoized on it. Later `createValidator` calls
+   * throw. Validators already returned keep working and keep the instance alive until they
+   * are dropped too. Idempotent.
+   */
+  dispose: () => void
+}
+
 // AJV instances are locked to a single dialect AND a single strict setting, so
 // we cache one instance per (draft, strict) pair and construct them lazily.
-const instances = new Map<string, Ajv | Ajv2020>()
+const instances = new Map<string, AjvInstance>()
 
 // Memoize compiled validators per schema object, keyed by normalized options.
 // WeakMap lets entries be collected when the schema object is. Keying by object
@@ -23,21 +53,50 @@ const instances = new Map<string, Ajv | Ajv2020>()
 // object to recompile. Schemas are expected to be immutable (`as const`) literals.
 const validators = new WeakMap<Schema, Map<string, Validator<unknown>>>()
 
-function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): Ajv | Ajv2020 {
+type AjvInstance = Ajv | Ajv2020
+
+type CreateAjvParams = {
+  draft: '07' | '2020-12'
+  strict?: boolean | 'log'
+  logger?: ValidatorLogger | false
+}
+
+function createAjv(params: CreateAjvParams): AjvInstance {
+  const { draft, strict, logger } = params
+  const options = {
+    allErrors: true,
+    useDefaults: false,
+    ...(strict !== undefined && { strict }),
+    ...(logger !== undefined && { logger }),
+  }
+  const instance = draft === '2020-12' ? new Ajv2020(options) : new Ajv(options)
+  // @ts-expect-error missing type definition
+  addFormats(instance)
+  return instance
+}
+
+function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): AjvInstance {
   const key = `${draft}:${strict ?? 'default'}`
   let instance = instances.get(key)
   if (instance == null) {
-    const options = {
-      allErrors: true,
-      useDefaults: false,
-      ...(strict !== undefined && { strict }),
-    }
-    instance = draft === '2020-12' ? new Ajv2020(options) : new Ajv(options)
-    // @ts-expect-error missing type definition
-    addFormats(instance)
+    instance = createAjv({ draft, strict })
     instances.set(key, instance)
   }
   return instance
+}
+
+// Compile `schema` on `ajv` and wrap the result as a `Validator`.
+function compileValidator<T>(ajv: AjvInstance, schema: Schema): Validator<T> {
+  const check = ajv.compile(schema)
+  // Remove from AJV's internal cache. Guard the $id: removeSchema(undefined)
+  // clears the ENTIRE instance (all schemas, refs, compile cache).
+  if (schema.$id != null) {
+    ajv.removeSchema(schema.$id)
+  }
+
+  return (value: unknown) => {
+    return check(value) ? { value: value as T } : new ValidationError(schema, value, check.errors)
+  }
 }
 
 /**
@@ -66,19 +125,47 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
     return cached as Validator<T>
   }
 
-  const ajv = getAjv(draft, options?.strict)
-  const check = ajv.compile(schema)
-  // Remove from AJV's internal cache. Guard the $id: removeSchema(undefined)
-  // clears the ENTIRE shared instance (all schemas, refs, compile cache).
-  if (schema.$id != null) {
-    ajv.removeSchema(schema.$id)
-  }
-
-  const validator: Validator<T> = (value: unknown) => {
-    return check(value) ? { value: value as T } : new ValidationError(schema, value, check.errors)
-  }
+  const validator = compileValidator<T>(getAjv(draft, options?.strict), schema)
   byOptions.set(cacheKey, validator as Validator<unknown>)
   return validator
+}
+
+/**
+ * Create a validator factory with its own AJV instance, shared with nothing else. Use it for
+ * schemas that arrive at runtime: disposing the factory releases every compiled validator, which
+ * the shared instances behind `createValidator` retain for the life of the process.
+ */
+export function createValidatorFactory(options?: ValidatorFactoryOptions): ValidatorFactory {
+  let ajv: AjvInstance | null = createAjv({
+    draft: options?.draft ?? '07',
+    strict: options?.strict,
+    logger: options?.logger,
+  })
+  let validators = new WeakMap<Schema, Validator<unknown>>()
+  let compiled = 0
+
+  return {
+    createValidator<S extends Schema, T = FromSchema<S>>(schema: S): Validator<T> {
+      if (ajv == null) {
+        throw new Error('Validator factory is disposed')
+      }
+      const cached = validators.get(schema)
+      if (cached != null) {
+        return cached as Validator<T>
+      }
+      const validator = compileValidator<T>(ajv, schema)
+      compiled++
+      validators.set(schema, validator as Validator<unknown>)
+      return validator
+    },
+    get compiled() {
+      return compiled
+    },
+    dispose() {
+      ajv = null
+      validators = new WeakMap()
+    },
+  }
 }
 
 /**

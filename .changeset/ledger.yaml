@@ -18,3 +18,7 @@
   dir: packages/json
   intents:
     - json-value
+"@sozai/schema@0.1.3":
+  dir: packages/schema
+  intents:
+    - polite-forks-change

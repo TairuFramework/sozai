@@ -7,10 +7,14 @@
 | `Schema` | type | JSON Schema definition type |
 | `FromSchema` | type | Derive TypeScript type from schema |
 | `Validator` | type | Validator function type |
+| `ValidatorFactory` | type | Isolated validator factory with `createValidator`, `compiled`, `dispose` |
+| `ValidatorFactoryOptions` | type | Factory options: `draft`, `strict`, `logger` (`false` silences AJV warnings) |
+| `ValidatorLogger` | type | Logger receiving AJV warnings |
 | `StandardSchemaV1` | type | Standard Schema v1 interface |
 | `ValidationError` | class | AggregateError with validation issues |
 | `ValidationErrorObject` | class | Single issue with AJV error details |
 | `createValidator` | function | Build reusable validator from schema |
+| `createValidatorFactory` | function | Own a disposable AJV instance for runtime schemas |
 | `createStandardValidator` | function | Build Standard Schema v1 validator |
 | `toStandardValidator` | function | Wrap validator as Standard Schema v1 |
 | `assertType` | function | Assert value matches schema; throws on failure |
@@ -67,3 +71,27 @@ if (result instanceof ValidationError) {
   }
 }
 ```
+
+## Runtime schemas
+
+`createValidator` compiles on AJV instances shared by the whole process, which keep every compiled
+validator for the life of the process. For schemas that arrive at runtime and are used once, own an
+isolated instance and dispose it:
+
+```typescript
+import type { Schema } from '@sozai/schema'
+import { createValidatorFactory } from '@sozai/schema'
+
+let factory = createValidatorFactory({ strict: false, logger: false })
+
+function validatorFor(schema: Schema) {
+  if (factory.compiled >= 100) {
+    factory.dispose() // later createValidator calls on it throw
+    factory = createValidatorFactory({ strict: false, logger: false })
+  }
+  return factory.createValidator(schema)
+}
+```
+
+Validators already returned keep working after `dispose()` and keep their instance alive until they
+are dropped too.

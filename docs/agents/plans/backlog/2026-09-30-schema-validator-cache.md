@@ -67,12 +67,15 @@ exactly one compiled shape.
 removes the root `$id` after a successful compile. Two consequences, both reproduced: a failed
 compile with `$id: "x"` makes every later compile of a schema with `$id: "x"` fail with "already
 exists", and the cache would store that spurious error; two distinct schemas sharing a nested
-`$id` cannot both compile on one factory. The fix is in `createValidatorFactory`, not the cache:
-after every compile on a factory, success or failure, call `ajv.removeSchema()` with no argument.
-That drops every non-meta schema and ref and AJV's compile cache, and leaves meta-schemas, formats
-and validators already compiled working. A factory never exposed `addSchema`, so no caller could
-rely on cross-schema `$ref`; the change makes that explicit. `$ref` to a location inside the same
-schema is unaffected.
+`$id` cannot both compile on one factory. The shared, process-wide instances behind
+`createValidator` have the same defect, and there it lasts for the life of the process. The fix
+is in `compileValidator`, which both paths use, not in the cache: after every compile, success or
+failure, call `ajv.removeSchema()` with no argument. That drops every non-meta schema and ref and
+AJV's compile cache, and leaves meta-schemas, formats and validators already compiled working.
+Neither path exposes its AJV instance (`getAjv` is module-private, the factory has no
+`addSchema`), so no caller could rely on cross-schema `$ref`; the change makes that explicit.
+`$ref` to a location inside the same schema is unaffected. Dropping AJV's compile cache costs
+nothing: both paths memoize validators per schema object themselves.
 
 ## API
 
@@ -151,12 +154,14 @@ a new factory.
 validator handed out before its factory was disposed keeps validating, and keeps that AJV
 instance alive until the validator itself is collected.
 
-## Change to `createValidatorFactory`
+## Change to `compileValidator`
 
-In `packages/schema/src/validation.ts`, the factory's `createValidator` wraps its compile in
-`try/finally` and calls `ajv.removeSchema()` (no argument) in the `finally`. The shared instances
-behind `createValidator` keep their current root-`$id` removal; see Out of scope. The `dispose()`
-doc comment and the README are unchanged by this, apart from the README fix below.
+In `packages/schema/src/validation.ts`, `compileValidator` wraps `ajv.compile(schema)` in
+`try/finally` and calls `ajv.removeSchema()` (no argument) in the `finally`, replacing the current
+guarded `removeSchema(schema.$id)` after a successful compile. The comment above it changes to
+say why: every compile starts from an empty registry, so a failed compile or a nested `$id` cannot
+block a later schema. This applies to both `createValidator` (shared instances) and
+`createValidatorFactory`. It is a bug fix released in the same minor as the cache.
 
 ## Documentation
 
@@ -171,7 +176,7 @@ doc comment and the README are unchanged by this, apart from the README fix belo
   on `@sozai/schema` or `@sozai/json` besides `codec`, which is already stale. Rewrite it: `codec`,
   `flow-graph` and `schema` depend on `@sozai/json`; `flow`, `flow-graph` and `patch` depend on
   `@sozai/schema`.
-- A `pnpm change` entry: minor for `@sozai/schema`.
+- A `pnpm change` entry: minor for `@sozai/schema`, naming both the cache and the `$id` fix.
 
 Consumer guidance, for the README and the reference:
 
@@ -210,20 +215,20 @@ New:
   `stats()` is unchanged;
 - a literal schema passed to `get` infers its type (type test, `expectTypeOf`).
 
-In `packages/schema/test/lib.test.ts`, for the factory change:
+- `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
+
+In `packages/schema/test/lib.test.ts`, for the `compileValidator` change, each case run through
+both `createValidator` and `createValidatorFactory` (fixture `$id`s unique per test, since the
+shared instances live for the whole test file):
 
 - after a failed compile of a schema with `$id: 'x'`, a valid schema with `$id: 'x'` compiles;
-- two distinct schemas with the same nested `$id` both compile on one factory, and each validator
-  checks its own shape;
-- a schema with an internal `$ref` to its own `definitions` still compiles and validates.
-- `maxCompiles: 0`, `maxEntries: 0` and a non-integer bound each throw `RangeError`.
+- two distinct schemas with the same nested `$id` both compile, and each validator checks its own
+  shape;
+- a schema with an internal `$ref` to its own `definitions` still compiles and validates;
+- a validator compiled before a later compile still validates, both accepting and rejecting.
 
 ## Out of scope
 
-- The shared instances behind `createValidator` have the same failed-compile `$id` leak: a failed
-  compile with `$id: "x"` blocks `$id: "x"` for the life of the process. Filed as
-  [schema-shared-id-leak](./2026-09-30-schema-shared-id-leak.md); it
-  touches the shared instance, which other packages rely on.
 - A validator-factory option in `FlowGraphOptions` for `@sozai/flow-graph`, so the graph's own
   compiles can use a recycled cache. Separate request.
 - Replacing the two mokei implementations. mokei does this once the release is published.

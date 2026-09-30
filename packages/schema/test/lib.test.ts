@@ -637,6 +637,9 @@ describe.each(compilerMakers)('compile registry cleanup (%s)', (pathName, makeCo
     const nid = `cleanup-nested-${pathName}`
     const first = compile({ type: 'object', properties: { a: { $id: nid, type: 'string' } } })
     const second = compile({ type: 'object', properties: { b: { $id: nid, type: 'number' } } })
+    const asRoot = compile({ $id: nid, type: 'number' })
+    expect(isType(asRoot, 1)).toBe(true)
+    expect(isType(asRoot, 'x')).toBe(false)
     expect(isType(first, { a: 'x' })).toBe(true)
     expect(isType(first, { a: 1 })).toBe(false)
     expect(isType(second, { b: 1 })).toBe(true)

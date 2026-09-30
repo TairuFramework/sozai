@@ -13,6 +13,12 @@
 export type { StandardJSONSchemaV1, StandardSchemaV1 } from '@standard-schema/spec'
 export type { FromSchema } from 'json-schema-to-ts'
 
+export {
+  createValidatorCache,
+  type ValidatorCache,
+  type ValidatorCacheOptions,
+  type ValidatorCacheStats,
+} from './cache.js'
 export { ValidationError, ValidationErrorObject } from './errors.js'
 export type { Schema } from './types.js'
 export { resolveReference, resolveSchema } from './utils.js'

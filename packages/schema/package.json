@@ -35,6 +35,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@sozai/json": "workspace:^",
     "@standard-schema/spec": "catalog:",
     "ajv": "catalog:",
     "ajv-formats": "catalog:",

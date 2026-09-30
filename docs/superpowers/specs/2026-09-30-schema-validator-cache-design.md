@@ -1,6 +1,6 @@
 # schema -- validator cache over isolated, recycled factories
 
-**Status:** design approved · spec awaiting review
+**Status:** complete (implemented; see `docs/agents/plans/completed/2026-09-30-schema-validator-cache.complete.md`)
 **Date:** 2026-09-30
 **Package:** `@sozai/schema` (minor, from 0.1.3), gains a dependency on `@sozai/json`
 **Requested by:** mokei (`@mokei/decision-flow-server` and `@mokei/host-desktop`)

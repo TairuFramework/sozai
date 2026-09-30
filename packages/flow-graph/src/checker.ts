@@ -3,18 +3,15 @@ import { isJSONValue } from '@sozai/json'
 import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
-import type {
-  FlowDefinition,
-  FlowIssue,
-  FlowNode,
-  FlowRetryPolicy,
-  IssueParams,
-  NodeKind,
-} from './types.js'
+import { issue } from './issue.js'
+import { collectNodeReads, type ReadReference } from './reads.js'
+import { schemaHasPath } from './result-paths.js'
+import type { FlowDefinition, FlowIssue, FlowNode, FlowRetryPolicy, NodeKind } from './types.js'
 import { isSafePathSegment } from './value.js'
 
 type ContainsEndParams = {
   definition: FlowDefinition
+  kinds: Map<string, NodeKind>
   edges: Map<string, Array<string>>
   start: string
   visited?: Set<string>
@@ -26,8 +23,6 @@ type ValidationHintParams = {
   params: Record<string, unknown>
   isOperator: boolean
 }
-
-type ReadReference = { path: Array<string>; location: Array<string | number> }
 
 type AnalyzeGraphParams = {
   definition: FlowDefinition
@@ -74,7 +69,6 @@ export type CheckDefinitionParams = {
   kinds: Map<string, NodeKind>
   actions?: Record<string, unknown>
   authoringSchema?: Schema
-  storageSchema?: Schema
   validatorFor?: (schema: Schema, strict?: boolean) => Validator<unknown>
 }
 
@@ -87,14 +81,6 @@ export function formatIssues(issues: Array<FlowIssue>): string {
     )
     .join('\n')
 }
-
-const issue = (params: IssueParams): FlowIssue => ({
-  severity: params.severity ?? 'error',
-  path: params.path,
-  code: params.code,
-  message: params.message,
-  hint: params.hint,
-})
 
 const ownNode = (nodes: FlowDefinition['nodes'], id: string): FlowNode | undefined =>
   Object.hasOwn(nodes, id) ? nodes[id] : undefined
@@ -174,46 +160,18 @@ const validationIssues = (
   return [...new Map(result.map((item) => [JSON.stringify(item.path), item])).values()]
 }
 
-const child = (schema: unknown, key: string): unknown => {
-  if (!schema || typeof schema !== 'object') {
-    return undefined
-  }
+type IsEndNodeParams = { definition: FlowDefinition; kinds: Map<string, NodeKind>; id: string }
 
-  const shape = schema as {
-    properties?: Record<string, unknown>
-    additionalProperties?: unknown
-    items?: unknown
-  }
+/** Whether a node ends the run's local graph: a terminal kind, or a `goto` handover. */
+const isEndNode = (params: IsEndNodeParams): boolean => {
+  const { definition, kinds, id } = params
+  const kind = ownNode(definition.nodes, id)?.kind
 
-  if (shape.properties && Object.hasOwn(shape.properties, key)) {
-    return shape.properties[key]
-  }
-
-  if (/^(0|[1-9]\d*)$/.test(key) && shape.items && typeof shape.items === 'object') {
-    return shape.items
-  }
-
-  return shape.additionalProperties && typeof shape.additionalProperties === 'object'
-    ? shape.additionalProperties
-    : undefined
-}
-
-const schemaHasPath = (schema: Schema, path: Array<string>): boolean => {
-  let current: unknown = schema
-
-  for (const part of path) {
-    current = child(current, part)
-
-    if (!current) {
-      return false
-    }
-  }
-
-  return true
+  return kind !== undefined && (kind === 'goto' || kinds.get(kind)?.terminal === true)
 }
 
 const containsEnd = (params: ContainsEndParams): boolean => {
-  const { definition, edges, start, visited = new Set<string>() } = params
+  const { definition, kinds, edges, start, visited = new Set<string>() } = params
 
   if (visited.has(start)) {
     return false
@@ -221,98 +179,13 @@ const containsEnd = (params: ContainsEndParams): boolean => {
 
   visited.add(start)
 
-  if (ownNode(definition.nodes, start)?.kind === 'end') {
+  if (isEndNode({ definition, kinds, id: start })) {
     return true
   }
 
   return (edges.get(start) ?? []).some((next) =>
-    containsEnd({ definition, edges, start: next, visited }),
+    containsEnd({ definition, kinds, edges, start: next, visited }),
   )
-}
-
-function collectNodeReads(
-  node: FlowNode,
-  nodeID: string,
-  issues: Array<FlowIssue>,
-): Array<ReadReference> {
-  const nodeReads: Array<{ path: Array<string>; location: Array<string | number> }> = []
-
-  const walk = (value: unknown, location: Array<string | number>): void => {
-    if (!value || typeof value !== 'object') {
-      return
-    }
-
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => {
-        walk(item, [...location, index])
-      })
-
-      return
-    }
-
-    const object = value as Record<string, unknown>
-    const container = location.at(-1)
-
-    if (
-      Object.hasOwn(object, 'value') &&
-      Object.keys(object).length === 1 &&
-      container !== 'output' &&
-      container !== 'args' &&
-      container !== 'object'
-    ) {
-      return
-    }
-
-    if (Array.isArray(object.ref)) {
-      nodeReads.push({ path: object.ref as Array<string>, location: [...location, 'ref'] })
-    }
-
-    const writing = node.kind === 'set' && location.length === 4 && location[2] === 'assign'
-    // Only filter leaves and set targets are paths; kinds may use `path` fields for other data.
-    const isPath = writing || (Object.hasOwn(object, 'is') && typeof object.is === 'object')
-
-    if (
-      isPath &&
-      Array.isArray(object.path) &&
-      object.path.every((part) => typeof part === 'string')
-    ) {
-      const path = object.path as Array<string>
-
-      if (writing && (path[0] !== 'state' || path.length < 2)) {
-        issues.push(
-          issue({
-            code: 'invalid_path',
-            path: [...location, 'path'],
-            message: 'Set target must be under state.',
-            hint: 'Use a state path with at least one key.',
-          }),
-        )
-      } else if (!writing) {
-        nodeReads.push({ path: path, location: [...location, 'path'] })
-      }
-
-      if (path.some((part) => !isSafePathSegment(part))) {
-        issues.push(
-          issue({
-            code: 'invalid_path',
-            path: [...location, 'path'],
-            message: 'Path has an unsafe segment.',
-            hint: 'Remove prototype-sensitive keys.',
-          }),
-        )
-      }
-    }
-
-    for (const [key, item] of Object.entries(object)) {
-      if (key !== 'schema' && key !== 'retry') {
-        walk(item, [...location, key])
-      }
-    }
-  }
-
-  walk(node, ['nodes', nodeID])
-
-  return nodeReads
 }
 
 function checkReads(params: CheckReadsParams): void {
@@ -499,7 +372,7 @@ function analyzeGraph(params: AnalyzeGraphParams): void {
       )
     }
 
-    if (!containsEnd({ definition: definition, edges, start: id })) {
+    if (!containsEnd({ definition: definition, kinds, edges, start: id })) {
       issues.push(
         issue({
           code: 'no_end',
@@ -574,6 +447,11 @@ function checkNodeRetry(params: CheckNodeRetryParams): void {
       }
 
       const policy = node.retry as FlowRetryPolicy
+
+      if (node.kind === 'call' && policy.attemptTimeoutMs !== undefined) {
+        // A callee may suspend for days; call retries only bound the total retry window.
+        throw new TypeError('Call retry policy rejects attemptTimeoutMs')
+      }
 
       assertRetryPolicy(policy)
 
@@ -762,7 +640,6 @@ export function checkDefinition(params: CheckDefinitionParams): {
     kinds,
     actions,
     authoringSchema,
-    storageSchema,
     validatorFor = (schema, strict) =>
       createValidator(schema, strict === undefined ? undefined : { strict }),
   } = params
@@ -804,38 +681,6 @@ export function checkDefinition(params: CheckDefinitionParams): {
       const valid = validatorFor(authoringSchema, false)(definition)
 
       if (valid instanceof ValidationError) {
-        const stored =
-          storageSchema &&
-          !(validatorFor(storageSchema, false)(definition) instanceof ValidationError)
-
-        if (stored && raw.nodes && typeof raw.nodes === 'object') {
-          const reserved = Object.entries(raw.nodes).filter(([, node]) => {
-            if (!node || typeof node !== 'object') {
-              return false
-            }
-
-            const shape = node as Record<string, unknown>
-
-            return (
-              shape.kind === 'call' ||
-              shape.kind === 'goto' ||
-              (shape.kind === 'loop' && shape.body !== null && typeof shape.body === 'object')
-            )
-          })
-
-          return {
-            ok: false,
-            issues: reserved.map(([id]) =>
-              issue({
-                code: 'unsupported',
-                path: ['nodes', id],
-                message: 'Node uses a reserved flow reference.',
-                hint: 'Use an executable node kind or a local loop body.',
-              }),
-            ),
-          }
-        }
-
         issues.push(
           ...validationIssues(valid, []).filter(
             (item) => item.path[0] !== 'nodes' || item.path.length <= 1,

@@ -1,5 +1,6 @@
 import { sleep } from '@sozai/async'
 
+import { nextInvocationID, top, topIndex } from './frames.js'
 import type { FlowRunner } from './run.js'
 import { clone, final, own, required } from './run-utils.js'
 import { toTimestamp } from './time.js'
@@ -15,26 +16,30 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
         break
       }
 
-      const frame = required(runner.state.frames[0], ['frames', 0])
+      const frame = top(runner.state)
       const nodeID = frame.node
+      const nodePath = ['frames', topIndex(runner.state), 'node']
 
       const node = required(
-        Object.hasOwn(runner.definition.nodes, nodeID)
-          ? runner.definition.nodes[nodeID]
+        Object.hasOwn(runner.activeDefinition.nodes, nodeID)
+          ? runner.activeDefinition.nodes[nodeID]
           : undefined,
-        ['frames', 0, 'node'],
+        nodePath,
       )
 
-      const kind = required(runner.kinds.get(node.kind), ['frames', 0, 'node'])
+      const kind = required(runner.kinds.get(node.kind), nodePath)
       const pending = runner.state.pending
 
       const attempts = Object.hasOwn(frame.attempts, nodeID) ? frame.attempts[nodeID] : undefined
 
       if (runner.state.status === 'suspended' && pending?.reason === 'suspend') {
-        const invocationID = attempts?.invocationID ?? `${runner.state.runID}:0:${frame.invocation}`
+        // The suspended node drew the latest ID: push and pop draw none, so nothing else can
+        // have drawn one between the suspension and this resume.
+        const invocationID =
+          attempts?.invocationID ?? `${runner.state.runID}:${runner.state.invocation}`
 
         try {
-          const { result, staged } = await runner.runOne({
+          const { result, staged, prepared } = await runner.runOne({
             nodeID,
             kind,
             attempt: attempts?.count ?? 1,
@@ -44,7 +49,7 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
             timeoutMs: attempts?.policy.attemptTimeoutMs,
           })
 
-          const saved = runner.applyResult({ result, staged, nodeID, resumed: true })
+          const saved = runner.applyResult({ result, staged, nodeID, resumed: true, prepared })
 
           yield saved
 
@@ -79,6 +84,8 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
             kind,
             reason: 'total_timeout',
             meta: attempts.lastFailure ?? { type: 'TimeoutInterruption' },
+            // A `call` only holds a retryAt scheduled by a callee failure.
+            calleeRetry: true,
           })
 
           if (final(runner.state.status)) {
@@ -132,7 +139,7 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
 
       if (kind.retries && !attempts) {
         const next = clone(runner.state)
-        const frame = required(next.frames[0], ['frames', 0])
+        const frame = top(next)
 
         const policy = clone(
           (node.retry as FlowRetryPolicy | undefined) ??
@@ -143,12 +150,12 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
             },
         )
 
-        frame.invocation++
+        const invocationID = nextInvocationID(next)
 
         next.steps++
 
         frame.attempts[nodeID] = {
-          invocationID: `${runner.state.runID}:0:${frame.invocation}`,
+          invocationID,
           policy,
           count: 0,
           interruptions: 0,
@@ -165,10 +172,7 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
         continue
       }
 
-      const current =
-        runner.state.frames[0] && Object.hasOwn(runner.state.frames[0].attempts, nodeID)
-          ? runner.state.frames[0].attempts[nodeID]
-          : undefined
+      const current = own(top(runner.state).attempts, nodeID)
 
       if (kind.retries && current) {
         if (current.deadline && runner.now() >= new Date(current.deadline).getTime()) {
@@ -178,6 +182,8 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
             kind,
             reason: 'total_timeout',
             meta: current.lastFailure ?? { type: 'TimeoutInterruption' },
+            // Still holding retryAt: the deadline passed while waiting for a scheduled retry.
+            calleeRetry: current.retryAt !== undefined,
           })
 
           if (final(runner.state.status)) {
@@ -206,12 +212,8 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
 
           const next = clone(runner.state)
 
-          required(required(next.frames[0], ['frames', 0]).attempts[nodeID], [
-            'frames',
-            0,
-            'attempts',
-            nodeID,
-          ]).interruptions++
+          required(top(next).attempts[nodeID], ['frames', topIndex(next), 'attempts', nodeID])
+            .interruptions++
 
           yield runner.commit(next)
         } else {
@@ -233,9 +235,9 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
 
           const next = clone(runner.state)
 
-          const attempt = required(required(next.frames[0], ['frames', 0]).attempts[nodeID], [
+          const attempt = required(top(next).attempts[nodeID], [
             'frames',
-            0,
+            topIndex(next),
             'attempts',
             nodeID,
           ])
@@ -258,21 +260,17 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
         recovering = false
       }
 
-      const attempt =
-        runner.state.frames[0] && Object.hasOwn(runner.state.frames[0].attempts, nodeID)
-          ? runner.state.frames[0].attempts[nodeID]
-          : undefined
+      const attempt = own(top(runner.state).attempts, nodeID)
 
       if (!kind.retries) {
         runner.events.fire('node:enter', { node: nodeID, runState: clone(runner.state) })
       }
 
       const invocationID =
-        attempt?.invocationID ??
-        `${runner.state.runID}:0:${(runner.state.frames[0]?.invocation ?? 0) + 1}`
+        attempt?.invocationID ?? `${runner.state.runID}:${runner.state.invocation + 1}`
 
       try {
-        const { result, staged } = await runner.runOne({
+        const { result, staged, prepared } = await runner.runOne({
           nodeID,
           kind,
           attempt: attempt?.count ?? 1,
@@ -281,7 +279,7 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
           timeoutMs: attempt?.policy.attemptTimeoutMs,
         })
 
-        const saved = runner.applyResult({ result, staged, nodeID, resumed: false })
+        const saved = runner.applyResult({ result, staged, nodeID, resumed: false, prepared })
 
         yield saved
 

@@ -1,6 +1,7 @@
+import type { Schema } from '@sozai/schema'
 import { expect, test } from 'vitest'
 
-import { createFlowGraph, formatIssues } from '../src/index.js'
+import { createFlowGraph, defineNodeKind, formatIssues } from '../src/index.js'
 
 const graph = createFlowGraph({ actions: { ok: async () => 1 } })
 
@@ -25,12 +26,11 @@ test('flags unknown targets with repair paths', () => {
   expect(issues[0]?.hint).toBeTruthy()
 })
 
-test('rejects reserved storage shapes for authoring', () => {
-  expect(
-    graph
-      .check({ ...base, nodes: { start: { kind: 'goto', flow: 'other' } } })
-      .issues.map((issue) => issue.code),
-  ).toContain('unsupported')
+test('accepts reference nodes for authoring', () => {
+  const result = graph.check({ ...base, nodes: { start: { kind: 'goto', flow: 'other' } } })
+
+  expect(result.issues.map((issue) => issue.code)).not.toContain('unsupported')
+  expect(result.ok).toBe(true)
 })
 
 test('rejects unsafe paths', () => {
@@ -161,4 +161,77 @@ test('a registered kind with a schema that cannot compile yields invalid_schema'
   const result = custom.check({ ...base, nodes: { start: { kind: 'broken' } } })
 
   expect(result.issues.map((issue) => issue.code)).toContain('invalid_schema')
+})
+
+const resultPathGraph = (resultSchema: unknown) =>
+  createFlowGraph({
+    kinds: [
+      defineNodeKind({
+        kind: 'tool',
+        schema: {
+          type: 'object',
+          required: ['kind', 'next'],
+          properties: { kind: { const: 'tool' }, next: { type: 'string' } },
+          additionalProperties: false,
+        },
+        targets: (node: { kind: 'tool'; next: string }) => [{ path: ['next'], id: node.next }],
+        resultSchema: () => resultSchema as Schema,
+        execute: (node) => ({ next: node.next, result: {} }),
+      }),
+    ],
+  })
+
+const resultPathCodes = (resultSchema: unknown, path: Array<string>): Array<string> =>
+  resultPathGraph(resultSchema)
+    .check({
+      ...base,
+      nodes: {
+        start: { kind: 'tool', next: 'end' },
+        end: { kind: 'end', output: { value: { ref: ['results', 'start', ...path] } } },
+      },
+    })
+    .issues.map((item) => item.code)
+
+test('result path under true or {} is accepted at any depth', () => {
+  const path = ['a', 'b', 'c', '0', 'd']
+
+  expect(resultPathCodes(true, path)).not.toContain('invalid_result_path')
+  expect(resultPathCodes({}, path)).not.toContain('invalid_result_path')
+})
+
+test('annotation-only result schema is unconstrained', () => {
+  expect(resultPathCodes({ description: 'any' }, ['a', 'b'])).not.toContain('invalid_result_path')
+})
+
+test('additionalProperties true accepts unknown keys at depth', () => {
+  expect(resultPathCodes({ type: 'object', additionalProperties: true }, ['x', 'y'])).not.toContain(
+    'invalid_result_path',
+  )
+})
+
+test('recursive local $ref accepts deep paths', () => {
+  const schema = {
+    $ref: '#/definitions/node',
+    definitions: {
+      node: { type: 'object', additionalProperties: { $ref: '#/definitions/node' } },
+    },
+  }
+
+  expect(
+    resultPathCodes(
+      schema,
+      Array.from({ length: 40 }, (_, index) => `k${index}`),
+    ),
+  ).not.toContain('invalid_result_path')
+})
+
+test('properties without type and patternProperties still constrain', () => {
+  expect(resultPathCodes({ properties: { a: {} } }, ['b'])).toContain('invalid_result_path')
+  expect(resultPathCodes({ patternProperties: { '^x': {} } }, ['x1'])).toContain(
+    'invalid_result_path',
+  )
+})
+
+test('unresolvable $ref fails the path', () => {
+  expect(resultPathCodes({ $ref: '#/definitions/missing' }, ['a'])).toContain('invalid_result_path')
 })

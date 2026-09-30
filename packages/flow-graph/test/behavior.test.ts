@@ -2,7 +2,13 @@ import { getSozaiLogger } from '@sozai/log'
 import { expect, test, vi } from 'vitest'
 
 import type { NodeKind } from '../src/index.js'
-import { createFlowGraph, defineNodeKind } from '../src/index.js'
+import {
+  createFlowGraph,
+  createMapResolver,
+  defineNodeKind,
+  FlowResumeError,
+  FlowRetryableError,
+} from '../src/index.js'
 
 test('loop limit resets its counter before ending with an error', async () => {
   const definition = {
@@ -37,7 +43,7 @@ test('loop limit resets its counter before ending with an error', async () => {
   expect(result.error?.code).toBe('loop_exhausted')
   expect(result.runState.frames[0]?.loops.loop).toBeUndefined()
   expect(result.runState.steps).toBe(8)
-  expect(result.runState.frames[0]?.invocation).toBe(8)
+  expect(result.runState.invocation).toBe(8)
 })
 
 test('loop resets its counter on a false filter and re-entry gets a new invocation', async () => {
@@ -264,4 +270,143 @@ test('unconfigured logging reports run errors even with an injected logger', asy
   } finally {
     spy.mockRestore()
   }
+})
+
+const declineDefinition = (decline?: { to: string }) => ({
+  id: 'decline',
+  name: 'Decline',
+  version: 1,
+  start: 'ask',
+  nodes: {
+    ask: { kind: 'input', next: 'end', ...(decline ? { decline } : {}) },
+    end: { kind: 'end' },
+    fallback: { kind: 'end', outcome: 'fallback' },
+  },
+})
+
+async function declineWith(
+  definition: ReturnType<typeof declineDefinition>,
+  event: Parameters<ReturnType<typeof createFlowGraph>['resume']>[0]['event'],
+) {
+  const graph = createFlowGraph({ resolver: createMapResolver([definition]) })
+  const first = await graph.run({ definition })
+  const run = graph.resume({ runState: first.runState, event })
+
+  for await (const _state of run) {
+    /* drain */
+  }
+
+  return run.getState()
+}
+
+test('decline routes to the decline edge with the reason as result', async () => {
+  const state = await declineWith(declineDefinition({ to: 'fallback' }), {
+    type: 'decline',
+    reason: 'cancel',
+  })
+
+  expect(state.status).toBe('ended')
+  expect(state.outcome).toBe('fallback')
+  expect(state.frames[0]?.results.ask).toEqual({ declined: 'cancel' })
+})
+
+test('decline without reason records decline', async () => {
+  const state = await declineWith(declineDefinition({ to: 'fallback' }), { type: 'decline' })
+
+  expect(state.frames[0]?.results.ask).toEqual({ declined: 'decline' })
+})
+
+test('decline without a decline edge ends the run with invalid_suspend', async () => {
+  const state = await declineWith(declineDefinition(), { type: 'decline' })
+
+  expect(state.status).toBe('error')
+  expect(state.error?.code).toBe('invalid_suspend')
+})
+
+test('decline with an unknown reason is rejected before the run starts', async () => {
+  const definition = declineDefinition({ to: 'fallback' })
+  const graph = createFlowGraph({ resolver: createMapResolver([definition]) })
+  const first = await graph.run({ definition })
+
+  expect(() =>
+    graph.resume({
+      runState: first.runState,
+      event: { type: 'decline', reason: 'nope' as 'decline' },
+    }),
+  ).toThrow(FlowResumeError)
+})
+
+test('decline is rejected for a pending retry', async () => {
+  const definition = {
+    id: 'retry',
+    name: 'Retry',
+    version: 1,
+    start: 'a',
+    nodes: {
+      a: {
+        kind: 'action',
+        name: 'work',
+        retry: { maxAttempts: 2, backoff: { initialMs: 100 }, suspendAfterMs: 10 },
+        next: 'end',
+      },
+      end: { kind: 'end' },
+    },
+  }
+
+  const graph = createFlowGraph({
+    now: () => 1000,
+    resolver: createMapResolver([definition]),
+    actions: {
+      work: async () => {
+        throw new FlowRetryableError({ message: 'again' })
+      },
+    },
+  })
+
+  const first = await graph.run({ definition })
+
+  expect(first.status).toBe('suspended')
+  expect(() => graph.resume({ runState: first.runState, event: { type: 'decline' } })).toThrow(
+    FlowResumeError,
+  )
+})
+
+test('check reports an unknown decline target', () => {
+  const issues = createFlowGraph().check(declineDefinition({ to: 'missing' })).issues
+
+  expect(issues.find((issue) => issue.code === 'unknown_target')?.path).toEqual([
+    'nodes',
+    'ask',
+    'decline',
+  ])
+})
+
+test('suspension with an uncompilable schema fails with invalid_suspend', async () => {
+  const bad = defineNodeKind({
+    kind: 'bad',
+    schema: {
+      type: 'object',
+      required: ['kind', 'next'],
+      additionalProperties: false,
+      properties: { kind: { const: 'bad' }, next: { type: 'string' } },
+    },
+    targets: (node: { kind: 'bad'; next: string }) => [{ path: ['next'], id: node.next }],
+    execute: () => ({ suspend: { schema: { type: 'nope' } as never } }),
+    resume: () => ({ end: {} }),
+  })
+
+  const graph = createFlowGraph({ kinds: [bad] })
+
+  const result = await graph.run({
+    definition: {
+      id: 'bad',
+      name: 'Bad',
+      version: 1,
+      start: 'a',
+      nodes: { a: { kind: 'bad', next: 'end' }, end: { kind: 'end' } },
+    },
+  })
+
+  expect(result.status).toBe('error')
+  expect(result.error?.code).toBe('invalid_suspend')
 })

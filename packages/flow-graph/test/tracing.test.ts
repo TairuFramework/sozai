@@ -10,7 +10,7 @@ import type { LogRecord } from '@sozai/log'
 import { getSozaiLogger, reset, setup } from '@sozai/log'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 
-import { createFlowGraph, FlowRetryableError } from '../src/index.js'
+import { createFlowGraph, createMapResolver, FlowRetryableError } from '../src/index.js'
 
 const exporter = new InMemorySpanExporter()
 
@@ -67,7 +67,7 @@ test('spans form a parented tree and resume links to origin without payloads', a
     },
   }
 
-  const graph = createFlowGraph()
+  const graph = createFlowGraph({ resolver: createMapResolver([definition]) })
 
   const first = await context.with(trace.setSpan(context.active(), host), () =>
     graph.run({ definition, input: 'secret input' }),
@@ -79,7 +79,6 @@ test('spans form a parented tree and resume links to origin without payloads', a
   expect(first.runState.origin?.traceparent).toBeTruthy()
 
   const resumed = graph.resume({
-    definition,
     runState: first.runState,
     event: { type: 'value', value: 'secret answer' },
   })
@@ -348,8 +347,6 @@ test('definition, version and state validation each log once', async () => {
   })
 
   try {
-    const graph = createFlowGraph()
-
     const definition = {
       id: 'validate',
       name: 'Validate',
@@ -358,20 +355,19 @@ test('definition, version and state validation each log once', async () => {
       nodes: { ask: { kind: 'input', next: 'end' }, end: { kind: 'end' } },
     }
 
+    const graph = createFlowGraph({
+      resolver: { resolve: () => ({ ...definition, name: 'Edited' }) },
+    })
+
     expect(() => graph.start({ definition: { ...definition, version: Number.NaN } })).toThrow()
 
     const first = await graph.run({ definition })
 
+    await expect(
+      graph.resume({ runState: first.runState, event: { type: 'value', value: 1 } }).next(),
+    ).rejects.toThrow()
     expect(() =>
       graph.resume({
-        definition: { ...definition, version: 2 },
-        runState: first.runState,
-        event: { type: 'value', value: 1 },
-      }),
-    ).toThrow()
-    expect(() =>
-      graph.resume({
-        definition,
         runState: { ...first.runState, pending: undefined },
         event: { type: 'value', value: 1 },
       }),
@@ -488,4 +484,325 @@ test('recorded handled and retried failures leave node spans without error statu
       .filter((span) => span.name === 'flow.node')
       .map((span) => span.status.code),
   ).not.toContain(SpanStatusCode.ERROR)
+})
+
+test('node spans carry flow.id and flow.depth', async () => {
+  exporter.reset()
+
+  const callee = {
+    id: 'callee',
+    name: 'Callee',
+    version: 1,
+    start: 'work',
+    nodes: { work: { kind: 'action', name: 'work', next: 'done' }, done: { kind: 'end' } },
+  }
+
+  const caller = {
+    id: 'caller',
+    name: 'Caller',
+    version: 1,
+    start: 'c',
+    nodes: { c: { kind: 'call', flow: 'callee', next: 'done' }, done: { kind: 'end' } },
+  }
+
+  const result = await createFlowGraph({
+    resolver: createMapResolver([callee]),
+    actions: { work: () => 1 },
+  }).run({ definition: caller })
+
+  expect(result.status).toBe('ended')
+
+  const nodes = exporter
+    .getFinishedSpans()
+    .filter((span) => span.name === 'flow.node')
+    .map((span) => [
+      span.attributes['flow.node.id'],
+      span.attributes['flow.id'],
+      span.attributes['flow.depth'],
+    ])
+
+  expect(nodes).toEqual([
+    ['c', 'caller', 0],
+    ['work', 'callee', 1],
+    ['done', 'callee', 1],
+    ['done', 'caller', 0],
+  ])
+})
+
+test('a root goto repins the segment span flow attributes', async () => {
+  exporter.reset()
+
+  const target = {
+    id: 'target',
+    name: 'Target',
+    version: 2,
+    start: 'done',
+    nodes: { done: { kind: 'end' } },
+  }
+
+  const origin = {
+    id: 'origin',
+    name: 'Origin',
+    version: 1,
+    start: 'g',
+    nodes: { g: { kind: 'goto', flow: 'target' } },
+  }
+
+  const result = await createFlowGraph({ resolver: createMapResolver([target]) }).run({
+    definition: origin,
+  })
+
+  expect(result.status).toBe('ended')
+
+  const spans = exporter.getFinishedSpans()
+  const segment = spans.find((span) => span.name === 'flow.segment')
+
+  expect(segment?.attributes).toMatchObject({ 'flow.id': 'target', 'flow.version': 2 })
+  expect(
+    spans
+      .filter((span) => span.name === 'flow.node')
+      .map((span) => [span.attributes['flow.node.id'], span.attributes['flow.id']]),
+  ).toEqual([
+    ['g', 'origin'],
+    ['done', 'target'],
+  ])
+})
+
+test('failure log records carry the flow.id of the frame that owns the logged node', async () => {
+  const records: Array<LogRecord> = []
+
+  setup({
+    sinks: {
+      memory: (record: LogRecord) => {
+        records.push(record)
+      },
+    },
+    loggers: [
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: [] },
+      { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
+    ],
+  })
+
+  const callee = {
+    id: 'callee',
+    name: 'Callee',
+    version: 1,
+    start: 'work',
+    nodes: { work: { kind: 'action', name: 'work', next: 'done' }, done: { kind: 'end' } },
+  }
+
+  const caller = (onError?: string) => ({
+    id: 'caller',
+    name: 'Caller',
+    version: 1,
+    start: 'c',
+    nodes: {
+      c: { kind: 'call', flow: 'callee', next: 'done', ...(onError ? { onError } : {}) },
+      done: { kind: 'end' },
+    },
+  })
+
+  try {
+    const graph = createFlowGraph({
+      logger: getSozaiLogger('flow-graph'),
+      resolver: createMapResolver([callee]),
+      actions: {
+        work: async () => {
+          throw new Error('private')
+        },
+      },
+    })
+
+    const handled = await graph.run({ definition: caller('done') })
+
+    expect(handled.status).toBe('ended')
+    expect(records.map((record) => [record.level, record.properties['flow.id']])).toEqual([
+      ['warning', 'caller'],
+    ])
+
+    records.length = 0
+
+    const failed = await graph.run({ definition: caller() })
+
+    expect(failed.status).toBe('error')
+    expect(records.map((record) => [record.level, record.properties['flow.id']])).toEqual([
+      ['error', 'callee'],
+    ])
+  } finally {
+    reset()
+  }
+})
+
+const askDefinition = {
+  id: 'ask',
+  name: 'Ask',
+  version: 1,
+  start: 'ask',
+  nodes: { ask: { kind: 'input', next: 'done' }, done: { kind: 'end' } },
+}
+
+async function suspendedAsk() {
+  const first = await createFlowGraph().run({ definition: askDefinition })
+
+  expect(first.status).toBe('suspended')
+
+  return JSON.parse(JSON.stringify(first.runState))
+}
+
+const resumeSegments = () =>
+  exporter
+    .getFinishedSpans()
+    .filter(
+      (span) => span.name === 'flow.segment' && span.attributes['flow.segment.kind'] === 'resume',
+    )
+
+test('a failed prepare keeps the segment open; return() ends it as ERROR with error.type', async () => {
+  const runState = await suspendedAsk()
+
+  exporter.reset()
+
+  const run = createFlowGraph({ resolver: createMapResolver([]) }).resume({
+    runState,
+    event: { type: 'value', value: 1 },
+  })
+
+  await expect(run.next()).rejects.toThrow()
+  expect(resumeSegments()).toHaveLength(0)
+
+  const closed = await run.return()
+
+  expect(closed).toEqual({ done: true, value: runState })
+
+  const [segment] = resumeSegments()
+
+  expect(resumeSegments()).toHaveLength(1)
+  expect(segment?.status.code).toBe(SpanStatusCode.ERROR)
+  expect(segment?.attributes['error.type']).toBe('FlowReferenceError')
+  // Like node spans, the exception itself is recorded only with recordErrorMessages.
+  expect(segment?.events).toEqual([])
+  expect(run.getState()).toEqual(runState)
+})
+
+test('with recordErrorMessages a failed prepare records the exception on the segment', async () => {
+  const runState = await suspendedAsk()
+
+  exporter.reset()
+
+  const run = createFlowGraph({
+    resolver: createMapResolver([]),
+    recordErrorMessages: true,
+  }).resume({ runState, event: { type: 'value', value: 1 } })
+
+  await expect(run.next()).rejects.toThrow()
+  await run.return()
+
+  const [segment] = resumeSegments()
+
+  expect(segment?.status.code).toBe(SpanStatusCode.ERROR)
+  expect(segment?.events.map((event) => event.name)).toEqual(['exception'])
+  expect(segment?.events[0]?.attributes?.['exception.type']).toBe('FlowReferenceError')
+})
+
+test('graph.run() ends the segment as ERROR when the start preflight rejects', async () => {
+  exporter.reset()
+
+  const graph = createFlowGraph({ resolver: createMapResolver([]) })
+
+  await expect(
+    graph.run({
+      definition: {
+        id: 'caller',
+        name: 'Caller',
+        version: 1,
+        start: 'c',
+        nodes: {
+          c: { kind: 'call', flow: 'gone', version: 1, next: 'done' },
+          done: { kind: 'end' },
+        },
+      },
+    }),
+  ).rejects.toThrow()
+
+  const segments = exporter.getFinishedSpans().filter((span) => span.name === 'flow.segment')
+
+  expect(segments).toHaveLength(1)
+  expect(segments[0]?.status.code).toBe(SpanStatusCode.ERROR)
+  expect(segments[0]?.attributes['error.type']).toBe('FlowDefinitionError')
+})
+
+test('a later successful prepare clears the prepare failure', async () => {
+  const runState = await suspendedAsk()
+  let calls = 0
+
+  exporter.reset()
+
+  const run = createFlowGraph({
+    resolver: {
+      resolve: async (id, version) => {
+        calls++
+
+        if (calls === 1) {
+          throw new Error('transient')
+        }
+
+        return createMapResolver([askDefinition]).resolve(id, version)
+      },
+    },
+  }).resume({ runState, event: { type: 'value', value: 1 } })
+
+  await expect(run.next()).rejects.toThrow('transient')
+
+  const commit = await run.next()
+
+  expect(commit.done).toBe(false)
+
+  await run.return()
+
+  const [segment] = resumeSegments()
+
+  expect(segment?.status.code).not.toBe(SpanStatusCode.ERROR)
+  expect(segment?.attributes['error.type']).toBeUndefined()
+  expect(segment?.events).toEqual([])
+})
+
+test('return() on a fresh run ends the segment without committing', async () => {
+  exporter.reset()
+
+  const run = createFlowGraph().start({ definition: askDefinition, runID: 'fresh' })
+  const initial = run.getState()
+
+  const closed = await run.return()
+
+  expect(closed).toEqual({ done: true, value: initial })
+  expect(run.getState()).toEqual(initial)
+  expect(run.getState().revision).toBe(0)
+
+  const segments = exporter.getFinishedSpans().filter((span) => span.name === 'flow.segment')
+
+  expect(segments).toHaveLength(1)
+  expect(segments[0]?.status.code).not.toBe(SpanStatusCode.ERROR)
+
+  expect(await run.next()).toEqual({ done: true, value: initial })
+  expect(await run.return()).toEqual({ done: true, value: initial })
+  expect(exporter.getFinishedSpans().filter((span) => span.name === 'flow.segment')).toHaveLength(1)
+})
+
+test('return() after completion is idempotent and next() stays done', async () => {
+  exporter.reset()
+
+  const run = createFlowGraph().start({ definition: askDefinition })
+  const commit = await run.next()
+
+  expect(commit.value.status).toBe('suspended')
+  expect(await run.return()).toEqual({ done: true, value: commit.value })
+  expect(await run.next()).toEqual({ done: true, value: commit.value })
+  expect(exporter.getFinishedSpans().filter((span) => span.name === 'flow.segment')).toHaveLength(1)
+})
+
+test('return() while next() is pending rejects', async () => {
+  const run = createFlowGraph().start({ definition: askDefinition })
+  const pending = run.next()
+
+  await expect(run.return()).rejects.toThrow('FlowRun.return() called concurrently')
+  expect((await pending).value.status).toBe('suspended')
 })

@@ -6,38 +6,54 @@ import {
   isValidSpanID,
   isValidTraceID,
   parseTraceparent,
+  SpanStatusCode,
   setSpanOnContext,
   withActiveContext,
 } from '@sozai/otel'
 import type { Runtime } from '@sozai/runtime'
+import type { Schema, Validator } from '@sozai/schema'
 
+import { nextInvocationID, top, topIndex } from './frames.js'
+import type {
+  InternalNodeResult,
+  PushResult,
+  ReferenceService,
+  ReplaceResult,
+} from './reference-kinds.js'
+import type { PreparedFlow } from './resolver.js'
 import type { FailureParams, HandleNodeErrorParams, NodeFailParams } from './retry-handling.js'
 import { failNode, failRun, handleNodeError } from './retry-handling.js'
 import { driveRunner } from './run-drive.js'
-import type { RunOneParams } from './run-execution.js'
+import type { RunOneParams, RunOneResult } from './run-execution.js'
 import { NodeExecutor } from './run-execution.js'
-import { clone, final, required, tracer } from './run-utils.js'
+import { clone, defaultMeta, final, required, tracer } from './run-utils.js'
 import type {
   FlowDefinition,
   FlowEvents,
   FlowGraphOptions,
   FlowRun,
   NodeKind,
-  NodeResult,
   ResumeEvent,
   RunState,
   StartParams,
 } from './types.js'
+import { popFrame } from './unwind.js'
 import type { Scope } from './value.js'
 
 export type FlowRunnerParams = {
-  definition: FlowDefinition
+  /** Definition snapshots by frame index; empty until `prepare` runs for resume and recover. */
+  definitions: Array<FlowDefinition>
+  /** Lazy phase run before the first transition: resolves and checks the frame definitions. */
+  prepare?: (state: RunState) => Promise<Array<FlowDefinition>>
   initial: RunState
   mode: 'start' | 'resume' | 'recover'
   signal?: AbortSignal
   parentContext?: StartParams['parentContext']
   event?: ResumeEvent | { type: 'retry' }
   kinds: Map<string, NodeKind>
+  /** Resolves, snapshots and validates referenced flows before a push. */
+  references: ReferenceService
+  validatorFor: (schema: Schema, strict?: boolean) => Validator<unknown>
   options: FlowGraphOptions
   now: () => number
   runtime: Runtime
@@ -46,12 +62,22 @@ export type FlowRunnerParams = {
   warn: (message: string, metadata: Record<string, unknown>) => void
 }
 
-type ApplyResultParams = { result: NodeResult; staged: Scope; nodeID: string; resumed: boolean }
+type ApplyResultParams = {
+  result: InternalNodeResult
+  staged: Scope
+  nodeID: string
+  resumed: boolean
+  /** Flow snapshot prepared by the executor for a `push` or `replace` result. */
+  prepared?: PreparedFlow
+}
 
 export class FlowRunner {
-  #definition: FlowDefinition
+  #definitions: Array<FlowDefinition>
+  #prepare?: FlowRunnerParams['prepare']
   #options: FlowGraphOptions
   #kinds: Map<string, NodeKind>
+  #references: ReferenceService
+  #validatorFor: FlowRunnerParams['validatorFor']
   #now: () => number
   #runtime: Runtime
   #logger: Logger
@@ -66,18 +92,23 @@ export class FlowRunner {
   #segmentContext: StartParams['parentContext']
   #failedSpan?: Span
   #segmentEnded = false
+  /** Error type of the last lazy preparation when it rejected; cleared by a later successful one. */
+  #prepareFailure?: string
   #runSignal: AbortSignal
   #executor: NodeExecutor
 
   constructor(params: FlowRunnerParams) {
     const {
-      definition,
+      definitions,
+      prepare,
       initial,
       mode,
       signal,
       parentContext,
       event,
       kinds,
+      references,
+      validatorFor,
       options,
       now,
       runtime,
@@ -85,9 +116,12 @@ export class FlowRunner {
       logError,
       warn,
     } = params
-    this.#definition = definition
+    this.#definitions = definitions
+    this.#prepare = prepare
     this.#options = options
     this.#kinds = kinds
+    this.#references = references
+    this.#validatorFor = validatorFor
     this.#now = now
     this.#runtime = runtime
     this.#logger = logger
@@ -104,6 +138,8 @@ export class FlowRunner {
       this.#mode === 'start'
         ? undefined
         : this.#state.origin && parseTraceparent(this.#state.origin.traceparent)
+
+    const root = this.#state.frames[0]?.flow
 
     const links =
       parsed && isValidTraceID(parsed.traceID) && isValidSpanID(parsed.spanID)
@@ -123,8 +159,8 @@ export class FlowRunner {
       'flow.segment',
       {
         attributes: {
-          'flow.id': this.#definition.id,
-          'flow.version': this.#definition.version,
+          'flow.id': root?.id,
+          'flow.version': root?.version,
           'flow.run.id': this.#state.runID,
           'flow.segment.kind': this.#mode,
         },
@@ -152,8 +188,25 @@ export class FlowRunner {
     this.#executor = new NodeExecutor({ runner: this })
   }
 
-  get definition(): FlowDefinition {
-    return this.#definition
+  /** Definition snapshots by frame index. */
+  get definitions(): Array<FlowDefinition> {
+    return this.#definitions
+  }
+
+  /** Definition snapshot of the active (top) frame. */
+  get activeDefinition(): FlowDefinition {
+    const index = topIndex(this.#state)
+
+    return required(this.#definitions[index], ['frames', index, 'flow'])
+  }
+
+  /** Replace the definition snapshots together with a stack change. */
+  replaceDefinitions(definitions: Array<FlowDefinition>): void {
+    this.#definitions = definitions
+  }
+
+  get references(): ReferenceService {
+    return this.#references
   }
 
   get options(): FlowGraphOptions {
@@ -188,6 +241,10 @@ export class FlowRunner {
     return this.#signal
   }
 
+  get validatorFor(): FlowRunnerParams['validatorFor'] {
+    return this.#validatorFor
+  }
+
   get mode(): FlowRunnerParams['mode'] {
     return this.#mode
   }
@@ -206,6 +263,53 @@ export class FlowRunner {
 
   get runSignal(): AbortSignal {
     return this.#runSignal
+  }
+
+  /**
+   * Run the lazy preparation phase until it succeeds; nothing is committed when it fails. An
+   * aborted run skips it, or ignores its rejection, and the drive loop commits `aborted`.
+   */
+  async prepare(): Promise<void> {
+    const prepare = this.#prepare
+
+    if (!prepare || this.#signal?.aborted) {
+      return
+    }
+
+    try {
+      this.#definitions = await prepare(clone(this.#state))
+    } catch (error) {
+      if (this.#signal?.aborted) {
+        return
+      }
+
+      // `error.type` is set when the segment ends, so a later successful retry leaves none.
+      this.#prepareFailure = defaultMeta(error).type
+
+      // As on node spans, exceptions may carry private data and are recorded only when allowed.
+      if (this.#options.recordErrorMessages) {
+        this.#segment.recordException(error instanceof Error ? error : new Error(String(error)))
+      }
+
+      throw error
+    }
+
+    this.#prepare = undefined
+    this.#prepareFailure = undefined
+  }
+
+  /** End the segment span without committing; it is an error when the last preparation failed. */
+  end(): void {
+    if (this.#segmentEnded) {
+      return
+    }
+
+    if (this.#prepareFailure !== undefined) {
+      this.#segment.setStatus({ code: SpanStatusCode.ERROR })
+      this.#segment.setAttribute('error.type', this.#prepareFailure)
+    }
+
+    this.status(this.#state)
   }
 
   replaceState(next: RunState): void {
@@ -236,7 +340,7 @@ export class FlowRunner {
     return handleNodeError(this, params)
   }
 
-  runOne(params: RunOneParams): Promise<{ result: NodeResult; staged: Scope }> {
+  runOne(params: RunOneParams): Promise<RunOneResult> {
     return this.#executor.runOne(params)
   }
 
@@ -291,10 +395,11 @@ export class FlowRunner {
     delete next.inFlight
     delete next.pending
 
-    const frame = next.frames[0]
+    const frame = top(next)
 
-    const attempts =
-      frame && Object.hasOwn(frame.attempts, frame.node) ? frame.attempts[frame.node] : undefined
+    const attempts = Object.hasOwn(frame.attempts, frame.node)
+      ? frame.attempts[frame.node]
+      : undefined
 
     if (attempts) {
       delete attempts.retryAt
@@ -304,17 +409,17 @@ export class FlowRunner {
   }
 
   applyResult(params: ApplyResultParams): RunState {
-    const { result, staged, nodeID, resumed } = params
+    const { result, staged, nodeID, resumed, prepared } = params
     const next = clone(this.#state)
-    const frame = required(next.frames[0], ['frames', 0])
-    const kind = required(this.#kinds.get(this.#definition.nodes[nodeID]?.kind ?? ''), [
+    const frame = top(next)
+    const kind = required(this.#kinds.get(this.activeDefinition.nodes[nodeID]?.kind ?? ''), [
       'frames',
-      0,
+      topIndex(next),
       'node',
     ])
 
     if (!kind.retries && !resumed) {
-      frame.invocation++
+      nextInvocationID(next)
 
       next.steps++
     }
@@ -323,16 +428,37 @@ export class FlowRunner {
     frame.results = staged.results
     frame.loops = staged.loops
 
-    if (!('suspend' in result)) {
-      delete frame.attempts[nodeID]
-    }
-
     delete next.inFlight
     delete next.pending
     next.status = 'running'
 
+    if ('push' in result) {
+      return this.#push({ next, result, prepared: required(prepared, ['frames', topIndex(next)]) })
+    }
+
+    if ('replace' in result) {
+      return this.#replace({
+        next,
+        nodeID,
+        result,
+        prepared: required(prepared, ['frames', topIndex(next)]),
+      })
+    }
+
+    if (!('suspend' in result)) {
+      delete frame.attempts[nodeID]
+    }
+
     if ('next' in result) {
       frame.node = result.next
+    } else if ('end' in result && topIndex(next) > 0) {
+      // The callee's end step and the pop are one commit.
+      return popFrame({
+        runner: this,
+        state: next,
+        output: result.end.output ?? {},
+        outcome: result.end.outcome,
+      })
     } else if ('end' in result) {
       next.status = 'ended'
 
@@ -361,15 +487,78 @@ export class FlowRunner {
     return saved
   }
 
+  #push(params: { next: RunState; result: PushResult; prepared: PreparedFlow }): RunState {
+    const { next, result, prepared } = params
+
+    // The caller keeps attempts[callerNode] (without retryAt) for call retries.
+    next.frames.push({
+      flow: prepared.pin,
+      node: prepared.definition.start,
+      input: result.push.input,
+      state: {},
+      results: {},
+      loops: {},
+      attempts: {},
+      continuation: result.push.continuation,
+    })
+
+    this.#definitions = [...this.#definitions, prepared.definition]
+
+    // No node:enter here: the drive loop fires it when the callee start runs.
+    return this.commit(next)
+  }
+
+  #replace(params: {
+    next: RunState
+    nodeID: string
+    result: ReplaceResult
+    prepared: PreparedFlow
+  }): RunState {
+    const { next, nodeID, result, prepared } = params
+    const index = topIndex(next)
+    const { continuation } = top(next)
+
+    // A fresh frame keeps the replaced frame's continuation; a root goto repins the root.
+    next.frames[index] = {
+      flow: prepared.pin,
+      node: prepared.definition.start,
+      input: result.replace.input,
+      state: {},
+      results: {},
+      loops: {},
+      attempts: {},
+      ...(continuation ? { continuation } : {}),
+    }
+
+    this.#definitions = [...this.#definitions.slice(0, index), prepared.definition]
+
+    if (index === 0) {
+      // The segment span describes the root flow, which a root goto repins.
+      this.#segment.setAttribute('flow.id', prepared.pin.id)
+      this.#segment.setAttribute('flow.version', prepared.pin.version)
+    }
+
+    const saved = this.commit(next)
+
+    // The drive loop fires node:enter when the target start runs.
+    this.#events.fire('node:exit', { node: nodeID, runState: saved })
+
+    return saved
+  }
+
   run(): FlowRun {
     const iterator = driveRunner(this)
+    const prepare = () => this.prepare()
+    const end = () => this.end()
+    const getState = () => clone(this.#state)
     let busy = false
+    let closed = false
     const events = this.#events
     const segmentContext = this.#segmentContext
 
     return {
       events,
-      getState: () => clone(this.#state),
+      getState,
       [Symbol.asyncIterator]() {
         return this
       },
@@ -379,13 +568,36 @@ export class FlowRunner {
           throw new Error('FlowRun.next() called concurrently')
         }
 
+        if (closed) {
+          return { done: true, value: getState() }
+        }
+
         busy = true
 
         try {
+          // Runs outside the generator so a rejection leaves the run retryable.
+          await withActiveContext(segmentContext, prepare)
+
           return await withActiveContext(segmentContext, () => iterator.next())
         } finally {
           busy = false
         }
+      },
+
+      async return() {
+        if (busy) {
+          throw new Error('FlowRun.return() called concurrently')
+        }
+
+        if (!closed) {
+          closed = true
+
+          end()
+
+          await iterator.return(getState())
+        }
+
+        return { done: true, value: getState() }
       },
     }
   }

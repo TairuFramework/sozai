@@ -3,15 +3,26 @@ import type { Schema, Validator } from '@sozai/schema'
 import { createValidator } from '@sozai/schema'
 
 import { builtinKinds } from './kinds.js'
+import type { ReferenceService } from './reference-kinds.js'
 import type { FlowGraphOptions, FlowRetryPolicy, NodeKind } from './types.js'
 
 export function createKindRegistry(
   options: FlowGraphOptions,
   now: () => number,
+  references: ReferenceService,
 ): Map<string, NodeKind> {
+  if (
+    options.maxDepth !== undefined &&
+    (!Number.isInteger(options.maxDepth) || options.maxDepth < 1)
+  ) {
+    throw new RangeError('Invalid maximum depth')
+  }
+
   const kinds = new Map<string, NodeKind>()
 
-  for (const registered of [...builtinKinds(options.actions, now), ...(options.kinds ?? [])]) {
+  const builtins = builtinKinds({ actions: options.actions, now, references })
+
+  for (const registered of [...builtins, ...(options.kinds ?? [])]) {
     const kind = registered as unknown as NodeKind
 
     if (kinds.has(kind.kind)) {
@@ -38,6 +49,10 @@ export function createKindRegistry(
   for (const [key, policy] of Object.entries(options.retryDefaults ?? {})) {
     if (!kinds.get(key)?.retries) {
       throw new TypeError(`Retry default for non-retrying kind: ${key}`)
+    }
+
+    if (key === 'call' && policy.attemptTimeoutMs !== undefined) {
+      throw new TypeError('Call retry defaults cannot set attemptTimeoutMs')
     }
 
     validatePolicy(policy)

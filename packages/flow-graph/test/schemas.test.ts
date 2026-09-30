@@ -1,7 +1,13 @@
 import { createValidator, ValidationError } from '@sozai/schema'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 
-import { createFlowGraph } from '../src/index.js'
+import { createFlowGraph, createMapResolver } from '../src/index.js'
+
+vi.mock('@sozai/schema', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@sozai/schema')>()
+
+  return { ...original, createValidator: vi.fn(original.createValidator) }
+})
 
 const graph = createFlowGraph()
 
@@ -42,13 +48,22 @@ test('authoring schema documents each direct definition and built-in node field'
   expect(root.examples?.length).toBeGreaterThan(0)
 })
 
-test('storage schema accepts reserved call and flow body shapes, authoring rejects them', () => {
-  const storage = graph.storageSchema
+test('graph exposes no storageSchema', () => {
+  expect(Object.hasOwn(graph, 'storageSchema')).toBe(false)
+})
+
+test('authoring schema accepts call, goto and flow body shapes', () => {
+  const authoring = graph.authoringSchema
 
   const call = {
     ...base,
-    nodes: { start: { kind: 'call', flow: 'other', next: 'end' }, end: { kind: 'end' } },
+    nodes: {
+      start: { kind: 'call', flow: 'other', version: 1, input: { a: { value: 1 } }, next: 'end' },
+      end: { kind: 'end' },
+    },
   }
+
+  const goto = { ...base, nodes: { start: { kind: 'goto', flow: 'other' } } }
 
   const loop = {
     ...base,
@@ -57,15 +72,55 @@ test('storage schema accepts reserved call and flow body shapes, authoring rejec
         kind: 'loop',
         maxIterations: 2,
         while: { path: ['input'], is: { isNull: false } },
-        body: { flow: 'other' },
+        body: { flow: 'other', input: { a: { ref: ['input'] } } },
         exit: 'end',
       },
       end: { kind: 'end' },
     },
   }
 
-  expect(createValidator(storage)(call)).not.toBeInstanceOf(ValidationError)
-  expect(createValidator(storage)(loop)).not.toBeInstanceOf(ValidationError)
-  expect(graph.check(call).issues.map((issue) => issue.code)).toContain('unsupported')
-  expect(graph.check(loop).issues.map((issue) => issue.code)).toContain('unsupported')
+  for (const definition of [call, goto, loop]) {
+    expect(createValidator(authoring)(definition)).not.toBeInstanceOf(ValidationError)
+  }
+
+  expect(
+    createValidator(authoring)({
+      ...loop,
+      nodes: { ...loop.nodes, start: { ...loop.nodes.start, body: { flow: 'other', extra: 1 } } },
+    }),
+  ).toBeInstanceOf(ValidationError)
+})
+
+test('a suspend schema compiles once across suspend and a round-tripped resume', async () => {
+  const schema = { type: 'number', title: 'compile-once-marker' }
+
+  const definition = {
+    id: 'compile',
+    name: 'Compile',
+    version: 1,
+    start: 'ask',
+    nodes: { ask: { kind: 'input', schema, next: 'done' }, done: { kind: 'end' } },
+  }
+
+  const compiles = () =>
+    vi
+      .mocked(createValidator)
+      .mock.calls.filter(([compiled]) => JSON.stringify(compiled) === JSON.stringify(schema)).length
+
+  const counting = createFlowGraph({ resolver: createMapResolver([definition]) })
+  const first = await counting.run({ definition })
+
+  expect(first.status).toBe('suspended')
+
+  const resumed = counting.resume({
+    runState: JSON.parse(JSON.stringify(first.runState)),
+    event: { type: 'value', value: 1 },
+  })
+
+  for await (const _state of resumed) {
+    /* drain */
+  }
+
+  expect(resumed.getState().status).toBe('ended')
+  expect(compiles()).toBe(1)
 })

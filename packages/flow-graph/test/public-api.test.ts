@@ -1,12 +1,13 @@
 import type { JSONValue } from '@sozai/json'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
-import { expectTypeOf, test } from 'vitest'
+import { expect, expectTypeOf, test } from 'vitest'
 
 import type {
   Action,
   ExecuteContext,
   FlowGraph,
   FlowIssue,
+  FlowResolver,
   FlowRun,
   NodeKind,
   RunState,
@@ -14,9 +15,11 @@ import type {
 } from '../src/index.js'
 import {
   createFlowGraph,
+  createMapResolver,
   defineNodeKind,
   type FlowDefinitionError,
   type FlowInputError,
+  FlowNodeFailure,
   type FlowResumeError,
   type FlowRetryableError,
   type FlowStateError,
@@ -47,4 +50,26 @@ test('public API types preserve graph and custom kind contracts', () => {
   })
 
   createFlowGraph({ kinds: [custom] })
+})
+
+test('exports FlowNodeFailure', () => {
+  expect(new FlowNodeFailure({ code: 'invalid_suspend' }).code).toBe('invalid_suspend')
+})
+
+test('exports the resolver and state checks without internal helpers', async () => {
+  expectTypeOf(createMapResolver).returns.toEqualTypeOf<FlowResolver>()
+
+  const api: Record<string, unknown> = await import('../src/index.js')
+
+  expect(typeof api.createMapResolver).toBe('function')
+  expect(typeof api.assertRunState).toBe('function')
+
+  for (const name of [
+    'prepareDefinition',
+    'preparePinned',
+    'assertRunStateShape',
+    'assertRunStateDefinitions',
+  ]) {
+    expect(api).not.toHaveProperty(name)
+  }
 })

@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 
 import type { FlowNode } from '../src/index.js'
-import { createFlowGraph, defineNodeKind, readPath } from '../src/index.js'
+import { createFlowGraph, createMapResolver, defineNodeKind, readPath } from '../src/index.js'
 
 const definition = (nodes: Record<string, FlowNode>, start = 'start') => ({
   id: 'regressions',
@@ -150,8 +150,6 @@ test('checks cycles reachable only through a loop body edge', () => {
 })
 
 test('a ref assignment remains independent before and after a JSON round trip', async () => {
-  const graph = createFlowGraph()
-
   const def = definition({
     start: {
       kind: 'set',
@@ -166,12 +164,12 @@ test('a ref assignment remains independent before and after a JSON round trip', 
     end: { kind: 'end', output: { a: { ref: ['state', 'a'] }, b: { ref: ['state', 'b'] } } },
   })
 
+  const graph = createFlowGraph({ resolver: createMapResolver([def]) })
   const first = await graph.run({ definition: def })
 
   expect(first.runState.frames[0]?.state).toEqual({ a: { x: 0 }, b: { x: 1 } })
 
   const resumed = graph.resume({
-    definition: def,
     runState: JSON.parse(JSON.stringify(first.runState)),
     event: { type: 'value', value: null },
   })
@@ -219,7 +217,6 @@ test('prototype names are not accepted as targets, actions or scope keys', async
 test('recovery expires an in-flight attempt before replay', async () => {
   let clock = 1000
   const work = vi.fn(async () => 1)
-  const graph = createFlowGraph({ now: () => clock, actions: { work } })
 
   const def = definition({
     start: {
@@ -231,6 +228,12 @@ test('recovery expires an in-flight attempt before replay', async () => {
     end: { kind: 'end' },
   })
 
+  const graph = createFlowGraph({
+    now: () => clock,
+    actions: { work },
+    resolver: createMapResolver([def]),
+  })
+
   const run = graph.start({ definition: def })
 
   await run.next()
@@ -239,7 +242,7 @@ test('recovery expires an in-flight attempt before replay', async () => {
 
   clock = 1010
 
-  const recovered = graph.recover({ definition: def, runState: checkpoint })
+  const recovered = graph.recover({ runState: checkpoint })
 
   for await (const _state of recovered) {
     /* drain */
@@ -278,7 +281,7 @@ test('an empty nodes map gets a field-level schema issue', () => {
   expect(issues).toContainEqual(expect.objectContaining({ code: 'schema', path: ['nodes'] }))
 })
 
-const reservedDefinitions: Array<Record<string, FlowNode>> = [
+const referenceDefinitions: Array<Record<string, FlowNode>> = [
   { start: { kind: 'goto', flow: 'other' } },
   { start: { kind: 'call', flow: 'other', next: 'end' }, end: { kind: 'end' } },
   {
@@ -293,16 +296,9 @@ const reservedDefinitions: Array<Record<string, FlowNode>> = [
   },
 ]
 
-test.each(reservedDefinitions)(
-  'reserved nodes receive only an unsupported issue at their node path',
-  (nodes) => {
-    const issues = createFlowGraph().check(definition(nodes)).issues
-
-    expect(issues).toEqual([
-      expect.objectContaining({ code: 'unsupported', path: ['nodes', 'start'] }),
-    ])
-  },
-)
+test.each(referenceDefinitions)('reference nodes pass local check', (nodes) => {
+  expect(createFlowGraph().check(definition(nodes))).toEqual({ ok: true, issues: [] })
+})
 
 test('an array item declared in resultSchema can be referenced', () => {
   const graph = createFlowGraph({
@@ -444,6 +440,7 @@ test('run preserves an empty outcome', async () => {
           properties: { kind: { const: 'finish' }, next: { type: 'string' } },
         },
         targets: (node) => [{ path: ['next'], id: node.next }],
+        terminal: true,
         execute: () => ({ end: { outcome: '' } }),
       }),
     ],

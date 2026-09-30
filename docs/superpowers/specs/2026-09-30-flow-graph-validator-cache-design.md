@@ -60,7 +60,7 @@ failure:
 | `kind.schema` (from `options.kinds`), and `authoringSchema` built from them | up front, `createFlowGraph` | `TypeError` from `createFlowGraph` naming the kind |
 | definition `input`, input-node `schema` | per definition | unreachable: `check` rejects a non-JSON definition first (`isJSONValue`) |
 | `kind.resultSchema(node)` | per node, at check time | existing `invalid_schema` issue on the node |
-| suspend `schema` | per node result, at run time | existing `invalid_suspend` failure |
+| suspend `schema` | per node result, at run time | unreachable: `requireJSON(result)` fails the node first with `invalid_value` (`run-execution.ts:168`) |
 | pending `schema` | persisted `RunState` | existing `FlowStateError` from `assertRunStateShape` |
 
 The up-front check runs only when `validators` is set: the default path tolerates `undefined`
@@ -73,11 +73,17 @@ misleading `invalid_schema` issues or `invalid_suspend` failures. Instead:
 1. `ValidatorCache` gains `readonly disposed: boolean` (`@sozai/schema`, unreleased, same PR).
 2. Flow-graph's data-path wrapper throws `FlowGraphValidatorsError` ("Flow graph validator cache
    is disposed") when `validators.disposed`, before calling `get`.
-3. Every catch site a data-schema compile can reach rethrows `FlowGraphValidatorsError`
-   unchanged (list below). `check`, `checkFlows`, `start`, `resume` and `recover` throw it; a run
-   in progress rejects its iterator with it instead of failing or retrying the node, like a
-   process interruption: the last committed state stays `running` and can be recovered with a
-   live cache.
+3. Entry points check first: `check`, `start`, `resume` and `recover` throw it synchronously and
+   `checkFlows` rejects with it when `validators.disposed`, before any work. A compile is not a
+   reliable trigger on its own: `checkFlows` reuses cached callee check results (the `checked`
+   digest map) and `recover` compiles nothing until `next()`.
+4. Every catch site a data-schema compile can reach rethrows `FlowGraphValidatorsError`
+   unchanged (list below), so a cache disposed after the entry point surfaces at the next
+   data-schema compile. A run in progress rejects its iterator with it instead of failing or
+   retrying the node, like a process interruption: the failed node span is closed, the segment
+   records the error, and the last committed state stays `running` (its in-flight node counts as
+   interrupted on `recover`) and can be recovered with a live cache. A run that reaches no further
+   data-schema compile finishes normally.
 
 ## API
 
@@ -106,7 +112,13 @@ export type FlowGraphOptions = {
 }
 
 /** The injected validator cache was disposed while the graph still used it. */
-export class FlowGraphValidatorsError extends Error {} // name 'FlowGraphValidatorsError'
+export class FlowGraphValidatorsError extends Error {
+  constructor() {
+    super('Flow graph validator cache is disposed')
+
+    this.name = 'FlowGraphValidatorsError'
+  }
+}
 ```
 
 ## Behaviour
@@ -123,6 +135,8 @@ export class FlowGraphValidatorsError extends Error {} // name 'FlowGraphValidat
   2. Create `loose = createValidatorCache({ factory: { strict: false } })`.
   3. `validatorFor(schema, strict)`: when `strict === false`, `loose.get(schema)`; otherwise, if
      `validators.disposed` throw `new FlowGraphValidatorsError()`, else `validators.get(schema)`.
+  4. `check`, `checkFlows`, `start`, `resume` and `recover` first call an `assertValidators()`
+     guard that throws `FlowGraphValidatorsError` when `validators.disposed` (`checkFlows` rejects).
 
 Catch sites that rethrow `FlowGraphValidatorsError` (`if (error instanceof
 FlowGraphValidatorsError) throw error` first in the catch):
@@ -135,15 +149,20 @@ FlowGraphValidatorsError) throw error` first in the catch):
   (about line 209), which would otherwise wrap it in `FlowStateError`.
 - `run-drive.ts`: both node-error catches (about lines 59 and 289), after the existing abort
   check (abort keeps precedence) and before `handleNodeError`, so it is neither retried nor
-  recorded as a node failure. `run.ts`'s lazy-preflight catch already rethrows.
+  recorded as a node failure. Before rethrowing, close the failed node span
+  (`runner.closeFailedSpan`, which `run-execution.ts:223` leaves open for `handleNodeError`) and
+  set `error.type` `FlowGraphValidatorsError` on the segment, which the drive loop's `finally`
+  then ends with `flow.status` `running`. `run.ts`'s lazy-preflight catch already rethrows and
+  records `error.type`.
 
 Effects of opting in, documented for hosts:
 
 - **Dialect and strictness** come from the host's cache: a `2020-12` cache compiles flow authors'
   schemas as 2020-12; a `strict: false` cache accepts unknown keywords that the default path
   reports as `invalid_schema`.
-- **Issue order**: the cache compiles a snapshot, so `ValidationError` issues follow sorted key
-  order. This affects `FlowInputError` and `FlowResumeError` issues.
+- **Issue order**: both caches compile snapshots, so `ValidationError` issues follow sorted key
+  order. This affects `FlowInputError` and `FlowResumeError` issues, and `FlowCheckResult` issues
+  from kind and authoring validation (loose cache).
 - **Compile errors** are cached and rethrown by the host cache until evicted or recycled; the
   catch sites turn them into the same issues and failures as today.
 
@@ -164,15 +183,23 @@ Effects of opting in, documented for hosts:
 - **Bounded**: host cache `{ maxCompiles: 2 }`; checking five definitions with distinct input
   schemas leaves `generation > 0`, and every check succeeds.
 - **Host owns the cache**: after checks and a full run, `disposed` is `false` and `get` works.
-- **Disposed cache**: after `dispose()`, `check`, `checkFlows`, `start`, `resume` and `recover`
-  each throw `FlowGraphValidatorsError`; a run suspended with a pending schema whose cache is then
-  disposed rejects `resume` with it; a run whose cache is disposed mid-run rejects its iterator
-  with it and its last committed state is `running`.
+- **Disposed cache, entry points**: after `dispose()`, `check`, `start`, `resume` (on a suspended
+  state) and `recover` (on a running state) each throw `FlowGraphValidatorsError` synchronously,
+  and `checkFlows` rejects with it -- including a `checkFlows` of a definition whose callee check
+  result was cached before disposal.
+- **Disposed cache, mid-run**: a custom kind disposes the host cache and then suspends with a
+  `schema`; the run's iterator rejects with `FlowGraphValidatorsError`, `getState().status` is
+  `running`, the node span has ended with an error and the segment has `error.type`
+  `FlowGraphValidatorsError` (in-memory span exporter). `recover` on that state with a graph over a
+  live cache completes the run.
 - **Up-front `TypeError`**: a kind whose schema has an `undefined` property makes
   `createFlowGraph({ validators, kinds })` throw `TypeError`; without `validators` the same kind
   registers and checks as today.
+- **Issue order**: with `validators`, a definition failing kind validation on two properties
+  reports issues in sorted key order.
 - **Dynamic non-JSON**: a `resultSchema` returning a non-JSON schema gives `invalid_schema` on the
-  node; a suspend `schema` with an `undefined` property fails the run with `invalid_suspend`.
+  node; a suspend `schema` with an `undefined` property fails the run with `invalid_value`
+  (`requireJSON` runs before the compile), as it does without `validators`.
 - **Default unchanged**: the existing suite passes with no change.
 
 ## Documentation

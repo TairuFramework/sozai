@@ -44,7 +44,7 @@ export type ValidatorFactory = {
 
 // AJV instances are locked to a single dialect AND a single strict setting, so
 // we cache one instance per (draft, strict) pair and construct them lazily.
-const instances = new Map<string, AjvInstance>()
+const instances = new Map<string, AjvContext>()
 
 // Memoize compiled validators per schema object, keyed by normalized options.
 // WeakMap lets entries be collected when the schema object is. Keying by object
@@ -55,13 +55,17 @@ const validators = new WeakMap<Schema, Map<string, Validator<unknown>>>()
 
 type AjvInstance = Ajv | Ajv2020
 
+// An AJV instance with the keys of everything registered on it after setup (meta-schemas and
+// their aliases), so a compile can remove whatever it added and nothing else.
+type AjvContext = { ajv: AjvInstance; baseline: ReadonlySet<string> }
+
 type CreateAjvParams = {
   draft: '07' | '2020-12'
   strict?: boolean | 'log'
   logger?: ValidatorLogger | false
 }
 
-function createAjv(params: CreateAjvParams): AjvInstance {
+function createAjv(params: CreateAjvParams): AjvContext {
   const { draft, strict, logger } = params
   const options = {
     allErrors: true,
@@ -72,26 +76,45 @@ function createAjv(params: CreateAjvParams): AjvInstance {
   const instance = draft === '2020-12' ? new Ajv2020(options) : new Ajv(options)
   // @ts-expect-error missing type definition
   addFormats(instance)
-  return instance
+  const baseline = new Set([...Object.keys(instance.schemas), ...Object.keys(instance.refs)])
+  return { ajv: instance, baseline }
 }
 
-function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): AjvInstance {
+function getAjv(draft: '07' | '2020-12', strict?: boolean | 'log'): AjvContext {
   const key = `${draft}:${strict ?? 'default'}`
-  let instance = instances.get(key)
-  if (instance == null) {
-    instance = createAjv({ draft, strict })
-    instances.set(key, instance)
+  let context = instances.get(key)
+  if (context == null) {
+    context = createAjv({ draft, strict })
+    instances.set(key, context)
   }
-  return instance
+  return context
 }
 
-// Compile `schema` on `ajv` and wrap the result as a `Validator`.
-function compileValidator<T>(ajv: AjvInstance, schema: Schema): Validator<T> {
-  const check = ajv.compile(schema)
-  // Remove from AJV's internal cache. Guard the $id: removeSchema(undefined)
-  // clears the ENTIRE instance (all schemas, refs, compile cache).
-  if (schema.$id != null) {
-    ajv.removeSchema(schema.$id)
+// Compile `schema` on the context's instance and wrap the result as a `Validator`.
+function compileValidator<T>(context: AjvContext, schema: Schema): Validator<T> {
+  const { ajv, baseline } = context
+  if (typeof schema === 'object' && typeof schema.$id === 'string') {
+    if (baseline.has(schema.$id.replace(/#\/?$/, ''))) {
+      throw new Error(`Schema $id ${schema.$id} is reserved`)
+    }
+  }
+
+  let check: ReturnType<AjvInstance['compile']>
+  try {
+    check = ajv.compile(schema)
+  } finally {
+    // A compile must not leave anything registered, so a failed compile or a nested $id cannot
+    // block a later schema. Removing by baseline, not with a no-argument removeSchema(), keeps
+    // AJV's meta-schema alias.
+    if (typeof schema === 'object') {
+      ajv.removeSchema(schema)
+    }
+    const added = [...Object.keys(ajv.schemas), ...Object.keys(ajv.refs)].filter(
+      (key) => !baseline.has(key),
+    )
+    for (const key of added) {
+      ajv.removeSchema(key)
+    }
   }
 
   return (value: unknown) => {
@@ -115,6 +138,11 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
   const strict = options?.strict ?? 'default'
   const cacheKey = `${draft}:${strict}`
 
+  // Boolean schemas cannot key a WeakMap and are cheap to recompile.
+  if (typeof schema !== 'object') {
+    return compileValidator<T>(getAjv(draft, options?.strict), schema)
+  }
+
   let byOptions = validators.get(schema)
   if (byOptions == null) {
     byOptions = new Map()
@@ -132,11 +160,11 @@ export function createValidator<S extends Schema, T = FromSchema<S>>(
 
 /**
  * Create a validator factory with its own AJV instance, shared with nothing else. Use it for
- * schemas that arrive at runtime: disposing the factory releases every compiled validator, which
- * the shared instances behind `createValidator` retain for the life of the process.
+ * schemas that arrive at runtime: `dispose()` drops the AJV instance and every validator it
+ * memoised, but validators already returned keep working and keep the instance alive.
  */
 export function createValidatorFactory(options?: ValidatorFactoryOptions): ValidatorFactory {
-  let ajv: AjvInstance | null = createAjv({
+  let context: AjvContext | null = createAjv({
     draft: options?.draft ?? '07',
     strict: options?.strict,
     logger: options?.logger,
@@ -146,14 +174,20 @@ export function createValidatorFactory(options?: ValidatorFactoryOptions): Valid
 
   return {
     createValidator<S extends Schema, T = FromSchema<S>>(schema: S): Validator<T> {
-      if (ajv == null) {
+      if (context == null) {
         throw new Error('Validator factory is disposed')
       }
+      // Boolean schemas cannot key a WeakMap and are cheap to recompile.
+      if (typeof schema !== 'object') {
+        compiled++
+        return compileValidator<T>(context, schema)
+      }
+
       const cached = validators.get(schema)
       if (cached != null) {
         return cached as Validator<T>
       }
-      const validator = compileValidator<T>(ajv, schema)
+      const validator = compileValidator<T>(context, schema)
       compiled++
       validators.set(schema, validator as Validator<unknown>)
       return validator
@@ -162,7 +196,7 @@ export function createValidatorFactory(options?: ValidatorFactoryOptions): Valid
       return compiled
     },
     dispose() {
-      ajv = null
+      context = null
       validators = new WeakMap()
     },
   }

@@ -3,7 +3,7 @@ import { isJSONValue } from '@sozai/json'
 import type { Schema, Validator } from '@sozai/schema'
 import { createValidator, ValidationError } from '@sozai/schema'
 
-import { FlowStateError } from './errors.js'
+import { FlowGraphValidatorsError, FlowStateError } from './errors.js'
 import { defaultMaxDepth, top, topIndex } from './frames.js'
 import { runStateSchema } from './schemas.js'
 import { isCanonicalTimestamp } from './time.js'
@@ -281,7 +281,11 @@ export function assertRunStateShape(
       const compile = params.validatorFor ?? ((schema: Schema) => createValidator(schema))
 
       compile(state.pending.schema)
-    } catch {
+    } catch (error) {
+      if (error instanceof FlowGraphValidatorsError) {
+        throw error
+      }
+
       invalidState('Pending schema cannot be compiled.', ['pending', 'schema'])
     }
   }

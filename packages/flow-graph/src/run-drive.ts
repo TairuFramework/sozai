@@ -1,5 +1,6 @@
 import { sleep } from '@sozai/async'
 
+import { FlowGraphValidatorsError } from './errors.js'
 import { nextInvocationID, top, topIndex } from './frames.js'
 import type { FlowRunner } from './run.js'
 import { clone, final, own, required } from './run-utils.js'
@@ -60,6 +61,10 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
           if (runner.signal?.aborted) {
             yield runner.abort()
             break
+          }
+
+          if (error instanceof FlowGraphValidatorsError) {
+            runner.interrupt(error)
           }
 
           const saved = runner.handleNodeError({ error, nodeID, node, kind, resumed: true })
@@ -290,6 +295,10 @@ export async function* driveRunner(runner: FlowRunner): AsyncGenerator<RunState,
         if (runner.signal?.aborted) {
           yield runner.abort()
           break
+        }
+
+        if (error instanceof FlowGraphValidatorsError) {
+          runner.interrupt(error)
         }
 
         const saved = runner.handleNodeError({ error, nodeID, node, kind, resumed: false })

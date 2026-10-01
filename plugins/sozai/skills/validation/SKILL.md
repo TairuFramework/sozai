@@ -41,4 +41,4 @@ Use `@sozai/json` to:
 
 - `/sozai:dataflow` — `@sozai/flow` builds on `@sozai/schema`.
 
-`@sozai/codec` depends on `@sozai/json`; nothing else in this repo depends on either.
+`@sozai/codec`, `@sozai/flow-graph` and `@sozai/schema` depend on `@sozai/json`; `@sozai/flow`, `@sozai/flow-graph` and `@sozai/patch` depend on `@sozai/schema`.

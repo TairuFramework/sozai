@@ -353,6 +353,9 @@ importers:
 
   packages/schema:
     dependencies:
+      '@sozai/json':
+        specifier: workspace:^
+        version: link:../json
       '@standard-schema/spec':
         specifier: 'catalog:'
         version: 1.1.0

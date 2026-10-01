@@ -1,4 +1,5 @@
 import { assertRetryPolicy, MAX_DELAY_MS } from '@sozai/async'
+import { isJSONValue } from '@sozai/json'
 import type { Schema, Validator } from '@sozai/schema'
 import { createValidator } from '@sozai/schema'
 
@@ -27,6 +28,11 @@ export function createKindRegistry(
 
     if (kinds.has(kind.kind)) {
       throw new TypeError(`Duplicate node kind: ${kind.kind}`)
+    }
+
+    // Shared caches key schemas by canonical JSON; the default path tolerates non-JSON values.
+    if (options.validators !== undefined && !isJSONValue(kind.schema)) {
+      throw new TypeError(`Kind ${kind.kind} schema is not JSON`)
     }
 
     if (kind.resultSchema) {
@@ -61,7 +67,7 @@ export function createKindRegistry(
   return kinds
 }
 
-export function createValidatorCache(): (schema: Schema, strict?: boolean) => Validator<unknown> {
+export function createValidatorLookup(): (schema: Schema, strict?: boolean) => Validator<unknown> {
   const validators = new Map<string, Validator<unknown>>()
 
   return (schema, strict) => {

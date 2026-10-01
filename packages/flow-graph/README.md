@@ -192,11 +192,36 @@ A `resultSchema` path check accepts any remaining path below `true`, a schema wi
 
 `input` accepts `decline: { to }`. A host answers a refused prompt with `{ type: 'decline', reason?: 'decline' | 'cancel' }`, and the run routes to `to` with `results.<input> = { declined: reason ?? 'decline' }`. Without the edge, `decline` fails the node with `invalid_suspend`. Custom kinds receive `decline` in their own `resume` and should throw `FlowNodeFailure({ code: 'invalid_suspend' })` if they do not support it.
 
+## Shared validator cache
+
+By default a graph compiles schemas on the shared `createValidator` instances, which keep every compile for the life of the process. A host that runs many distinct definitions can bound that by passing a `createValidatorCache()` from `@sozai/schema` as `validators`, and use the same cache for its other schemas:
+
+```ts
+import { createFlowGraph } from '@sozai/flow-graph'
+import { createValidatorCache } from '@sozai/schema'
+
+const validators = createValidatorCache()
+const graph = createFlowGraph({ resolver, validators })
+
+// The host's own schemas share the same bound.
+const validateToolInput = validators.get(toolInputSchema)
+```
+
+| Schema | Compiled on |
+|---|---|
+| definition `input`, input-node `schema`, suspend `schema`, pending `schema` | `validators` |
+| kind `schema`, `authoringSchema`, `resultSchema` | a private bounded cache (`strict: false`) the graph owns |
+
+- **Dialect and strictness** come from the host's cache: a `2020-12` cache compiles flow authors' schemas as 2020-12, and a `strict: false` cache accepts unknown keywords that the default path reports as `invalid_schema`.
+- **Issue order**: both caches compile snapshots, so validation issues follow sorted key order, in `FlowInputError`, `FlowResumeError` and kind validation issues from `check`.
+- **Kind schemas must be plain JSON**: with `validators`, `createFlowGraph` throws `TypeError` `Kind <kind> schema is not JSON` for a registered kind whose schema is not (an `undefined` property, a `toJSON` method).
+- **Ownership**: the graph never clears or disposes `validators`. Once the host disposes it, `check`, `checkFlows`, `start`, `resume` and `recover` throw `FlowGraphValidatorsError`, and a run in progress rejects its iterator with it at the next data-schema compile: the node is neither failed nor retried, the segment span records `error.type`, and nothing is committed. The last committed state is unchanged: a `running` state continues with `recover`, and a `suspended` state (an interrupted resume) with `resume` and the same event, on a graph with a live cache.
+
 ## Persistence and delivery
 
 `graph.start()`, `graph.resume()`, and `graph.recover()` return a `FlowRun`. Each `next()` returns one committed `RunState`. Commits include node entry, attempt checkpoints, retry decisions, transitions, and suspensions. `graph.run()` consumes a new run until it ends or suspends.
 
-`FlowRun.return()` stops a segment without committing anything: it ends the segment span and later `next()` calls return `done` with the current state. It is idempotent, safe before the first `next()`, after a rejected `next()` and after completion, and rejects while a `next()` is pending. `break` in a `for await` loop calls it. A host that abandons a run should call it so the segment span ends.
+`FlowRun.return()` stops a segment without committing anything: it ends the segment span and later `next()` calls return `done` with the current state. It is idempotent, safe before the first `next()`, after a rejected `next()` and after completion, and rejects while a `next()` is pending. `break` in a `for await` loop calls it. A host that abandons a run should call it so the segment span ends. Once the run has finished, by completion or by a rejected step, later `next()` calls also resolve `done` with the current state.
 
 Persist **every yielded state** for the strongest retry bound. Execution is **at least once**. A process can crash after a side effect and before persisting its next commit.
 

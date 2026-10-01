@@ -358,6 +358,21 @@ export class FlowRunner {
     }
   }
 
+  /**
+   * Stop the segment without committing, like a process interruption: close the failed node span
+   * and mark the segment with the error type, then rethrow. The committed state stays as it was.
+   */
+  interrupt(error: Error): never {
+    this.closeFailedSpan((span) => {
+      span?.setStatus({ code: SpanStatusCode.ERROR })
+    })
+
+    this.#segment.setStatus({ code: SpanStatusCode.ERROR })
+    this.#segment.setAttribute('error.type', error.name)
+
+    throw error
+  }
+
   status(next: RunState): void {
     if (this.#segmentEnded) {
       return
@@ -578,7 +593,12 @@ export class FlowRunner {
           // Runs outside the generator so a rejection leaves the run retryable.
           await withActiveContext(segmentContext, prepare)
 
-          return await withActiveContext(segmentContext, () => iterator.next())
+          const result = await withActiveContext(segmentContext, () => iterator.next())
+
+          // A finished generator yields no value, for example after a rejected step.
+          return result.done && result.value === undefined
+            ? { done: true, value: getState() }
+            : result
         } finally {
           busy = false
         }

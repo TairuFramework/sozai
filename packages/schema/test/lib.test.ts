@@ -11,6 +11,7 @@ import {
   toStandardValidator,
   ValidationError,
   ValidationErrorObject,
+  type Validator,
 } from '../src/index.js'
 
 describe('createValidator()', () => {
@@ -589,5 +590,151 @@ describe('createValidatorFactory()', () => {
     } as never)
 
     expect(logger.warn).toHaveBeenCalled()
+  })
+})
+
+type CompilerMaker = (
+  draft?: '07' | '2020-12',
+) => <TSchema extends Schema>(schema: TSchema) => Validator<unknown>
+
+const compilerMakers: Array<[string, CompilerMaker]> = [
+  [
+    'createValidator',
+    (draft = '07') =>
+      (schema) =>
+        createValidator(schema, { draft }) as Validator<unknown>,
+  ],
+  [
+    'createValidatorFactory',
+    (draft = '07') => {
+      const factory = createValidatorFactory({ draft })
+      return (schema) => factory.createValidator(schema) as Validator<unknown>
+    },
+  ],
+]
+
+describe.each(compilerMakers)('compile registry cleanup (%s)', (pathName, makeCompiler) => {
+  test('failed compile does not block its $id', () => {
+    const compile = makeCompiler()
+    const $id = `cleanup-failed-${pathName}`
+    expect(() => compile({ $id, type: 'string', pattern: '(' })).toThrow()
+    const validator = compile({ $id, type: 'string' })
+    expect(isType(validator, 'a')).toBe(true)
+  })
+
+  test('same root $id, different shapes', () => {
+    const compile = makeCompiler()
+    const $id = `cleanup-root-${pathName}`
+    const first = compile({ $id, type: 'string' })
+    const second = compile({ $id, type: 'number' })
+    expect(isType(first, 'a')).toBe(true)
+    expect(isType(second, 1)).toBe(true)
+    expect(isType(second, 'a')).toBe(false)
+  })
+
+  test('same nested $id in distinct schemas', () => {
+    const compile = makeCompiler()
+    const nid = `cleanup-nested-${pathName}`
+    const first = compile({ type: 'object', properties: { a: { $id: nid, type: 'string' } } })
+    const second = compile({ type: 'object', properties: { b: { $id: nid, type: 'number' } } })
+    const asRoot = compile({ $id: nid, type: 'number' })
+    expect(isType(asRoot, 1)).toBe(true)
+    expect(isType(asRoot, 'x')).toBe(false)
+    expect(isType(first, { a: 'x' })).toBe(true)
+    expect(isType(first, { a: 1 })).toBe(false)
+    expect(isType(second, { b: 1 })).toBe(true)
+    expect(isType(second, { b: 'x' })).toBe(false)
+  })
+
+  test('internal $ref to definitions', () => {
+    const compile = makeCompiler()
+    const validator = compile({ definitions: { n: { type: 'number' } }, $ref: '#/definitions/n' })
+    expect(isType(validator, 1)).toBe(true)
+    expect(isType(validator, 'x')).toBe(false)
+  })
+
+  test('recursive root $id', () => {
+    const compile = makeCompiler()
+    const $id = `cleanup-recursive-${pathName}`
+    const validator = compile({ $id, type: 'object', properties: { child: { $ref: $id } } })
+    expect(isType(validator, { child: { child: {} } })).toBe(true)
+    expect(isType(validator, { child: { child: 1 } })).toBe(false)
+  })
+
+  test.each(['07', '2020-12'] as const)('meta-schema alias survives (%s)', (draft) => {
+    const compile = makeCompiler(draft)
+    const first = compile({ $schema: 'http://json-schema.org/schema', type: 'string' })
+    const second = compile({ $schema: 'http://json-schema.org/schema', type: 'string' })
+    expect(isType(first, 'a')).toBe(true)
+    expect(isType(second, 'a')).toBe(true)
+  })
+
+  test('$dynamicRef on 2020-12', () => {
+    const compile = makeCompiler('2020-12')
+    const first = compile({
+      $id: `cleanup-dynamic-a-${pathName}`,
+      $dynamicAnchor: 'node',
+      type: 'object',
+      properties: { child: { $dynamicRef: '#node' } as Schema },
+    })
+    const second = compile({
+      $id: `cleanup-dynamic-b-${pathName}`,
+      $dynamicAnchor: 'node',
+      type: 'object',
+      properties: { child: { $dynamicRef: '#node' } as Schema },
+    })
+    expect(isType(first, { child: {} })).toBe(true)
+    expect(isType(second, { child: {} })).toBe(true)
+  })
+
+  describe('reserved $id', () => {
+    const cases: Array<['07' | '2020-12', string]> = [
+      ['07', 'http://json-schema.org/draft-07/schema'],
+      ['07', 'http://json-schema.org/schema'],
+      ['2020-12', 'https://json-schema.org/draft/2020-12/schema'],
+      ['2020-12', 'https://json-schema.org/draft/2020-12/meta/core'],
+    ]
+    const variants = cases.flatMap(([draft, base]) =>
+      [base, `${base}#`, `${base}#/`].map((id): ['07' | '2020-12', string] => [draft, id]),
+    )
+
+    test.each(variants)('rejects %s %s', (draft, $id) => {
+      const compile = makeCompiler(draft)
+      expect(() => compile({ $id, type: 'string' })).toThrow(`Schema $id ${$id} is reserved`)
+      const base = $id.replace(/#\/?$/, '')
+      const validator = compile({ $schema: base, type: 'string' })
+      expect(isType(validator, 'a')).toBe(true)
+    })
+  })
+
+  test('boolean false schema', () => {
+    const compile = makeCompiler()
+    const schema = false as unknown as Schema
+    let validator: Validator<unknown> | undefined
+    expect(() => {
+      validator = compile(schema)
+    }).not.toThrow()
+    for (const value of [1, 'a', null]) {
+      expect(validator?.(value)).toBeInstanceOf(ValidationError)
+    }
+    const later = compile({ type: 'string' })
+    expect(isType(later, 'a')).toBe(true)
+  })
+
+  test('earlier validator keeps working', () => {
+    const compile = makeCompiler()
+    const first = compile({ type: 'string' })
+    compile({ type: 'number' })
+    expect(isType(first, 'a')).toBe(true)
+    expect(isType(first, 1)).toBe(false)
+  })
+})
+
+describe('factory boolean schemas', () => {
+  test('factory counts boolean compiles', () => {
+    const factory = createValidatorFactory()
+    factory.createValidator(false as unknown as Schema)
+    factory.createValidator(false as unknown as Schema)
+    expect(factory.compiled).toBe(2)
   })
 })

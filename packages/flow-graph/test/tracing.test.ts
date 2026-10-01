@@ -8,9 +8,16 @@ import {
 } from '@opentelemetry/sdk-trace-base'
 import type { LogRecord } from '@sozai/log'
 import { getSozaiLogger, reset, setup } from '@sozai/log'
+import { createValidatorCache } from '@sozai/schema'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 
-import { createFlowGraph, createMapResolver, FlowRetryableError } from '../src/index.js'
+import {
+  createFlowGraph,
+  createMapResolver,
+  defineNodeKind,
+  FlowGraphValidatorsError,
+  FlowRetryableError,
+} from '../src/index.js'
 
 const exporter = new InMemorySpanExporter()
 
@@ -805,4 +812,83 @@ test('return() while next() is pending rejects', async () => {
 
   await expect(run.return()).rejects.toThrow('FlowRun.return() called concurrently')
   expect((await pending).value.status).toBe('suspended')
+})
+
+test('a disposed validator cache mid-run closes the node span and can be recovered', async () => {
+  exporter.reset()
+
+  type Step = { kind: 'step'; next: string }
+
+  let host = createValidatorCache()
+  let calls = 0
+
+  const step = defineNodeKind<Step>({
+    kind: 'step',
+    schema: {
+      type: 'object',
+      required: ['kind', 'next'],
+      additionalProperties: false,
+      properties: { kind: { const: 'step' }, next: { type: 'string' } },
+    },
+    targets: (node) => [{ path: ['next'], id: node.next }],
+    execute: (node) => {
+      calls++
+
+      if (calls === 1) {
+        host.dispose()
+
+        return { suspend: { schema: { type: 'string' } } }
+      }
+
+      return { next: node.next }
+    },
+    resume: (node) => ({ next: node.next }),
+  })
+
+  const definition = {
+    id: 'disposed',
+    name: 'Disposed',
+    version: 1,
+    start: 'a',
+    nodes: { a: { kind: 'step', next: 'end' }, end: { kind: 'end' } },
+  }
+  const resolver = createMapResolver([definition])
+
+  const run = createFlowGraph({ validators: host, kinds: [step], resolver }).start({ definition })
+
+  await expect(
+    (async () => {
+      for await (const _state of run) {
+        /* drain */
+      }
+    })(),
+  ).rejects.toThrow(FlowGraphValidatorsError)
+
+  const state = run.getState()
+
+  expect(state.status).toBe('running')
+
+  const spans = exporter.getFinishedSpans()
+  const node = spans.find(
+    (span) => span.name === 'flow.node' && span.attributes['flow.node.kind'] === 'step',
+  )
+  const segment = spans.find((span) => span.name === 'flow.segment')
+
+  expect(node?.status.code).toBe(SpanStatusCode.ERROR)
+  expect(node?.attributes['error.type']).toBe('FlowGraphValidatorsError')
+  expect(segment?.status.code).toBe(SpanStatusCode.ERROR)
+  expect(segment?.attributes['error.type']).toBe('FlowGraphValidatorsError')
+  expect(segment?.attributes['flow.status']).toBe('running')
+
+  host = createValidatorCache()
+
+  const recovered = createFlowGraph({ validators: host, kinds: [step], resolver }).recover({
+    runState: JSON.parse(JSON.stringify(state)),
+  })
+
+  for await (const _state of recovered) {
+    /* drain */
+  }
+
+  expect(recovered.getState().status).toBe('ended')
 })

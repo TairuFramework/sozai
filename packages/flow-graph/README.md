@@ -221,7 +221,7 @@ const validateToolInput = validators.get(toolInputSchema)
 
 `graph.start()`, `graph.resume()`, and `graph.recover()` return a `FlowRun`. Each `next()` returns one committed `RunState`. Commits include node entry, attempt checkpoints, retry decisions, transitions, and suspensions. `graph.run()` consumes a new run until it ends or suspends.
 
-`FlowRun.return()` stops a segment without committing anything: it ends the segment span and later `next()` calls return `done` with the current state. It is idempotent, safe before the first `next()`, after a rejected `next()` and after completion, and rejects while a `next()` is pending. `break` in a `for await` loop calls it. A host that abandons a run should call it so the segment span ends.
+`FlowRun.return()` stops a segment without committing anything: it ends the segment span and later `next()` calls return `done` with the current state. It is idempotent, safe before the first `next()`, after a rejected `next()` and after completion, and rejects while a `next()` is pending. `break` in a `for await` loop calls it. A host that abandons a run should call it so the segment span ends. Once the run has finished, by completion or by a rejected step, later `next()` calls also resolve `done` with the current state.
 
 Persist **every yielded state** for the strongest retry bound. Execution is **at least once**. A process can crash after a side effect and before persisting its next commit.
 

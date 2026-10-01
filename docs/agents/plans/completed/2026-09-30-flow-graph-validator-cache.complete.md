@@ -59,3 +59,5 @@ follow sorted key order (both caches compile canonical snapshots).
   issue order, disposal at entry points, mid-run, resume segments and abort) and a span and
   recovery test in `test/tracing.test.ts`.
 - README "Shared validator cache" section, `sozai:dataflow` reference update, minor change intent.
+- `FlowRun.next()` after a finished run (completion or a rejected step) resolves `done` with the
+  current state, with a test after an interrupted resume.

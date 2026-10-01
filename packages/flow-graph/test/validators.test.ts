@@ -363,6 +363,7 @@ describe('disposed host cache', () => {
 
     await expect(drain(resumed)).rejects.toThrow(FlowGraphValidatorsError)
     expect(resumed.getState()).toEqual(suspended)
+    await expect(resumed.next()).resolves.toEqual({ done: true, value: suspended })
 
     host = createValidatorCache()
     dispose = false

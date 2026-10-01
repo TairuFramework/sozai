@@ -593,7 +593,12 @@ export class FlowRunner {
           // Runs outside the generator so a rejection leaves the run retryable.
           await withActiveContext(segmentContext, prepare)
 
-          return await withActiveContext(segmentContext, () => iterator.next())
+          const result = await withActiveContext(segmentContext, () => iterator.next())
+
+          // A finished generator yields no value, for example after a rejected step.
+          return result.done && result.value === undefined
+            ? { done: true, value: getState() }
+            : result
         } finally {
           busy = false
         }

@@ -1152,3 +1152,40 @@ test('state checks accept attempts of a retrying custom kind', async () => {
   expect(states.some((state) => state.frames[1]?.attempts.f !== undefined)).toBe(true)
   expect(run.getState().status).toBe('ended')
 })
+
+test('end passes through a nested flow outcome reference', async () => {
+  const inner = flow('inner', { done: { kind: 'end', outcome: 'accepted' } })
+  const parent = flow('parent', {
+    inner: { kind: 'call', flow: 'inner', next: 'done' },
+    done: { kind: 'end', outcome: { ref: ['results', 'inner', 'outcome'] } },
+  })
+
+  const run = makeGraph([inner]).start({ definition: parent })
+
+  await collect(run)
+
+  expect(run.getState().status).toBe('ended')
+  expect(run.getState().outcome).toBe('accepted')
+  expect(run.getState().frames[0]?.results.inner).toEqual({ output: {}, outcome: 'accepted' })
+})
+
+test.each([null, 42, true, [], {}])(
+  'end rejects a non-string resolved outcome: %j',
+  async (value) => {
+    const definition = flow('invalid-outcome', {
+      done: { kind: 'end', outcome: { ref: ['input', 'outcome'] } },
+    })
+
+    const run = makeGraph([]).start({ definition, input: { outcome: value } })
+
+    await collect(run)
+
+    expect(run.getState().status).toBe('error')
+    expect(run.getState().error).toMatchObject({
+      code: 'invalid_value',
+      node: 'done',
+      lastFailure: { type: 'FlowNodeFailure' },
+    })
+    expect(run.getState().outcome).toBeUndefined()
+  },
+)

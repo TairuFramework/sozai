@@ -39,9 +39,16 @@ const json: Record<string, unknown> = {
   ],
 }
 
+const referenceValue = {
+  type: 'object',
+  required: ['ref'],
+  properties: { ref: path },
+  additionalProperties: false,
+}
+
 const value = {
   oneOf: [
-    { type: 'object', required: ['ref'], properties: { ref: path }, additionalProperties: false },
+    referenceValue,
     {
       type: 'object',
       required: ['value'],
@@ -290,7 +297,12 @@ export const builtinSchemas = {
   end: makeNodeSchema({
     kind: 'end',
     required: [],
-    properties: { outcome: string, output: values },
+    properties: {
+      outcome: describeSchema('Literal outcome or reference resolving to a string', {
+        oneOf: [string, referenceValue],
+      }),
+      output: values,
+    },
   }) as Schema,
 } satisfies Record<string, Schema>
 

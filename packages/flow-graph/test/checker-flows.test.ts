@@ -646,3 +646,49 @@ test('a mixed call and goto cycle warns recursive_call without an error', async 
     expect.objectContaining({ severity: 'warning', path: ['nodes', 'c', 'flow'] }),
   ])
 })
+
+test('checkFlows accepts a dynamic callee outcome and a caller branch on it', async () => {
+  const inner = flow('inner', {
+    done: { kind: 'end', outcome: { ref: ['input', 'outcome'] } },
+  })
+
+  const parent = caller({
+    inner: {
+      kind: 'call',
+      flow: 'inner',
+      version: 1,
+      input: { outcome: { value: 'custom' } },
+      next: 'branch',
+    },
+    branch: {
+      kind: 'branch',
+      cases: [
+        { when: { path: ['results', 'inner', 'outcome'], is: { equalTo: 'custom' } }, to: 'done' },
+      ],
+      default: 'other',
+    },
+    done: { kind: 'end', outcome: { ref: ['results', 'inner', 'outcome'] } },
+    other: { kind: 'end', outcome: 'other' },
+  })
+
+  expect(makeGraph([inner]).check(parent)).toEqual({ value: parent, warnings: [] })
+  expect(await makeGraph([inner]).checkFlows(parent)).toEqual({ value: parent, warnings: [] })
+})
+
+test.each([
+  { path: ['results', 'missing', 'outcome'], code: 'invalid_path' },
+  { path: ['results', 'inner', 'missing'], code: 'invalid_result_path' },
+  { path: ['results', 'inner', 'outcome', 'nested'], code: 'invalid_result_path' },
+  { path: ['results', 'inner', 'output', 'missing'], code: 'invalid_result_path' },
+])('checks end outcome reference $path', async ({ path, code }) => {
+  const parent = caller({
+    inner: { kind: 'call', flow: 'inner', version: 1, next: 'done' },
+    done: { kind: 'end', outcome: { ref: path } },
+  })
+
+  const result = await makeGraph([callee('inner')]).checkFlows(parent)
+
+  expect(find(failedIssues(result), code)).toEqual([
+    expect.objectContaining({ path: ['nodes', 'done', 'outcome', 'ref'] }),
+  ])
+})

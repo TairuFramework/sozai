@@ -892,3 +892,35 @@ test('a disposed validator cache mid-run closes the node span and can be recover
 
   expect(recovered.getState().status).toBe('ended')
 })
+
+test.each([
+  { value: null, type: 'null' },
+  { value: 42, type: 'number' },
+  { value: true, type: 'boolean' },
+  { value: [], type: 'array' },
+  { value: {}, type: 'object' },
+])('invalid end outcome reports the resolved $type type', async ({ value, type }) => {
+  exporter.reset()
+
+  const graph = createFlowGraph({ recordErrorMessages: true })
+  const result = await graph.run({
+    definition: {
+      id: 'invalid-outcome',
+      name: 'Invalid outcome',
+      version: 1,
+      start: 'done',
+      nodes: { done: { kind: 'end', outcome: { ref: ['input', 'outcome'] } } },
+    },
+    input: { outcome: value },
+  })
+
+  expect(result.status).toBe('error')
+
+  const node = exporter.getFinishedSpans().find((span) => span.name === 'flow.node')
+  const exception = node?.events.find((event) => event.name === 'exception')
+
+  expect(exception?.attributes?.['exception.type']).toBe('invalid_value')
+  expect(exception?.attributes?.['exception.message']).toBe(
+    `End outcome must resolve to a string; received ${type}.`,
+  )
+})

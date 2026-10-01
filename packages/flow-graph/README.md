@@ -50,6 +50,19 @@ console.log(resumed.getState().output)
 
 `FlowDefinitionError`, `FlowInputError`, `FlowStateError`, and `FlowResumeError` expose Standard Schema compatible `issues` arrays with messages and paths. Input and state schema failures preserve the validator's issues. State invariant messages use fixed text and never include payload values.
 
+## End outcomes
+
+An `end` node accepts an optional literal string or reference for `outcome`. References resolve in the same scope as `output` values:
+
+```ts
+{ kind: 'end', outcome: { ref: ['results', 'inner', 'outcome'] } }
+```
+
+The resolved outcome must be a string. Other types, including missing references resolving to `null`, fail at that node with `invalid_value`.
+The error message names the actual type. Exception messages follow the existing `recordErrorMessages` tracing option.
+The checker validates outcome reference paths. Referenced outcomes remain dynamic strings when callers branch on them.
+Outcome expressions do not accept literal value wrappers, arrays, or object templates.
+
 ## Flow references
 
 A flow can call, hand over to, or loop over other flows. A `FlowResolver` supplies the definitions:

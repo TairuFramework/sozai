@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { expect, test, vi } from 'vitest'
 
 import {
@@ -41,10 +42,65 @@ test('definition errors expose Standard Schema issues', () => {
   }
 })
 
+test.each<{ issues: Array<StandardSchemaV1.Issue>; message: string }>([
+  { issues: [], message: 'Invalid flow input' },
+  {
+    issues: [{ message: 'input must be an object' }],
+    message: 'Invalid flow input: input must be an object',
+  },
+  {
+    issues: [{ message: 'required', path: [] }],
+    message: 'Invalid flow input: required',
+  },
+  {
+    issues: [{ message: 'required', path: ['name'] }],
+    message: 'Invalid flow input at /name: required',
+  },
+  {
+    issues: [{ message: 'required', path: [{ key: 'items' }, 0, { key: 'name' }] }],
+    message: 'Invalid flow input at /items/0/name: required',
+  },
+  {
+    issues: [{ message: 'required', path: ['~/name', { key: '/~' }, ''] }],
+    message: 'Invalid flow input at /~0~1name/~1~0/: required',
+  },
+  {
+    issues: [{ message: 'required', path: [''] }],
+    message: 'Invalid flow input at /: required',
+  },
+  {
+    issues: [{ message: 'required', path: ['name'] }, { message: 'must be a number' }],
+    message: 'Invalid flow input at /name: required (and 1 more issue)',
+  },
+  {
+    issues: [
+      { message: 'required', path: ['name'] },
+      { message: 'must be a number' },
+      { message: 'must be a string' },
+    ],
+    message: 'Invalid flow input at /name: required (and 2 more issues)',
+  },
+])('input errors format issues as "$message"', ({ issues, message }) => {
+  const error = new FlowInputError({ issues })
+
+  expect(error.message).toBe(message)
+  expect(error.name).toBe('FlowInputError')
+  expect(error.issues).toBe(issues)
+})
+
+test('omitted input on an inline flow names the schema requirement', () => {
+  const graph = createFlowGraph()
+
+  expect(() => graph.start({ definition })).toThrow('Invalid flow input: must be object')
+})
+
 test('input errors expose JSON and schema issues', () => {
   const graph = createFlowGraph()
 
   expect(() => graph.start({ definition, input: Number.POSITIVE_INFINITY })).toThrow(FlowInputError)
+  expect(() => graph.start({ definition, input: Number.POSITIVE_INFINITY })).toThrow(
+    'Invalid flow input: Input must be a JSON value.',
+  )
 
   try {
     graph.start({ definition, input: Number.POSITIVE_INFINITY })

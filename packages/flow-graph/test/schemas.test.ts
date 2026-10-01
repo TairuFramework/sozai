@@ -137,3 +137,27 @@ test('authoring schema compiles under default strict mode without warnings', () 
   expect(log).not.toHaveBeenCalled()
   expect(console.error).not.toHaveBeenCalled()
 })
+
+test('authoring schema limits end outcomes to literal strings or references', () => {
+  const validate = createValidator(graph.authoringSchema)
+
+  for (const outcome of ['ok', { ref: ['results', 'inner', 'outcome'] }]) {
+    const definition = { ...base, nodes: { start: { kind: 'end', outcome } } }
+
+    expect(validate(definition)).toEqual({ value: definition })
+  }
+
+  for (const outcome of [
+    42,
+    { value: 'ok' },
+    { object: { outcome: { value: 'ok' } } },
+    { array: [{ value: 'ok' }] },
+    { ref: [] },
+    { ref: ['input', '__proto__'] },
+    { ref: ['input'], extra: true },
+  ]) {
+    expect(validate({ ...base, nodes: { start: { kind: 'end', outcome } } })).toBeInstanceOf(
+      ValidationError,
+    )
+  }
+})

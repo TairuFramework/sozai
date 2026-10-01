@@ -48,7 +48,11 @@ type InputNode = {
   timeout?: { afterMs: number; to: string }
 }
 
-type EndNode = { kind: 'end'; outcome?: string; output?: Record<string, Value> }
+type EndNode = {
+  kind: 'end'
+  outcome?: string | Extract<Value, { ref: Path }>
+  output?: Record<string, Value>
+}
 
 /** Actions, clock and reference service used by the built-in node kinds. */
 export type BuiltinKindsParams = {
@@ -233,9 +237,21 @@ export function builtinKinds(params: BuiltinKindsParams): Array<RegisteredNodeKi
     schema: builtinSchemas.end,
     targets: () => [],
     execute: (node, ctx) => {
+      const outcome = typeof node.outcome === 'object' ? ctx.resolve(node.outcome) : node.outcome
+
+      if (outcome !== undefined && typeof outcome !== 'string') {
+        const actualType =
+          outcome === null ? 'null' : Array.isArray(outcome) ? 'array' : typeof outcome
+        const error = new FlowNodeFailure({ code: 'invalid_value' })
+
+        error.message = `End outcome must resolve to a string; received ${actualType}.`
+
+        throw error
+      }
+
       return {
         end: {
-          ...(node.outcome ? { outcome: node.outcome } : {}),
+          ...(outcome !== undefined ? { outcome } : {}),
           ...(node.output
             ? {
                 output: Object.fromEntries(

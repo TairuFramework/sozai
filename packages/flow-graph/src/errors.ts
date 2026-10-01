@@ -23,6 +23,25 @@ export type FlowNodeFailureParams = { code: string }
 /** Optional retry delay requested by an action. */
 export type FlowRetryableErrorParams = { message?: string; afterMs?: number }
 
+function formatInputIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
+  const first = issues[0]
+
+  if (!first) {
+    return 'Invalid flow input'
+  }
+
+  const path = (first.path ?? []).map((segment) => {
+    const key = typeof segment === 'object' ? segment.key : segment
+
+    return String(key).replaceAll('~', '~0').replaceAll('/', '~1')
+  })
+  const location = path.length > 0 ? ` at /${path.join('/')}` : ''
+  const remaining = issues.length - 1
+  const suffix = remaining > 0 ? ` (and ${remaining} more issue${remaining === 1 ? '' : 's'})` : ''
+
+  return `Invalid flow input${location}: ${first.message}${suffix}`
+}
+
 /** Invalid flow definition with repairable issues. */
 export class FlowDefinitionError extends Error implements StandardSchemaV1.FailureResult {
   #issues: ReadonlyArray<FlowIssue>
@@ -44,7 +63,7 @@ export class FlowInputError extends Error implements StandardSchemaV1.FailureRes
   #issues: ReadonlyArray<StandardSchemaV1.Issue>
 
   constructor(params: FlowInputErrorParams) {
-    super('Invalid flow input')
+    super(formatInputIssues(params.issues))
 
     this.name = 'FlowInputError'
     this.#issues = params.issues

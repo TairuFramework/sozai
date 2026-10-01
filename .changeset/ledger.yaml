@@ -10,6 +10,10 @@
   dir: packages/flow-graph
   intents:
     - flow-graph-references
+"@sozai/flow-graph@0.2.1":
+  dir: packages/flow-graph
+  intents:
+    - angry-insects-dress
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:
@@ -22,3 +26,7 @@
   dir: packages/schema
   intents:
     - polite-forks-change
+"@sozai/schema@0.1.4":
+  dir: packages/schema
+  intents:
+    - sour-kiwis-rule

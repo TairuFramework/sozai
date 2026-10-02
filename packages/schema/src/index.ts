@@ -21,7 +21,7 @@ export {
 } from './cache.js'
 export { ValidationError, ValidationErrorObject } from './errors.js'
 export type { Schema } from './types.js'
-export { resolveReference, resolveSchema } from './utils.js'
+export { rebaseDefinitionReferences, resolveReference, resolveSchema } from './utils.js'
 export {
   assertType,
   asType,

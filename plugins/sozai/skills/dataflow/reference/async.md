@@ -11,6 +11,13 @@ Async primitives for deferred resolution, lazy evaluation, resource lifecycle, a
 | `toPromise` | function | Run a function (that may throw synchronously) and return its result as a `Promise` |
 | `raceSignal` | function | Race a promise against an `AbortSignal`; rejects with the signal reason on abort |
 | `sleep` | function | Promise that resolves after a given number of milliseconds |
+| `whenAborted` | function | Resolve void when a signal aborts, immediately if already aborted. Remove the listener on settlement |
+| `settleAll` | function | Run every step concurrently. Throw one `AggregateError` with recursively flattened failures and the caller's message |
+| `settleSequential` | function | Run every step in order, continuing after failures. Aggregate failures like `settleAll` |
+| `createKeyedQueue` | function | Create independent FIFO queues per key, with `run`, `enter`, and a `size` getter |
+| `SettlementStep` | type | `() => unknown \| PromiseLike<unknown>` -- synchronous throws count as failures |
+| `KeyedQueue<TKey>` | type | `{ run, enter, size }` -- task failures release their slot and never block successors |
+| `QueueSlot` | type | `{ turn, free, release }` -- synchronous availability, a resolving turn, and idempotent release |
 | `onAbort` | function | Register a self-cleaning abort listener; fires synchronously if the signal is already aborted |
 | `isBenignTeardownError` | function | `true` for errors that represent a peer- or local-teardown signal rather than a real failure |
 | `Deferred` | type | `{ promise, resolve, reject }` |
@@ -66,3 +73,42 @@ await disposer.dispose('user cancelled')
   // d.signal is live; block exit calls dispose automatically
 }
 ```
+
+## Example: abort waits, settlement, and keyed queues
+
+```typescript
+import { createKeyedQueue, lazy, settleAll, settleSequential, whenAborted } from '@sozai/async'
+
+// Abort ends the wait normally, regardless of the signal's reason.
+await whenAborted(signal)
+
+// Lazy evaluation already provides memoised, once-only disposal.
+const disposed = lazy(() => settleAll([
+  () => closeStream(),
+  () => closeConnection(),
+], 'Disposal failed'))
+await disposed
+await disposed // Reuses the same outcome.
+
+// Ordered teardown still attempts every step after a failure.
+await settleSequential([
+  () => stopProducer(),
+  () => drainConsumer(),
+], 'Shutdown failed')
+
+const queue = createKeyedQueue<string>()
+const result = await queue.run(runID, () => transition(runID))
+
+// Lower-level slots support callers that reserve or abandon a turn.
+const slot = queue.enter(runID)
+try {
+  await slot.turn
+  await transition(runID)
+} finally {
+  slot.release()
+}
+```
+
+Settlement helpers resolve void when every step succeeds; otherwise they throw one `AggregateError` with the supplied message, synchronous throws included, and nested `AggregateError`s flattened recursively in step order.
+
+Queue keys use `Map` identity and run independently; each queue owns its state. `enter` computes `free` synchronously from the holding count, `release` decrements it synchronously (even before the turn arrives), and `turn` never rejects. Drained entries are removed asynchronously, so `size` counts them until cleanup finishes.

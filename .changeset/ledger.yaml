@@ -2,6 +2,10 @@
   dir: packages/async
   intents:
     - async-retry-policy
+"@sozai/async@0.4.0":
+  dir: packages/async
+  intents:
+    - famous-tigers-rule
 "@sozai/codec@0.4.0":
   dir: packages/codec
   intents:
@@ -22,6 +26,22 @@
   dir: packages/json
   intents:
     - json-value
+"@sozai/json@0.3.0":
+  dir: packages/json
+  intents:
+    - sweet-walls-argue
+"@sozai/lock@0.1.2":
+  dir: packages/lock
+  intents:
+    - hungry-grapes-draw
+"@sozai/log@0.4.0":
+  dir: packages/log
+  intents:
+    - lazy-swans-buy
+"@sozai/otel@0.3.3":
+  dir: packages/otel
+  intents:
+    - spicy-spoons-draw
 "@sozai/schema@0.1.3":
   dir: packages/schema
   intents:

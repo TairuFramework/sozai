@@ -1,5 +1,12 @@
 # @sozai/schema
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies:
+  - @sozai/json@0.3.0
+
 ## 0.1.4
 
 ### Patch Changes

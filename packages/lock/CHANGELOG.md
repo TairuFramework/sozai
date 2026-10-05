@@ -1,5 +1,14 @@
 # @sozai/lock
 
+## 0.1.2
+
+### Patch Changes
+
+- Back the same-process path queue with createKeyedQueue from @sozai/async. No behaviour change.
+
+- Updated dependencies:
+  - @sozai/async@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes

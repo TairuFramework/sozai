@@ -1,5 +1,11 @@
 # @sozai/log
 
+## 0.4.0
+
+### Minor Changes
+
+- Add renderLogMessage, which renders a LogTape record body without throwing or dropping interpolated values.
+
 ## 0.3.0
 
 ### Minor Changes

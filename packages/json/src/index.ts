@@ -59,6 +59,103 @@ export function isJSONValue(value: unknown): value is JSONValue {
   return checkJSONValue(value, new Set())
 }
 
+/**
+ * Coerce each property independently to JSON, without throwing.
+ * Undefined properties are omitted, array holes become null, and root undefined becomes "undefined".
+ * Non-finite numbers become null. Bigints, symbols and functions use guarded String().
+ * toJSON receives the property key. Ancestor cycles become "[circular]"; shared references survive.
+ * Failed getters use the thrown value's string. Failed object conversion uses the object's string.
+ * String conversion failures become "[unrenderable]". Only enumerable string keys are retained.
+ */
+export function toJSONValue(value: unknown): JSONValue {
+  const result = coerceJSONMember(value, '', new Set())
+  return result === undefined ? 'undefined' : result
+}
+
+function stringifyFallback(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '[unrenderable]'
+  }
+}
+
+function coerceJSONMember(
+  value: unknown,
+  key: string,
+  ancestors: Ancestors,
+): JSONValue | undefined {
+  try {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+      return value
+    }
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null
+    }
+    if (value === undefined) {
+      return undefined
+    }
+    if (typeof value !== 'object') {
+      return stringifyFallback(value)
+    }
+    if (ancestors.has(value)) {
+      return '[circular]'
+    }
+    ancestors.add(value)
+    try {
+      const toJSON = (value as { toJSON?: unknown }).toJSON
+      if (typeof toJSON === 'function') {
+        const replacement: unknown = toJSON.call(value, key)
+        // JSON.stringify traverses a self-returning toJSON receiver without calling it again.
+        if (replacement !== value) {
+          return coerceJSONMember(replacement, key, ancestors)
+        }
+      }
+      if (value instanceof Number || value instanceof String || value instanceof Boolean) {
+        return coerceJSONMember(value.valueOf(), key, ancestors)
+      }
+      if (Array.isArray(value)) {
+        const result: Array<JSONValue> = []
+        const length = value.length
+        for (let index = 0; index < length; index++) {
+          result.push(coerceJSONProperty(value, String(index), ancestors) ?? null)
+        }
+        return result
+      }
+      const result: { [key: string]: JSONValue } = {}
+      for (const name of Object.keys(value)) {
+        const member = coerceJSONProperty(value, name, ancestors)
+        if (member !== undefined) {
+          // Assignment would invoke the inherited __proto__ setter instead of retaining the key.
+          Object.defineProperty(result, name, {
+            value: member,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+          })
+        }
+      }
+      return result
+    } finally {
+      ancestors.delete(value)
+    }
+  } catch {
+    return stringifyFallback(value)
+  }
+}
+
+function coerceJSONProperty(
+  value: object,
+  key: string,
+  ancestors: Ancestors,
+): JSONValue | undefined {
+  try {
+    return coerceJSONMember((value as Record<string, unknown>)[key], key, ancestors)
+  } catch (error) {
+    return stringifyFallback(error)
+  }
+}
+
 function checkJSONValue(value: unknown, ancestors: Ancestors): boolean {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return true

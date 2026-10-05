@@ -1,6 +1,6 @@
 {
   "name": "@sozai/flow-graph",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Persistent JSON flow graphs",
   "keywords": [
     "flow",

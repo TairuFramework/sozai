@@ -123,3 +123,47 @@ export function reset(): void {
 export function isSetup(): boolean {
   return getConfig() != null
 }
+
+/** Render a log body without throwing, retaining method-call placeholders and template values. */
+export function renderLogMessage(record: Pick<LogRecord, 'rawMessage' | 'message'>): string {
+  try {
+    // Method calls keep placeholders; tagged templates store values only in message parts.
+    const rawMessage = record.rawMessage
+    return typeof rawMessage === 'string'
+      ? rawMessage
+      : record.message.map(renderMessagePart).join('')
+  } catch {
+    return '[unrenderable]'
+  }
+}
+
+// Renders one segment of `record.message` (odd indices are interpolated values).
+//
+// Must never throw and never drop a value: logtape catches sink exceptions and
+// silently discards the record, so one bad interpolation loses the whole log line.
+// Three ways that happens, all guarded below:
+//   - JSON.stringify throws on a BigInt, a circular structure, a throwing `toJSON`.
+//   - JSON.stringify *returns undefined* (not a string) for a symbol, a function,
+//     or `undefined` — no throw, so it needs an explicit check or the value vanishes.
+//   - String() throws on a null-prototype object, or a throwing toString/Symbol.toPrimitive.
+function renderMessagePart(part: unknown, index: number): string {
+  if (typeof part === 'string') {
+    return part
+  }
+  let rendered: string | undefined
+  if (index % 2 !== 0) {
+    try {
+      rendered = JSON.stringify(part)
+    } catch {
+      rendered = undefined
+    }
+  }
+  if (rendered !== undefined) {
+    return rendered
+  }
+  try {
+    return String(part)
+  } catch {
+    return '[unrenderable]'
+  }
+}

@@ -1,5 +1,11 @@
 # @sozai/async
 
+## 0.4.0
+
+### Minor Changes
+
+- Add whenAborted (resolves when a signal aborts), settleAll and settleSequential (run teardown steps concurrently or in order and throw one AggregateError with recursively flattened failures and the caller's message), and createKeyedQueue (per-key FIFO with run(key, fn) and a slot-based enter(key)).
+
 ## 0.3.0
 
 ### Minor Changes

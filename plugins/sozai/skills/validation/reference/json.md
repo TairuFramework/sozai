@@ -5,6 +5,9 @@
 | Export | Kind | Description |
 |---|---|---|
 | `canonicalize` | function | Serialize to canonical JSON (RFC 8785), or `undefined` |
+| `JSONValue` | type | JSON primitives, arrays and objects with finite numbers |
+| `isJSONValue` | function | Check that JSON serialisation reproduces a value unchanged |
+| `toJSONValue` | function | Coerce unknown input recursively to `JSONValue` without throwing |
 | `parse` | function | Parse JSON with a depth limit and optional prototype-key guard |
 | `ParseOptions` | type | `{ maxDepth?: number; protoKeys?: ProtoKeysMode }` |
 | `ProtoKeysMode` | type | `'allow' \| 'strip' \| 'reject'` |
@@ -78,3 +81,28 @@ try {
   console.log(err instanceof TypeError, (err as Error).message)
 }
 ```
+
+## Coerce unknown values
+
+```typescript
+import { toJSONValue } from '@sozai/json'
+
+toJSONValue({ count: 2n, missing: undefined, ok: [1, undefined] })
+// { count: '2', ok: [1, null] }
+```
+
+`toJSONValue(value: unknown): JSONValue` converts each property independently, preserving valid sibling properties when conversion fails.
+Plain JSON input remains equal.
+
+- Non-finite numbers become `null`.
+- Bigints, symbols and functions use guarded `String()`.
+- Undefined object properties are omitted. Undefined array entries and holes become `null`. Top-level undefined becomes `'undefined'`.
+- Objects use `toJSON` output recursively. The method receives the property key, or `''` at the root.
+- Self-returning `toJSON` methods traverse their receiver without another call.
+- Ancestor cycles become `'[circular]'`. Shared references across siblings convert independently.
+- Throwing getters use the thrown value's guarded string. Failed object conversion uses the object's guarded string.
+- Failed string conversion becomes `'[unrenderable]'`.
+- Boxed numbers, strings and booleans are unwrapped. Other objects retain only enumerable string keys.
+- Symbol keys, non-enumerable properties and extra array properties are ignored, matching `JSON.stringify`.
+
+`__proto__` remains an own data property without changing the output object's prototype.

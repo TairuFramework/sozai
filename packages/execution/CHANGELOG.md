@@ -1,5 +1,12 @@
 # @sozai/execution
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies:
+  - @sozai/async@0.4.0
+
 ## 0.2.2
 
 ### Patch Changes

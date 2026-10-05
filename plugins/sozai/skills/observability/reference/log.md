@@ -12,6 +12,7 @@ Thin wrapper over LogTape. Provides a one-call setup path and typed re-exports s
 | `setup` | function | Configure LogTape synchronously, applying `getDefaultConfig()` when no argument is given. First call wins: if logging is already configured, logs an error and returns without reconfiguring — call `reset()` first to reconfigure deliberately. |
 | `reset` | function | Clear the logging configuration so `setup()` can configure it again. |
 | `isSetup` | function | Whether logging has been configured, via `setup()` or otherwise. |
+| `renderLogMessage` | function | Render `Pick<LogRecord, 'rawMessage' \| 'message'>` to a string without throwing. |
 | `getConsoleSink` | function | Re-export from LogTape. Create a console sink directly. |
 | `Config` | type | LogTape configuration shape. |
 | `ConsoleSinkOptions` | type | Options for the console sink. |
@@ -52,3 +53,17 @@ logger.debug('subsystem ready')
 
 `setup` applies whatever `Config` it is given in place of `getDefaultConfig()` — use this to add
 categories, change levels, or route to different sinks.
+
+## Render a record
+
+```ts
+import { renderLogMessage } from '@sozai/log'
+
+const body = renderLogMessage(record)
+```
+
+String `rawMessage` values retain method-call placeholders, including an empty message.
+Otherwise, message parts render tagged-template interpolations at odd indices through `JSON.stringify`.
+String parts remain unquoted.
+Unsupported values use guarded `String()`, with `[unrenderable]` when conversion fails.
+Record access or traversal failures also return `[unrenderable]`.

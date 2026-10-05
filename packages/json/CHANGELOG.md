@@ -1,5 +1,11 @@
 # @sozai/json
 
+## 0.3.0
+
+### Minor Changes
+
+- Add toJSONValue, which coerces any value to a JSONValue per property without throwing: values with no JSON form become strings and ancestor cycles become "[circular]".
+
 ## 0.2.0
 
 ### Minor Changes

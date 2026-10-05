@@ -1,5 +1,14 @@
 # @sozai/otel
 
+## 0.3.3
+
+### Patch Changes
+
+- Use renderLogMessage from @sozai/log for the log sink body.
+
+- Updated dependencies:
+  - @sozai/log@0.4.0
+
 ## 0.3.2
 
 ### Patch Changes

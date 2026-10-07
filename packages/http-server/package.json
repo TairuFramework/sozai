@@ -1,0 +1,57 @@
+{
+  "name": "@sozai/http-server",
+  "version": "0.1.0",
+  "description": "Plugin-based HTTP server on Hono",
+  "keywords": [
+    "http",
+    "server",
+    "hono",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TairuFramework/sozai",
+    "directory": "packages/http-server"
+  },
+  "license": "MIT",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/*"
+  ],
+  "scripts": {
+    "build": "pnpm run build:clean && pnpm run build:js && pnpm run build:types",
+    "build:clean": "del lib",
+    "build:js": "del 'lib/**/*.js' && swc src -d ./lib --config-file ../../node_modules/@kigu/dev/swc.json --strip-leading-paths",
+    "build:types": "del 'lib/**/*.d.ts' 'lib/**/*.d.ts.map' && tsc --emitDeclarationOnly --skipLibCheck",
+    "prepublishOnly": "pnpm run build",
+    "test": "pnpm run test:types && pnpm run test:unit",
+    "test:types": "tsc --noEmit --skipLibCheck -p tsconfig.test.json",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "catalog:",
+    "@hono/otel": "catalog:",
+    "@sozai/async": "workspace:^",
+    "@sozai/log": "workspace:^",
+    "@sozai/otel": "workspace:^",
+    "get-port": "catalog:"
+  },
+  "devDependencies": {
+    "hono": "catalog:"
+  },
+  "peerDependencies": {
+    "hono": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

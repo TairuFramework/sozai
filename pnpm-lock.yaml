@@ -200,6 +200,9 @@ catalogs:
     expo-crypto:
       specifier: ^57.0.3
       version: 57.0.3
+    get-port:
+      specifier: ^7.2.0
+      version: 7.2.0
     hono:
       specifier: ^4.13.13
       version: 4.13.13
@@ -319,12 +322,18 @@ importers:
       '@hono/otel':
         specifier: 'catalog:'
         version: 1.2.0(hono@4.13.13)
+      '@sozai/async':
+        specifier: workspace:^
+        version: link:../async
       '@sozai/log':
         specifier: workspace:^
         version: link:../log
       '@sozai/otel':
         specifier: workspace:^
         version: link:../otel
+      get-port:
+        specifier: 'catalog:'
+        version: 7.2.0
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -2450,6 +2459,10 @@ packages:
   get-caller-file@2.0.5:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
     engines: {node: 6.* || 8.* || >= 10.*}
+
+  get-port@7.2.0:
+    resolution: {integrity: sha512-afP4W205ONCuMoPBqcR6PSXnzX35KTcJygfJfcp+QY+uwm3p20p1YczWXhlICIzGMCxYBQcySEcOgsJcrkyobg==}
+    engines: {node: '>=16'}
 
   get-stream@8.0.1:
     resolution: {integrity: sha512-VaUJspBffn/LMCJVoMvSAdmscJyS1auj5Zulnn5UoYcY531UWmdwhRWkcGKnGU93m5HSXP9LP2usOryrBtQowA==}
@@ -6067,6 +6080,8 @@ snapshots:
   gensync@1.0.0-beta.2: {}
 
   get-caller-file@2.0.5: {}
+
+  get-port@7.2.0: {}
 
   get-stream@8.0.1: {}
 

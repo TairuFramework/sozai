@@ -37,8 +37,10 @@
   "dependencies": {
     "@hono/node-server": "catalog:",
     "@hono/otel": "catalog:",
+    "@sozai/async": "workspace:^",
     "@sozai/log": "workspace:^",
     "@sozai/otel": "workspace:^",
+    "get-port": "catalog:",
     "hono": "catalog:"
   },
   "engines": {

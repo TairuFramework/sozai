@@ -104,6 +104,10 @@ export class PluginRegistrar {
     }
   }
 
+  get plugin(): string {
+    return this.#plugin
+  }
+
   get context(): PluginContext<ReadonlyArray<AnyPluginName>> {
     return this.#context
   }

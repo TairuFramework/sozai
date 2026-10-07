@@ -42,7 +42,7 @@ describe('sortPlugins', () => {
     expect(error).toBeInstanceOf(PluginGraphError)
     const message = (error as PluginGraphError).message
     expect(message).toContain('cycle')
-    expect(message).toContain('a')
-    expect(message).toContain('b')
+    expect(message).toContain("'a'")
+    expect(message).toContain("'b'")
   })
 })

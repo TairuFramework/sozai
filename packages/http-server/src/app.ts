@@ -60,7 +60,6 @@ export function assembleApp(params: AssembleAppParams): Hono {
         app.use(handler)
       } else {
         const base = stripTrailingSlash(path)
-        app.use(base, handler)
         app.use(base === '/' ? '/*' : `${base}/*`, handler)
       }
     }

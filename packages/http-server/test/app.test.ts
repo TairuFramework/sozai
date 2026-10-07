@@ -59,6 +59,26 @@ function assemble(registrars: Array<PluginRegistrar>, trustProxy: TrustProxy = f
 const ok: Handler = (c) => c.text('ok')
 
 describe('assembleApp', () => {
+  test('path-scoped middleware runs once per matching request', async () => {
+    let runs = 0
+    const a = createRegistrar({ plugin: 'a' })
+    a.context.route('get', '/api', ok)
+    a.context.route('get', '/api/x', ok)
+    a.context.route('get', '/apix', ok)
+    a.context.middleware(async (_c, next) => {
+      runs++
+      await next()
+    }, '/api')
+
+    const app = assemble([a])
+    await app.request('/api')
+    expect(runs).toBe(1)
+    await app.request('/api/x')
+    expect(runs).toBe(2)
+    await app.request('/apix')
+    expect(runs).toBe(2)
+  })
+
   test('path-scoped middleware covers the path and its descendants but not siblings', async () => {
     const a = createRegistrar({ plugin: 'a' })
     a.context.route('get', '/api', ok)

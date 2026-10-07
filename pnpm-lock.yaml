@@ -164,6 +164,12 @@ settings:
 
 catalogs:
   default:
+    '@hono/node-server':
+      specifier: ^2.1.3
+      version: 2.1.3
+    '@hono/otel':
+      specifier: ^1.2.0
+      version: 1.2.0
     '@kigu/dev':
       specifier: ^0.3.1
       version: 0.3.1
@@ -307,6 +313,12 @@ importers:
 
   packages/http-server:
     dependencies:
+      '@hono/node-server':
+        specifier: 'catalog:'
+        version: 2.1.3(hono@4.13.13)
+      '@hono/otel':
+        specifier: 'catalog:'
+        version: 1.2.0(hono@4.13.13)
       '@sozai/log':
         specifier: workspace:^
         version: link:../log
@@ -1121,6 +1133,17 @@ packages:
   '@expo/xcpretty@4.4.4':
     resolution: {integrity: sha512-4aQzz9vgxcNXFfo/iyNgDDYfsU5XGKKxWxZopw0cVotHiW+U8IJbIxMaxsINs6bHhtkG3StKNPcOrn3eBuxKPw==}
     hasBin: true
+
+  '@hono/node-server@2.1.3':
+    resolution: {integrity: sha512-TA//nWMqPhbfdfneACk6t5a9eqbS9lABEPyKn0/xZTah3H3U2XaVg85rJFl0/Fyit0I552YDHgXGVSf3GwqbUw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4
+
+  '@hono/otel@1.2.0':
+    resolution: {integrity: sha512-xFUY1iZg/CNodLi7bwvZvYmEx1x/DjiIxSARcBqvt3ks42RW7mBKMtzVEn+gRAomgcoRCVlbvmIrhxRyBNU29A==}
+    peerDependencies:
+      hono: '>=4.0.0'
 
   '@isaacs/ttlcache@1.4.1':
     resolution: {integrity: sha512-RQgQ4uQ+pLbqXfOmieB91ejmLwvSgv9nLx6sT6sD83s7umBypgg+OIBOBbEUiJXrfpnp9j0mRhYYdzp9uqq3lA==}
@@ -4709,6 +4732,16 @@ snapshots:
       '@babel/code-frame': 7.29.7
       chalk: 4.1.2
       js-yaml: 4.3.0
+
+  '@hono/node-server@2.1.3(hono@4.13.13)':
+    dependencies:
+      hono: 4.13.13
+
+  '@hono/otel@1.2.0(hono@4.13.13)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/semantic-conventions': 1.43.0
+      hono: 4.13.13
 
   '@isaacs/ttlcache@1.4.1': {}
 

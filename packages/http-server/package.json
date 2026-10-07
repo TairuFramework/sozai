@@ -35,6 +35,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@hono/node-server": "catalog:",
+    "@hono/otel": "catalog:",
     "@sozai/log": "workspace:^",
     "@sozai/otel": "workspace:^",
     "hono": "catalog:"

@@ -2,11 +2,31 @@ import { BlockList, isIP } from 'node:net'
 
 import type { TrustProxy } from './types.js'
 
-const MAPPED_IPV4_PREFIX = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i
+// Canonical IPv6 serialisation writes an IPv4-mapped address in hex: `::ffff:7f00:1`.
+const MAPPED_IPV4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
 
+/**
+ * Normalise an address so that equal addresses compare equal: IPv6 is canonicalised
+ * (lowercase, compressed) and IPv4-mapped IPv6, in dotted or hex form, becomes IPv4.
+ */
 function normalize(address: string): string {
-  const mapped = MAPPED_IPV4_PREFIX.exec(address)
-  return mapped?.[1] ?? address.toLowerCase()
+  if (isIP(address) !== 6) {
+    return address
+  }
+  let canonical: string
+  try {
+    canonical = new URL(`http://[${address}]`).hostname.slice(1, -1)
+  } catch {
+    // Zone-scoped addresses (`fe80::1%eth0`) are not valid URL hosts.
+    return address.toLowerCase()
+  }
+  const mapped = MAPPED_IPV4.exec(canonical)
+  if (mapped == null) {
+    return canonical
+  }
+  const high = Number.parseInt(mapped[1] ?? '0', 16)
+  const low = Number.parseInt(mapped[2] ?? '0', 16)
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.')
 }
 
 function invalidEntry(entry: string | number): Error {

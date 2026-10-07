@@ -5,6 +5,7 @@ import type { Handler, MiddlewareHandler } from 'hono'
 import type { TrustMatcher } from './client-ip.js'
 import type { LimitsTable } from './limits.js'
 import { getClientIP } from './middleware.js'
+import { stripTrailingSlash } from './path.js'
 import type { AnyPluginName, PluginContext, RouteMethod } from './types.js'
 
 export type RouteRegistration = {
@@ -32,10 +33,6 @@ export type PluginRegistrarParams = {
   limits: LimitsTable
   reservedPaths: ReadonlyArray<string>
   trustMatcher: TrustMatcher
-}
-
-function stripTrailingSlash(path: string): string {
-  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
 /**

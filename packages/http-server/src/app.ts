@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 
 import type { TrustMatcher } from './client-ip.js'
+import type { HealthRoutes } from './health.js'
 import { createLimitsMiddleware, type LimitsTable } from './limits.js'
 import {
   accessLogMiddleware,
@@ -12,13 +13,8 @@ import {
   notFoundHandler,
   requestIDMiddleware,
 } from './middleware.js'
+import { stripTrailingSlash } from './path.js'
 import type { PluginRegistrar } from './registrar.js'
-
-export type HealthRoutes = {
-  paths: ReadonlyArray<string>
-  log?: boolean
-  register(app: Hono): void
-}
 
 export type AssembleAppParams = {
   registrars: Array<PluginRegistrar>
@@ -27,10 +23,6 @@ export type AssembleAppParams = {
   limits: LimitsTable
   logger: Logger
   tracer: Tracer
-}
-
-function stripTrailingSlash(path: string): string {
-  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
 /**
@@ -67,7 +59,9 @@ export function assembleApp(params: AssembleAppParams): Hono {
       if (path == null) {
         app.use(handler)
       } else {
-        app.use(path, handler)
+        const base = stripTrailingSlash(path)
+        app.use(base, handler)
+        app.use(base === '/' ? '/*' : `${base}/*`, handler)
       }
     }
   }

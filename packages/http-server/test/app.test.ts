@@ -6,13 +6,14 @@ import { describe, expect, test, vi } from 'vitest'
 
 import { assembleApp } from '../src/app.js'
 import { createTrustMatcher } from '../src/client-ip.js'
+import { HealthRoutes } from '../src/health.js'
 import { LimitsTable } from '../src/limits.js'
 import { PluginRegistrar } from '../src/registrar.js'
 import type { TrustProxy } from '../src/types.js'
 
 const logger = getLogger(['sozai', 'http-server', 'test'])
 const tracer = createTracerFactory('sozai.test')('http-server')
-const health = { paths: [], register() {} }
+const health = new HealthRoutes({ isShuttingDown: () => false })
 
 type RegistrarOptions = {
   plugin?: string
@@ -58,6 +59,19 @@ function assemble(registrars: Array<PluginRegistrar>, trustProxy: TrustProxy = f
 const ok: Handler = (c) => c.text('ok')
 
 describe('assembleApp', () => {
+  test('path-scoped middleware covers the path and its descendants but not siblings', async () => {
+    const a = createRegistrar({ plugin: 'a' })
+    a.context.route('get', '/api', ok)
+    a.context.route('get', '/api/x', ok)
+    a.context.route('get', '/apix', ok)
+    a.context.middleware(async (c) => c.text('scoped', 418), '/api/')
+
+    const app = assemble([a])
+    expect((await app.request('/api')).status).toBe(418)
+    expect((await app.request('/api/x')).status).toBe(418)
+    expect((await app.request('/apix')).status).toBe(200)
+  })
+
   test('middleware from a later plugin applies to routes of an earlier plugin', async () => {
     const a = createRegistrar({ plugin: 'a' })
     a.context.route('get', '/a', (c) => c.text('a'))
@@ -137,13 +151,7 @@ describe('assembleApp', () => {
       a.seal()
       return assembleApp({
         registrars: [a],
-        health: {
-          paths: ['/health/live'],
-          log,
-          register(app) {
-            app.get('/health/live', ok)
-          },
-        },
+        health: new HealthRoutes({ log, isShuttingDown: () => false }),
         trustMatcher: createTrustMatcher(false),
         limits: createLimits(),
         logger: spyLogger,

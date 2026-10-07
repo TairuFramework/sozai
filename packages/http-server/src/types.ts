@@ -17,6 +17,10 @@ export type ShutdownReport = {
 
 export type PluginContext<Deps extends ReadonlyArray<AnyPluginName>> = {
   route(method: RouteMethod, path: string, ...handlers: Array<Handler | MiddlewareHandler>): void
+  /**
+   * Register middleware for every route. With a path, it is scoped by segment-aware
+   * prefix: `/api` covers `/api` and `/api/...` but not `/apix`.
+   */
   middleware(handler: MiddlewareHandler, path?: string): void
   limits(pathPrefix: string, overrides: Limits): void
   clientIP(c: Context): string

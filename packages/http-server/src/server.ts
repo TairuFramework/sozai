@@ -151,19 +151,34 @@ export class HTTPServer extends Disposer {
 
     try {
       await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
+        // Closing a server before it binds emits neither 'listening' nor 'error'.
+        const onDisposed = () => {
+          cleanup()
+          server.close()
+          reject(new Error('Server is disposed'))
+        }
+        const onError = (error: Error) => {
+          cleanup()
+          reject(error)
+        }
+        const cleanup = () => {
+          server.off('error', onError)
+          server.off('close', onDisposed)
+          this.signal.removeEventListener('abort', onDisposed)
+        }
+        server.once('error', onError)
+        server.once('close', onDisposed)
+        this.signal.addEventListener('abort', onDisposed, { once: true })
         server.listen(port, this.#hostname, () => {
-          server.off('error', reject)
+          cleanup()
           resolve()
         })
       })
     } catch (error) {
-      await this.dispose(error)
+      if (!this.signal.aborted) {
+        await this.dispose(error)
+      }
       throw error
-    }
-    if (this.signal.aborted) {
-      // Shutdown began while binding; it already closed the server.
-      throw new Error('Server is disposed')
     }
 
     const { port: boundPort } = server.address() as AddressInfo
@@ -178,15 +193,18 @@ export class HTTPServer extends Disposer {
 
   /** Dispose on `SIGTERM` or `SIGINT`. Returns a function removing the listeners. */
   handleSignals(): () => void {
+    const unsubscribe = () => {
+      process.off('SIGTERM', onSignal)
+      process.off('SIGINT', onSignal)
+    }
+    // Both listeners go on the first signal so a later one gets Node's default behaviour.
     const onSignal = (signal: NodeJS.Signals) => {
+      unsubscribe()
       void this.dispose(signal)
     }
     process.once('SIGTERM', onSignal)
     process.once('SIGINT', onSignal)
-    return () => {
-      process.off('SIGTERM', onSignal)
-      process.off('SIGINT', onSignal)
-    }
+    return unsubscribe
   }
 
   async #setup(plugins: Array<AnyHTTPPlugin>): Promise<void> {

@@ -153,6 +153,8 @@ describe('graceful shutdown', () => {
           name: 'test:throwing',
           setup(ctx) {
             ctx.route('get', '/throws', (c) => {
+              // With an onError callback streamSSE reports the error to the client
+              // instead of logging it to the console.
               return streamSSE(
                 c,
                 async (stream) => {
@@ -174,6 +176,12 @@ describe('graceful shutdown', () => {
     const body = res.text().catch(() => '')
     const start = performance.now()
     const disposed = server.dispose()
+    // The open stream must hold disposal back until the route finishes.
+    const settled = await Promise.race([
+      disposed.then(() => 'disposed'),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ])
+    expect(settled).toBe('pending')
     gate.resolve()
     await disposed
     expect(performance.now() - start).toBeLessThan(graceMs)
@@ -252,6 +260,8 @@ describe('graceful shutdown', () => {
 
     process.emit('SIGTERM')
     await server.disposed
+    expect(process.listenerCount('SIGTERM')).toBe(before)
+    expect(process.listenerCount('SIGINT')).toBe(beforeInt)
     unsubscribe()
     expect(process.listenerCount('SIGTERM')).toBe(before)
     expect(process.listenerCount('SIGINT')).toBe(beforeInt)

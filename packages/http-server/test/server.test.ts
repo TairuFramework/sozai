@@ -68,6 +68,26 @@ describe('HTTPServer', () => {
     await expect(second.listen()).rejects.toThrow('Server is disposed')
   })
 
+  test('dispose before the socket binds rejects listen and leaves the port free', async () => {
+    const port = await getPort()
+    const server = await create({ port })
+    const listened = server.listen()
+    const disposed = server.dispose()
+    const outcome = await Promise.race([
+      listened.then(
+        () => 'listening',
+        (error: Error) => error.message,
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('hung'), 1000)),
+    ])
+    expect(outcome).toBe('Server is disposed')
+    await disposed
+
+    const next = await create({ port })
+    await next.listen()
+    expect(next.url).toBe(`http://localhost:${port}`)
+  })
+
   test('setup failure runs the failing plugin hooks and rejects', async () => {
     const spy = vi.fn()
     const failing = definePlugin({

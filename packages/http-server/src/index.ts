@@ -11,7 +11,6 @@ export {
   type CreateServerParams,
   createServer,
   HTTPServer,
-  type HTTPServerParams,
 } from './server.js'
 export type {
   AnyHTTPPlugin,

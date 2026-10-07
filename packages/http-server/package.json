@@ -40,7 +40,12 @@
     "@sozai/async": "workspace:^",
     "@sozai/log": "workspace:^",
     "@sozai/otel": "workspace:^",
-    "get-port": "catalog:",
+    "get-port": "catalog:"
+  },
+  "devDependencies": {
+    "hono": "catalog:"
+  },
+  "peerDependencies": {
     "hono": "catalog:"
   },
   "engines": {

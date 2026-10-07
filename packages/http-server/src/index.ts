@@ -1,3 +1,4 @@
+export { PluginGraphError } from './graph.js'
 export { definePlugin, pluginName } from './plugin.js'
 export type {
   AnyHTTPPlugin,

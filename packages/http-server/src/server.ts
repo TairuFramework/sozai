@@ -1,7 +1,7 @@
 import type { Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createAdaptorServer } from '@hono/node-server'
-import { Disposer } from '@sozai/async'
+import { Disposer, defer, onAbort, raceSignal, ScheduledTimeout } from '@sozai/async'
 import { getSozaiLogger, type Logger } from '@sozai/log'
 import { createTracerFactory, type Tracer } from '@sozai/otel'
 import getPort, { type Options as GetPortOptions } from 'get-port'
@@ -153,30 +153,31 @@ export class HTTPServer extends Disposer {
     this.#server = server
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        // Closing a server before it binds emits neither 'listening' nor 'error'.
-        const onDisposed = () => {
-          cleanup()
-          server.close()
-          reject(new Error('Server is disposed'))
-        }
-        const onError = (error: Error) => {
-          cleanup()
-          reject(error)
-        }
-        const cleanup = () => {
-          server.off('error', onError)
-          server.off('close', onDisposed)
-          this.signal.removeEventListener('abort', onDisposed)
-        }
-        server.once('error', onError)
-        server.once('close', onDisposed)
-        this.signal.addEventListener('abort', onDisposed, { once: true })
-        server.listen(port, this.#hostname, () => {
-          cleanup()
-          resolve()
-        })
+      const bound = defer<void>()
+      let unsubscribe = () => {}
+      const cleanup = () => {
+        server.off('error', onError)
+        server.off('close', onDisposed)
+        unsubscribe()
+      }
+      // Closing a server before it binds emits neither 'listening' nor 'error'.
+      const onDisposed = () => {
+        cleanup()
+        server.close()
+        bound.reject(new Error('Server is disposed'))
+      }
+      const onError = (error: Error) => {
+        cleanup()
+        bound.reject(error)
+      }
+      server.once('error', onError)
+      server.once('close', onDisposed)
+      unsubscribe = onAbort(this.signal, onDisposed)
+      server.listen(port, this.#hostname, () => {
+        cleanup()
+        bound.resolve()
       })
+      await bound.promise
     } catch (error) {
       if (!this.signal.aborted) {
         await this.dispose(error)
@@ -264,8 +265,18 @@ export class HTTPServer extends Disposer {
     // Hooks registered by a setup still running must be collected before they run.
     await this.#setupInProgress?.catch(() => {})
 
-    const deadline = performance.now() + this.#graceMs
-    const remaining = () => Math.max(0, deadline - performance.now())
+    // One grace deadline shared by the shutdown hooks and the drain wait.
+    const deadline = new ScheduledTimeout({ delay: this.#graceMs })
+    try {
+      await this.#runShutdown(deadline)
+    } finally {
+      deadline.cancel()
+    }
+  }
+
+  async #runShutdown(deadline: ScheduledTimeout): Promise<void> {
+    const deadlineAt = performance.now() + this.#graceMs
+    const remaining = () => Math.max(0, deadlineAt - performance.now())
     const server = this.#server
     server?.close()
 
@@ -280,7 +291,7 @@ export class HTTPServer extends Disposer {
     )
 
     let forced = false
-    if (!(await this.#waitForDrain(remaining()))) {
+    if (!(await this.#waitForDrain(deadline.signal))) {
       forced = true
       this.#logger.warn('HTTP server grace period expired, closing open connections', {
         openResponses: this.#responses.size,
@@ -308,21 +319,20 @@ export class HTTPServer extends Disposer {
     this.#logger.info('HTTP server closed', { forced })
   }
 
-  #waitForDrain(timeoutMs: number): Promise<boolean> {
+  async #waitForDrain(signal: AbortSignal): Promise<boolean> {
     if (this.#responses.size === 0) {
-      return Promise.resolve(true)
+      return true
     }
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.#onDrained = undefined
-        resolve(false)
-      }, timeoutMs)
-      this.#onDrained = () => {
-        clearTimeout(timer)
-        this.#onDrained = undefined
-        resolve(true)
-      }
-    })
+    const drained = defer<void>()
+    this.#onDrained = drained.resolve
+    try {
+      await raceSignal(drained.promise, signal)
+      return true
+    } catch {
+      return false
+    } finally {
+      this.#onDrained = undefined
+    }
   }
 }
 

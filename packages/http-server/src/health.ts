@@ -1,3 +1,4 @@
+import { raceSignal, ScheduledTimeout, toPromise } from '@sozai/async'
 import type { Hono } from 'hono'
 
 import type { ReadinessCheck } from './registrar.js'
@@ -67,16 +68,13 @@ export class HealthRoutes {
   }
 
   async #run(check: ReadinessCheck): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), this.#checkTimeoutMs)
-    })
+    const timeout = ScheduledTimeout.in(this.#checkTimeoutMs)
     try {
-      return await Promise.race([Promise.resolve().then(check), timeout])
+      return await raceSignal(toPromise(check), timeout.signal)
     } catch {
       return false
     } finally {
-      clearTimeout(timer)
+      timeout.cancel()
     }
   }
 }

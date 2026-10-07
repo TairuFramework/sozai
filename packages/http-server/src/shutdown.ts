@@ -1,3 +1,4 @@
+import { raceSignal, ScheduledTimeout, toPromise } from '@sozai/async'
 import type { Logger } from '@sozai/log'
 
 import type { HookOutcome, ShutdownReport } from './types.js'
@@ -8,26 +9,25 @@ export type ShutdownHookEntry = {
   timeoutMs: number
 }
 
-const TIMED_OUT = Symbol('timed-out')
-
 async function runHook(
   hook: ShutdownHookEntry,
   phase: 'shutdown' | 'close',
   logger: Logger,
 ): Promise<HookOutcome> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-    timer = setTimeout(() => resolve(TIMED_OUT), hook.timeoutMs)
-  })
-  const run = Promise.resolve().then(hook.fn)
+  const timeout = ScheduledTimeout.in(hook.timeoutMs)
+  const run = toPromise(hook.fn)
   try {
-    if ((await Promise.race([run, timeout])) === TIMED_OUT) {
+    await raceSignal(run, timeout.signal)
+    return 'completed'
+  } catch (error) {
+    // Only the timeout's own reason counts: a hook may reject with any error.
+    if (timeout.signal.aborted && error === timeout.signal.reason) {
       // The hook keeps running: there is no way to cancel it, only to stop waiting.
-      run.catch((error: unknown) => {
+      run.catch((lateError: unknown) => {
         logger.error('Shutdown hook failed after timing out', {
           plugin: hook.plugin,
           phase,
-          error,
+          error: lateError,
         })
       })
       logger.warn('Shutdown hook timed out', {
@@ -37,12 +37,10 @@ async function runHook(
       })
       return 'timed-out'
     }
-    return 'completed'
-  } catch (error) {
     logger.error('Shutdown hook failed', { plugin: hook.plugin, phase, error })
     return 'failed'
   } finally {
-    clearTimeout(timer)
+    timeout.cancel()
   }
 }
 

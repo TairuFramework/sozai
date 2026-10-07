@@ -194,6 +194,9 @@ catalogs:
     expo-crypto:
       specifier: ^57.0.3
       version: 57.0.3
+    hono:
+      specifier: ^4.13.13
+      version: 4.13.13
     json-schema-to-ts:
       specifier: ^3.1.1
       version: 3.1.1
@@ -301,6 +304,18 @@ importers:
       '@sozai/stream':
         specifier: workspace:^
         version: link:../stream
+
+  packages/http-server:
+    dependencies:
+      '@sozai/log':
+        specifier: workspace:^
+        version: link:../log
+      '@sozai/otel':
+        specifier: workspace:^
+        version: link:../otel
+      hono:
+        specifier: 'catalog:'
+        version: 4.13.13
 
   packages/json: {}
 
@@ -2476,6 +2491,10 @@ packages:
 
   hermes-parser@0.36.1:
     resolution: {integrity: sha512-GApNk4zLHi2UWoWZZkx7LNCOSzLSc5lB55pZ/PhK7ycFeg7u5LcF88p/WbpIi1XUDtE0MpHE3uRR3u3KB7TjSQ==}
+
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
+    engines: {node: '>=16.9.0'}
 
   hosted-git-info@7.0.2:
     resolution: {integrity: sha512-puUZAUKT5m8Zzvs72XWy3HtvVbTWljRE66cP60bxJzAqf2DgICo7lYTY2IHUmLnNpjYvw5bvmoHvPc0QO2a62w==}
@@ -6088,6 +6107,8 @@ snapshots:
   hermes-parser@0.36.1:
     dependencies:
       hermes-estree: 0.36.1
+
+  hono@4.13.13: {}
 
   hosted-git-info@7.0.2:
     dependencies:

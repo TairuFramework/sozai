@@ -1,7 +1,46 @@
+import { once } from 'node:events'
+import type { Server } from 'node:http'
+import { connect } from 'node:net'
+import { type LogRecord, reset, setup } from '@sozai/log'
 import getPort from 'get-port'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 
 import { createServer, definePlugin, type HTTPServer } from '../src/index.js'
+
+const nodeServers = vi.hoisted(() => [] as Array<Server>)
+
+vi.mock('@hono/node-server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hono/node-server')>()
+  return {
+    ...actual,
+    createAdaptorServer: (...args: Parameters<typeof actual.createAdaptorServer>) => {
+      const server = actual.createAdaptorServer(...args)
+      nodeServers.push(server as Server)
+      return server
+    },
+  }
+})
+
+function captureLogs(): Array<LogRecord> {
+  const records: Array<LogRecord> = []
+  setup({
+    sinks: {
+      memory: (record: LogRecord) => {
+        records.push(record)
+      },
+    },
+    loggers: [
+      { category: ['logtape', 'meta'], lowestLevel: 'error', sinks: [] },
+      { category: ['sozai'], lowestLevel: 'debug', sinks: ['memory'] },
+    ],
+  })
+  onTestFinished(() => reset())
+  return records
+}
+
+function findRecord(records: Array<LogRecord>, message: string): LogRecord | undefined {
+  return records.find((record) => record.rawMessage === message)
+}
 
 const servers: Array<HTTPServer> = []
 
@@ -88,17 +127,98 @@ describe('HTTPServer', () => {
     expect(next.url).toBe(`http://localhost:${port}`)
   })
 
-  test('setup failure runs the failing plugin hooks and rejects', async () => {
+  test('setup failure runs the failing plugin hooks and rejects naming the plugin', async () => {
+    const records = captureLogs()
     const spy = vi.fn()
+    const cause = new Error('nope')
     const failing = definePlugin({
       name: 'test:failing',
       setup(ctx) {
         ctx.onClose(spy)
-        throw new Error('nope')
+        throw cause
       },
     })
-    await expect(createServer({ plugins: [failing] })).rejects.toThrow('nope')
+    const error = await createServer({ plugins: [failing] }).catch((error: unknown) => error)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe('Plugin "test:failing" setup failed')
+    expect((error as Error).cause).toBe(cause)
     expect(spy).toHaveBeenCalledOnce()
+    expect(findRecord(records, 'Plugin setup failed')?.properties).toMatchObject({
+      plugin: 'test:failing',
+      error: cause,
+    })
+  })
+
+  test('plugin loggers tag records with the plugin name', async () => {
+    const records = captureLogs()
+    await create({
+      plugins: [
+        definePlugin({
+          name: 'test:logging',
+          setup(ctx) {
+            ctx.logger.info('hello from plugin')
+          },
+        }),
+      ],
+    })
+    expect(findRecord(records, 'hello from plugin')?.properties).toMatchObject({
+      plugin: 'test:logging',
+    })
+  })
+
+  test('server errors after listen are logged, not thrown', async () => {
+    const records = captureLogs()
+    const server = await create({ port: await getPort() })
+    await server.listen()
+    const nodeServer = nodeServers.at(-1)
+    const error = new Error('EMFILE')
+    expect(() => nodeServer?.emit('error', error)).not.toThrow()
+    expect(findRecord(records, 'HTTP server error')?.properties).toMatchObject({ error })
+  })
+
+  test('a concurrent listen call rejects without binding a second server', async () => {
+    const server = await create({ port: { port: await getPort() } })
+    const before = nodeServers.length
+    const first = server.listen()
+    const second = server.listen()
+    await expect(second).rejects.toThrow('Server is already listening')
+    await first
+    expect(nodeServers.length).toBe(before + 1)
+  })
+
+  test('shutdown closes connections holding a partial request', async () => {
+    const server = await create({ port: await getPort(), hostname: '127.0.0.1' })
+    await server.listen()
+    const socket = connect(Number(new URL(server.url).port), '127.0.0.1')
+    onTestFinished(() => {
+      socket.destroy()
+    })
+    await once(socket, 'connect')
+    socket.write('GET /hello HTTP/1.1\r\nHost: localhost\r\n')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const closed = once(socket, 'close')
+    await server.dispose()
+    const outcome = await Promise.race([
+      closed.then(() => 'closed'),
+      new Promise((resolve) => setTimeout(() => resolve('open'), 1000)),
+    ])
+    expect(outcome).toBe('closed')
+  })
+
+  test('an all route serves every method', async () => {
+    const server = await create({
+      plugins: [
+        definePlugin({
+          name: 'test:all',
+          setup(ctx) {
+            ctx.route('all', '/any', (c) => c.text(c.req.method))
+          },
+        }),
+      ],
+    })
+    expect(await (await server.app.request('/any')).text()).toBe('GET')
+    expect(await (await server.app.request('/any', { method: 'POST' })).text()).toBe('POST')
   })
 
   test('parent abort during setup waits for the running setup', async () => {

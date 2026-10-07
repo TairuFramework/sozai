@@ -74,6 +74,7 @@ export class HTTPServer extends Disposer {
   #setupInProgress: Promise<unknown> | undefined
   #app: Hono | undefined
   #server: Server | undefined
+  #listenStarted = false
   #url: string | undefined
   #responses = new Set<ServerResponse>()
   #onDrained: (() => void) | undefined
@@ -125,10 +126,12 @@ export class HTTPServer extends Disposer {
     if (this.signal.aborted) {
       throw new Error('Server is disposed')
     }
-    if (this.#server != null) {
+    if (this.#listenStarted) {
       throw new Error('Server is already listening')
     }
     const app = this.app
+    // Set before awaiting the port so a concurrent call cannot bind a second server.
+    this.#listenStarted = true
     const port =
       typeof this.#port === 'number'
         ? this.#port
@@ -181,6 +184,9 @@ export class HTTPServer extends Disposer {
       throw error
     }
 
+    server.on('error', (error) => {
+      this.#logger.error('HTTP server error', { error })
+    })
     const { port: boundPort } = server.address() as AddressInfo
     const host = this.#hostname ?? 'localhost'
     this.#url = `http://${host.includes(':') ? `[${host}]` : host}:${boundPort}`
@@ -217,7 +223,7 @@ export class HTTPServer extends Disposer {
       }
       const registrar = new PluginRegistrar({
         plugin: plugin.name,
-        logger: this.#logger,
+        logger: this.#logger.with({ plugin: plugin.name }),
         tracer: this.#tracer,
         signal: this.signal,
         exports,
@@ -231,6 +237,9 @@ export class HTTPServer extends Disposer {
       this.#setupInProgress = setup
       try {
         exports.set(plugin.name, await setup)
+      } catch (error) {
+        this.#logger.error('Plugin setup failed', { plugin: plugin.name, error })
+        throw new Error(`Plugin "${plugin.name}" setup failed`, { cause: error })
       } finally {
         this.#setupInProgress = undefined
         registrar.seal()
@@ -276,9 +285,10 @@ export class HTTPServer extends Disposer {
       this.#logger.warn('HTTP server grace period expired, closing open connections', {
         openResponses: this.#responses.size,
       })
-      server?.closeAllConnections()
     }
-    server?.closeIdleConnections()
+    // No tracked response remains, so any connection left is idle or holds a partial
+    // request that would otherwise keep the server open until it times out.
+    server?.closeAllConnections()
 
     const closeHooks = await runHooks(
       this.#registrars.toReversed().flatMap((registrar) => {

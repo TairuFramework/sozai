@@ -22,6 +22,10 @@
   dir: packages/http-server
   intents:
     - dry-melons-serve
+"@sozai/http-server@0.1.1":
+  dir: packages/http-server
+  intents:
+    - calm-deadline-shared
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:

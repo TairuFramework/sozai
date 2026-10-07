@@ -1,7 +1,7 @@
 import type { Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createAdaptorServer } from '@hono/node-server'
-import { Disposer, defer, onAbort, raceSignal, ScheduledTimeout } from '@sozai/async'
+import { Disposer, defer, onAbort, raceSignal, ScheduledTimeout, toPromise } from '@sozai/async'
 import { getSozaiLogger, type Logger } from '@sozai/log'
 import { createTracerFactory, type Tracer } from '@sozai/otel'
 import getPort, { type Options as GetPortOptions } from 'get-port'
@@ -173,10 +173,13 @@ export class HTTPServer extends Disposer {
       server.once('error', onError)
       server.once('close', onDisposed)
       unsubscribe = onAbort(this.signal, onDisposed)
-      server.listen(port, this.#hostname, () => {
-        cleanup()
-        bound.resolve()
-      })
+      // onAbort fires synchronously for an aborted signal: do not bind then.
+      if (!this.signal.aborted) {
+        server.listen(port, this.#hostname, () => {
+          cleanup()
+          bound.resolve()
+        })
+      }
       await bound.promise
     } catch (error) {
       if (!this.signal.aborted) {
@@ -234,7 +237,7 @@ export class HTTPServer extends Disposer {
         trustMatcher: this.#trustMatcher,
       })
       this.#registrars.push(registrar)
-      const setup = Promise.resolve().then(() => plugin.setup(registrar.context))
+      const setup = toPromise(() => plugin.setup(registrar.context))
       this.#setupInProgress = setup
       try {
         exports.set(plugin.name, await setup)
@@ -266,17 +269,17 @@ export class HTTPServer extends Disposer {
     await this.#setupInProgress?.catch(() => {})
 
     // One grace deadline shared by the shutdown hooks and the drain wait.
-    const deadline = new ScheduledTimeout({ delay: this.#graceMs })
+    const deadlineAt = performance.now() + this.#graceMs
+    const remaining = () => Math.max(0, deadlineAt - performance.now())
+    const deadline = new ScheduledTimeout({ delay: remaining() })
     try {
-      await this.#runShutdown(deadline)
+      await this.#runShutdown(deadline.signal, remaining)
     } finally {
       deadline.cancel()
     }
   }
 
-  async #runShutdown(deadline: ScheduledTimeout): Promise<void> {
-    const deadlineAt = performance.now() + this.#graceMs
-    const remaining = () => Math.max(0, deadlineAt - performance.now())
+  async #runShutdown(deadline: AbortSignal, remaining: () => number): Promise<void> {
     const server = this.#server
     server?.close()
 
@@ -291,7 +294,7 @@ export class HTTPServer extends Disposer {
     )
 
     let forced = false
-    if (!(await this.#waitForDrain(deadline.signal))) {
+    if (!(await this.#waitForDrain(deadline))) {
       forced = true
       this.#logger.warn('HTTP server grace period expired, closing open connections', {
         openResponses: this.#responses.size,

@@ -1,7 +1,7 @@
 import getPort from 'get-port'
 import type { SSEStreamingApi } from 'hono/streaming'
 import { streamSSE } from 'hono/streaming'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import {
   type CreateServerParams,
@@ -205,6 +205,47 @@ describe('graceful shutdown', () => {
       { plugin: 'app', phase: 'close', outcome: 'timed-out' },
       { plugin: 'db', phase: 'close', outcome: 'completed' },
     ])
+  })
+
+  test('a hook rejecting after its timeout is logged without an unhandled rejection', async () => {
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const lateError = new Error('late failure')
+      const logger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        with: () => logger,
+      }
+      const server = await createServer({
+        logger: logger as unknown as CreateServerParams['logger'],
+        plugins: [
+          definePlugin({
+            name: 'test:late',
+            setup(ctx) {
+              ctx.onClose(
+                () => new Promise<void>((_, reject) => setTimeout(() => reject(lateError), 60)),
+                { timeoutMs: 10 },
+              )
+            },
+          }),
+        ],
+      })
+      await server.dispose()
+      expect(server.shutdownReport?.hooks).toEqual([
+        { plugin: 'test:late', phase: 'close', outcome: 'timed-out' },
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      expect(logger.error).toHaveBeenCalledWith('Shutdown hook failed after timing out', {
+        plugin: 'test:late',
+        phase: 'close',
+        error: lateError,
+      })
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
   })
 
   test('a failing hook is reported and later hooks still run', async () => {

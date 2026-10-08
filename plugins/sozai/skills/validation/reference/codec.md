@@ -4,6 +4,8 @@
 
 | Export | Kind | Description |
 |---|---|---|
+| `toB32` | function | Encode `Uint8Array` to RFC 4648 Base32 (lowercase, unpadded) |
+| `fromB32` | function | Decode lowercase, unpadded Base32 to `Uint8Array` (strict by default) |
 | `toB64` | function | Encode `Uint8Array` to standard Base64 (padded) |
 | `fromB64` | function | Decode standard Base64 to `Uint8Array` |
 | `toB64U` | function | Encode `Uint8Array` to URL-safe Base64 (no padding) |
@@ -20,6 +22,7 @@
 
 ```typescript
 import {
+  toB32, fromB32,
   toB64, fromB64, toB64U, fromB64U,
   fromUTF, toUTF, b64uFromUTF, b64uToUTF,
   b64uFromJSON, b64uToJSON, canonicalStringify,
@@ -28,6 +31,9 @@ import {
 // --- Base64 round-trips ---
 
 const bytes = new Uint8Array([104, 101, 108, 108, 111]) // "hello"
+
+const base32 = toB32(bytes)    // "nbswy3dp" (lowercase, unpadded)
+fromB32(base32)                // Uint8Array([104, 101, 108, 108, 111])
 
 const std = toB64(bytes)       // "aGVsbG8="   (padded)
 fromB64(std)                   // Uint8Array([104, 101, 108, 108, 111])
@@ -63,6 +69,11 @@ canonicalStringify(a) === canonicalStringify(b) // true — keys sorted
 
 ## Example: decode error paths
 
+`fromB32` accepts lowercase, unpadded RFC 4648 input only. Callers wanting case-insensitive input must lowercase it first.
+Uppercase, padding, whitespace, invalid characters and impossible lengths throw `Error('Invalid base32 encoding')` in both modes.
+Non-zero unused bits throw the same error by default. `{ strict: false }` ignores those bits.
+For example, `fromB32('mz', { strict: false })` decodes to the bytes of `f`, whose canonical encoding is `my`.
+
 `fromB64` trims surrounding whitespace before validating (base64 routinely arrives from files or env vars with a
 trailing newline), but throws on embedded whitespace or an invalid alphabet/padding. `fromB64U` does **not**
 trim — its input is JWT segments off the wire, where whitespace is always corruption — but it accepts padded
@@ -78,23 +89,10 @@ import { fromB64, fromB64U, toUTF } from '@sozai/codec'
 fromB64('aGVsbG8=\n')     // OK — trailing newline trimmed before validation
 fromB64U('aGVsbG8=')      // OK — fromB64U tolerates padding for older tokens
 
-try {
-  fromB64('aGVs bG8=')    // embedded whitespace is rejected
-} catch (err) {
-  console.log((err as Error).message) // 'Invalid base64 encoding'
-}
-
-try {
-  fromB64U('aGVsbG8 ')    // trailing whitespace is NOT trimmed here
-} catch (err) {
-  console.log((err as Error).message) // 'Invalid base64url encoding'
-}
-
-try {
-  toUTF(new Uint8Array([0xff])) // not valid UTF-8
-} catch (err) {
-  console.log(err instanceof TypeError) // true
-}
+// Each call below throws independently:
+fromB64('aGVs bG8=')           // Error('Invalid base64 encoding'): embedded whitespace
+fromB64U('aGVsbG8 ')           // Error('Invalid base64url encoding'): trailing whitespace
+toUTF(new Uint8Array([0xff]))  // TypeError: invalid UTF-8
 ```
 
 ## Example: canonicalStringify error paths

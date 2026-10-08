@@ -60,13 +60,13 @@ const B64_STRICT_RE =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw](?:==)?|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=?)?$/
 
 /**
- * Options for the base64 and base64url decoders.
+ * Options for the base64, base64url and base32 decoders.
  */
 export type DecodeOptions = {
   /**
-   * Reject encodings whose final chunk has non-zero unused bits. Defaults to `true`.
+   * Reject non-zero unused bits in base64, base64url and base32 decoders. Defaults to `true`.
    *
-   * Set to `false` to accept the historical lenient decode, where up to 16 distinct strings
+   * Set to `false` to accept lenient decoding, where up to 16 distinct strings
    * decode to the same bytes. Only do so for input whose exact encoding is already immaterial
    * — never where the encoded string itself is treated as an identity.
    */
@@ -166,6 +166,70 @@ export function toB64U(bytes: Uint8Array): string {
   return toB64(bytes)
     .replace(/=+$/, '')
     .replace(/[+/]/g, (m) => (m === '+' ? '-' : '_'))
+}
+
+const B32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'
+
+/**
+ * Convert a Uint8Array to a lowercase, unpadded base32-encoded string (RFC 4648 §6).
+ *
+ * Output uses the alphabet `abcdefghijklmnopqrstuvwxyz234567` and carries no `=` padding.
+ */
+export function toB32(bytes: Uint8Array): string {
+  let buffer = 0
+  let bits = 0
+  let encoded = ''
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      bits -= 5
+      encoded += B32_ALPHABET[(buffer >>> bits) & 31]
+    }
+    buffer &= (1 << bits) - 1
+  }
+  if (bits > 0) {
+    encoded += B32_ALPHABET[buffer << (5 - bits)]
+  }
+  return encoded
+}
+
+/**
+ * Convert a lowercase, unpadded base32-encoded string (RFC 4648 §6) to a Uint8Array.
+ *
+ * Uppercase, padding, whitespace and characters outside `abcdefghijklmnopqrstuvwxyz234567`
+ * throw `Error('Invalid base32 encoding')`. Input is not trimmed.
+ * Callers wanting case-insensitive input must lowercase it first.
+ *
+ * Impossible unpadded lengths throw the same error in both modes.
+ * Non-zero unused bits throw unless `strict` is disabled. Empty input decodes to empty bytes.
+ */
+export function fromB32(base32: string, options: DecodeOptions = {}): Uint8Array {
+  const remainder = base32.length % 8
+  if (remainder === 1 || remainder === 3 || remainder === 6) {
+    throw new Error('Invalid base32 encoding')
+  }
+  const bytes = new Uint8Array(Math.floor((base32.length * 5) / 8))
+  let buffer = 0
+  let bits = 0
+  let offset = 0
+  for (const character of base32) {
+    const value = B32_ALPHABET.indexOf(character)
+    if (value === -1) {
+      throw new Error('Invalid base32 encoding')
+    }
+    buffer = (buffer << 5) | value
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      bytes[offset++] = buffer >>> bits
+      buffer &= (1 << bits) - 1
+    }
+  }
+  if (options.strict !== false && buffer !== 0) {
+    throw new Error('Invalid base32 encoding')
+  }
+  return bytes
 }
 
 const encoder = new TextEncoder()

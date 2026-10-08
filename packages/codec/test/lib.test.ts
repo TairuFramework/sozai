@@ -7,15 +7,92 @@ import {
   b64uToJSON,
   b64uToUTF,
   canonicalStringify,
+  fromB32,
   fromB64,
   fromB64atob,
   fromB64U,
   fromB64Uatob,
   fromUTF,
+  toB32,
   toB64,
   toB64U,
   toUTF,
 } from '../src/index.js'
+
+describe('toB32() / fromB32()', () => {
+  test('matches the lowercase unpadded RFC 4648 vectors', () => {
+    for (const [text, encoded] of [
+      ['', ''],
+      ['f', 'my'],
+      ['fo', 'mzxq'],
+      ['foo', 'mzxw6'],
+      ['foob', 'mzxw6yq'],
+      ['fooba', 'mzxw6ytb'],
+      ['foobar', 'mzxw6ytboi'],
+    ] as const) {
+      const bytes = fromUTF(text)
+      expect(toB32(bytes)).toBe(encoded)
+      expect(fromB32(encoded)).toEqual(bytes)
+    }
+  })
+
+  test('round-trips random byte arrays of lengths 0 through 40', () => {
+    for (let length = 0; length <= 40; length++) {
+      const bytes = crypto.getRandomValues(new Uint8Array(length))
+      const encoded = toB32(bytes)
+      expect(encoded).toMatch(/^[a-z2-7]*$/)
+      expect(encoded.length).toBe(Math.ceil((length * 8) / 5))
+      expect(equals(fromB32(encoded), bytes)).toBe(true)
+    }
+  })
+
+  test('rejects invalid characters in both modes without trimming', () => {
+    for (const encoded of [
+      'MZXQ',
+      'my======',
+      ' my',
+      'my ',
+      'm y',
+      'my\n',
+      '\tmy',
+      ' ',
+      'm1',
+      'm0',
+      'm8',
+      'm!',
+      'mé',
+    ]) {
+      expect(() => fromB32(encoded)).toThrow(new Error('Invalid base32 encoding'))
+      expect(() => fromB32(encoded, { strict: false })).toThrow(
+        new Error('Invalid base32 encoding'),
+      )
+    }
+  })
+
+  test('rejects impossible unpadded lengths in both modes', () => {
+    for (const encoded of ['m', 'mzx', 'mzxw6y', 'aaaaaaaaa', 'aaaaaaaaaaa', 'aaaaaaaaaaaaaa']) {
+      expect(() => fromB32(encoded)).toThrow(new Error('Invalid base32 encoding'))
+      expect(() => fromB32(encoded, { strict: false })).toThrow(
+        new Error('Invalid base32 encoding'),
+      )
+    }
+  })
+
+  test('rejects non-zero unused bits by default and in explicit strict mode', () => {
+    for (const encoded of ['mz', 'mzxr', 'mzxw7', 'mzxw6yr', 'mzxw6ytboj']) {
+      expect(() => fromB32(encoded)).toThrow(new Error('Invalid base32 encoding'))
+      expect(() => fromB32(encoded, { strict: true })).toThrow(new Error('Invalid base32 encoding'))
+    }
+  })
+
+  test('ignores non-zero unused bits when strict is false', () => {
+    expect(fromB32('mz', { strict: false })).toEqual(fromUTF('f'))
+    expect(fromB32('mzxr', { strict: false })).toEqual(fromUTF('fo'))
+    expect(fromB32('mzxw7', { strict: false })).toEqual(fromUTF('foo'))
+    expect(fromB32('mzxw6yr', { strict: false })).toEqual(fromUTF('foob'))
+    expect(fromB32('mzxw6ytboj', { strict: false })).toEqual(fromUTF('foobar'))
+  })
+})
 
 test('bytes to base64 encoding and decoding', () => {
   const bytes = new Uint8Array([1, 2, 3])

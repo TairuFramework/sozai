@@ -1,5 +1,11 @@
 # @sozai/event
 
+## 0.1.6
+
+### Patch Changes
+
+- `EventEmitter.listenerCount(name)` returns how many listeners an event has, so a producer can skip building a payload nobody will receive. It is also part of the `EventsSink` type.
+
 ## 0.1.5
 
 ### Patch Changes

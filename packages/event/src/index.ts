@@ -55,6 +55,7 @@ export type EventsSource<Events extends Record<string, unknown>> = {
  * emit events but must not subscribe to them.
  */
 export type EventsSink<Events extends Record<string, unknown>> = {
+  listenerCount<Name extends keyof Events>(name: Name): number
   emit<Name extends DatalessEventNames<Events>>(name: Name): Promise<void>
   emit<Name extends keyof Events>(name: Name, data: Events[Name]): Promise<void>
   fire<Name extends DatalessEventNames<Events>>(name: Name): void
@@ -70,6 +71,13 @@ export class EventEmitter<Events extends Record<string, unknown>>
 
   constructor(options?: EventEmitterOptions) {
     this.#logger = options?.logger
+  }
+
+  /**
+   * Returns the number of listeners for an event; use it to skip building payloads nobody needs.
+   */
+  listenerCount<Name extends keyof Events>(name: Name): number {
+    return this.#listeners.get(name)?.size ?? 0
   }
 
   on<Name extends keyof Events>(

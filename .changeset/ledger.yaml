@@ -10,6 +10,10 @@
   dir: packages/codec
   intents:
     - codec-strict-base64
+"@sozai/event@0.1.6":
+  dir: packages/event
+  intents:
+    - event-listener-count
 "@sozai/flow-graph@0.2.0":
   dir: packages/flow-graph
   intents:

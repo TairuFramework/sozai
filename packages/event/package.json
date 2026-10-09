@@ -1,6 +1,6 @@
 {
   "name": "@sozai/event",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Simple events emitter",
   "keywords": [
     "event",

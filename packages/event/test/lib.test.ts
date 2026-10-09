@@ -5,6 +5,29 @@ import type { EventsSink, EventsSource } from '../src/index.js'
 import { EventEmitter } from '../src/index.js'
 
 describe('EventEmitter', () => {
+  test('listenerCount() returns the number of registered listeners', () => {
+    const emitter = new EventEmitter<{ test: number }>()
+    const listener = () => {}
+
+    expect(emitter.listenerCount('test')).toBe(0)
+    const offFirst = emitter.on('test', listener)
+    const offSecond = emitter.on('test', listener)
+    expect(emitter.listenerCount('test')).toBe(2)
+
+    offFirst()
+    offFirst()
+    expect(emitter.listenerCount('test')).toBe(1)
+    offSecond()
+    expect(emitter.listenerCount('test')).toBe(0)
+  })
+
+  test('listenerCount() includes filtered listeners regardless of their filter', () => {
+    const emitter = new EventEmitter<{ test: number }>()
+    emitter.on('test', () => {}, { filter: () => false })
+
+    expect(emitter.listenerCount('test')).toBe(1)
+  })
+
   test('events can be listened to using a filter', async () => {
     const emitter = new EventEmitter<{ test: number }>()
     const items: Array<number> = []
@@ -231,6 +254,37 @@ describe('EventEmitter', () => {
 
     await emitter.emit('test', 1)
     expect(received).toEqual([])
+    expect(emitter.listenerCount('test')).toBe(0)
+  })
+
+  test('listenerCount() tracks on() listeners removed by abort signals', () => {
+    const emitter = new EventEmitter<{ test: number }>()
+    const controller = new AbortController()
+
+    emitter.on('test', () => {}, { signal: controller.signal })
+    expect(emitter.listenerCount('test')).toBe(1)
+    controller.abort()
+    expect(emitter.listenerCount('test')).toBe(0)
+  })
+
+  test('listenerCount() tracks once() listeners until resolve or abort', async () => {
+    const emitter = new EventEmitter<{ test: number }>()
+    const promise = emitter.once('test')
+    expect(emitter.listenerCount('test')).toBe(1)
+    await emitter.emit('test', 1)
+    await promise
+    expect(emitter.listenerCount('test')).toBe(0)
+
+    const controller = new AbortController()
+    const abortedPromise = emitter.once('test', { signal: controller.signal })
+    expect(emitter.listenerCount('test')).toBe(1)
+    controller.abort()
+    await expect(abortedPromise).rejects.toThrow()
+    expect(emitter.listenerCount('test')).toBe(0)
+
+    const preAbortedPromise = emitter.once('test', { signal: AbortSignal.abort() })
+    await expect(preAbortedPromise).rejects.toThrow()
+    expect(emitter.listenerCount('test')).toBe(0)
   })
 
   test('once() rejects when aborted via signal', async () => {
@@ -257,6 +311,21 @@ describe('EventEmitter', () => {
 
       const result = await reader.read()
       expect(result).toEqual({ done: true, value: undefined })
+      expect(emitter.listenerCount('test')).toBe(0)
+    })
+
+    test('listenerCount() tracks readable() listeners until cancel or abort', async () => {
+      const emitter = new EventEmitter<{ test: number }>()
+      const reader = emitter.readable('test').getReader()
+      expect(emitter.listenerCount('test')).toBe(1)
+      await reader.cancel()
+      expect(emitter.listenerCount('test')).toBe(0)
+
+      const controller = new AbortController()
+      emitter.readable('test', { signal: controller.signal })
+      expect(emitter.listenerCount('test')).toBe(1)
+      controller.abort()
+      expect(emitter.listenerCount('test')).toBe(0)
     })
 
     test('events can be listened to using a readable stream', async () => {
@@ -467,6 +536,8 @@ describe('EventEmitter', () => {
     source.on('msg', () => {})
     void source.once('msg')
     source.readable('msg')
+    // @ts-expect-error - listenerCount is not on EventsSource
+    source.listenerCount('msg')
     // @ts-expect-error - emit is not on EventsSource
     source.emit('msg', 'x')
     // @ts-expect-error - fire is not on EventsSource
@@ -480,6 +551,7 @@ describe('EventEmitter', () => {
     sink.fire('msg', 'x')
     sink.fire('ping')
     sink.writable('msg')
+    expect(sink.listenerCount('msg')).toBe(2)
     // @ts-expect-error - on is not on EventsSink
     sink.on('msg', () => {})
     // @ts-expect-error - once is not on EventsSink

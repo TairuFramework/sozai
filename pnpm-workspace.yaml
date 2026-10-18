@@ -19,16 +19,16 @@ publicHoistPattern:
 catalog:
   '@noble/hashes': ^2.0.1
   '@kigu/dev': ^0.3.2
-  '@hono/node-server': ^2.1.4
+  '@hono/node-server': ^2.1.5
   '@hono/otel': ^1.2.0
-  '@logtape/logtape': ^2.4.0
+  '@logtape/logtape': ^2.4.1
   '@opentelemetry/api': ^1.9.1
   '@opentelemetry/api-logs': ^0.223.0
   '@opentelemetry/sdk-trace-base': ^2.12.0
   '@standard-schema/spec': ^1.1.0
   ajv: ^8.20.0
   ajv-formats: ^3.0.1
-  expo-crypto: ^57.0.3
+  expo-crypto: ^58.0.7
   get-port: ^7.2.0
   hono: ^4.13.13
   json-schema-to-ts: ^3.1.1

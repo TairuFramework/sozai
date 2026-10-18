@@ -1,4 +1,4 @@
-import type { Context, SpanOptions, Tracer } from '@opentelemetry/api'
+import type { Context, SpanOptions, Tracer, TracerOptions } from '@opentelemetry/api'
 import { context, propagation, type Span, SpanStatusCode, trace } from '@opentelemetry/api'
 
 import { type BaggageEntry, baggageToEntries, entriesToBaggage } from './baggage.js'
@@ -10,9 +10,19 @@ import { isValidSpanContext } from './span-context.js'
  * `version` is the *consumer's* version, not this package's: the instrumentation-scope
  * version means the version of the instrumentation library, and `prefix.name` identifies
  * the consumer. Optional — `undefined` is a legal scope version.
+ *
+ * `options` is OTel's `TracerOptions`, so `schemaUrl` keeps the OTel API spelling. It is
+ * forwarded through the provider because `trace.getTracer` drops `options` in
+ * `@opentelemetry/api` 1.9.x.
  */
-export function createTracerFactory(prefix: string, version?: string): (name: string) => Tracer {
-  return (name: string): Tracer => trace.getTracer(`${prefix}.${name}`, version)
+export function createTracerFactory(
+  prefix: string,
+  version?: string,
+  options?: TracerOptions,
+): (name: string) => Tracer {
+  return (name: string): Tracer => {
+    return trace.getTracerProvider().getTracer(`${prefix}.${name}`, version, options)
+  }
 }
 
 export type TraceContext = {

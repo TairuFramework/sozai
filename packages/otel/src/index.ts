@@ -1,11 +1,14 @@
 // Re-export commonly used OTel types so consuming packages don't need @opentelemetry/api directly
 export {
   type Context,
+  type Meter,
+  type MeterOptions,
   type Span,
   type SpanOptions,
   SpanStatusCode,
   TraceFlags,
   type Tracer,
+  type TracerOptions,
 } from '@opentelemetry/api'
 
 export {
@@ -24,6 +27,7 @@ export {
 } from './context.js'
 export { createOTelLogSink } from './log-sink.js'
 export { traceLogger } from './logger.js'
+export { createMeterFactory } from './meters.js'
 export { AttributeKeys, ZERO_TRACE_ID } from './semantic.js'
 export { isValidSpanID, isValidTraceID } from './span-context.js'
 export { formatTraceparent, parseTraceparent, type TraceparentData } from './traceparent.js'

@@ -29,6 +29,20 @@ describe('createTracerFactory', () => {
     expect(typeof tracer.startSpan).toBe('function')
     expect(typeof tracer.startActiveSpan).toBe('function')
   })
+
+  test('forwards version and schemaUrl through the global TracerProvider', () => {
+    const noop = trace.getTracer('unused')
+    const getTracer = vi.fn(() => noop)
+    trace.setGlobalTracerProvider({ getTracer })
+    try {
+      createTracerFactory('sozai', '1.2.3', { schemaUrl: 'https://example.test/schema' })('mod')
+      expect(getTracer).toHaveBeenCalledWith('sozai.mod', '1.2.3', {
+        schemaUrl: 'https://example.test/schema',
+      })
+    } finally {
+      trace.disable()
+    }
+  })
 })
 
 describe('getActiveTraceContext', () => {
@@ -182,16 +196,6 @@ describe('createTracerFactory version', () => {
     const tracer = createTracerFactory('enkaku')('client')
     expect(tracer).toBeDefined()
     expect(typeof tracer.startSpan).toBe('function')
-  })
-
-  test('forwards the version through to trace.getTracer', () => {
-    const spy = vi.spyOn(trace, 'getTracer')
-    try {
-      createTracerFactory('enkaku', '1.2.3')('client')
-      expect(spy).toHaveBeenCalledWith('enkaku.client', '1.2.3')
-    } finally {
-      spy.mockRestore()
-    }
   })
 })
 

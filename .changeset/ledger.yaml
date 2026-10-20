@@ -6,6 +6,10 @@
   dir: packages/async
   intents:
     - famous-tigers-rule
+"@sozai/async@0.4.1":
+  dir: packages/async
+  intents:
+    - curly-ducks-poke
 "@sozai/codec@0.4.0":
   dir: packages/codec
   intents:

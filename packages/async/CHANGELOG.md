@@ -1,5 +1,11 @@
 # @sozai/async
 
+## 0.4.1
+
+### Patch Changes
+
+- Add mapConcurrent, firstInOrder and prefetchOrdered: bounded-concurrency helpers with fail-fast abort, hedged in-order failover and ordered windowed prefetch.
+
 ## 0.4.0
 
 ### Minor Changes

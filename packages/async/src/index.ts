@@ -10,6 +10,7 @@
  * @module async
  */
 
+export * from './concurrent.js'
 export * from './defer.js'
 export * from './disposer.js'
 export * from './interruptions.js'

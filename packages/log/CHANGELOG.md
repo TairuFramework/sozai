@@ -39,7 +39,6 @@
 - 9c0a867: W3C Trace Context compliance.
 
   **Breaking (`@sozai/otel`):**
-
   - `injectTraceContext` and `extractTraceContext` are **removed**. The custom `tid`/`sid`
     header contract was a second, unvalidated encoding of the same three values the W3C
     path already carries: it skipped ID validation entirely and hardcoded
@@ -58,7 +57,6 @@
     identifies the consumer.
 
   **Fixes (`@sozai/otel`):**
-
   - All-zero trace IDs and span IDs are rejected on both parse and format. They previously
     became remote `SpanContext`s that SDKs parented real spans to.
   - `parseTraceparent` rejects version `ff` and parses the first four fields of a higher

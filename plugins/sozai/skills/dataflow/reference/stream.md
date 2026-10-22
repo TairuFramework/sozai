@@ -4,20 +4,20 @@ Web Streams utilities for building composable data pipelines.
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `createReadable` | function | Create a `ReadableStream` and its `ReadableStreamDefaultController` |
-| `createPipe` | function | Create a `ReadableWritablePair` that queues written values until read; accepts `{ highWaterMark }` to bound buffering |
-| `createConnection` | function | Create a pair of `ReadableWritablePair`s connected to each other, one per direction |
-| `writeTo` | function | Build a `WritableStream` from `write`/`close`/`abort` sink callbacks |
-| `createArraySink` | function | Collect all stream chunks into an array; returns `[WritableStream, Promise<Array<T>>]` |
-| `transform` | function | Create a `TransformStream` from a transform function |
-| `map` | function | Synchronous value-mapping transform |
-| `mapAsync` | function | Async value-mapping transform |
-| `tap` | function | Side-effect transform (inspect without changing values) |
-| `toJSONLines` | function | Encode objects as newline-delimited JSON (NDJSON) |
-| `fromJSONLines` | function | Decode newline-delimited JSON chunks into typed objects |
-| `JSONLinesError` | class | Thrown when NDJSON framing exceeds a configured size limit, or a value can't be stringified for encoding — decode failures instead go through `onInvalidJSON` (default: a console warning, not a throw) |
+| Export             | Kind     | Description                                                                                                                                                                                             |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createReadable`   | function | Create a `ReadableStream` and its `ReadableStreamDefaultController`                                                                                                                                     |
+| `createPipe`       | function | Create a `ReadableWritablePair` that queues written values until read; accepts `{ highWaterMark }` to bound buffering                                                                                   |
+| `createConnection` | function | Create a pair of `ReadableWritablePair`s connected to each other, one per direction                                                                                                                     |
+| `writeTo`          | function | Build a `WritableStream` from `write`/`close`/`abort` sink callbacks                                                                                                                                    |
+| `createArraySink`  | function | Collect all stream chunks into an array; returns `[WritableStream, Promise<Array<T>>]`                                                                                                                  |
+| `transform`        | function | Create a `TransformStream` from a transform function                                                                                                                                                    |
+| `map`              | function | Synchronous value-mapping transform                                                                                                                                                                     |
+| `mapAsync`         | function | Async value-mapping transform                                                                                                                                                                           |
+| `tap`              | function | Side-effect transform (inspect without changing values)                                                                                                                                                 |
+| `toJSONLines`      | function | Encode objects as newline-delimited JSON (NDJSON)                                                                                                                                                       |
+| `fromJSONLines`    | function | Decode newline-delimited JSON chunks into typed objects                                                                                                                                                 |
+| `JSONLinesError`   | class    | Thrown when NDJSON framing exceeds a configured size limit, or a value can't be stringified for encoding — decode failures instead go through `onInvalidJSON` (default: a console warning, not a throw) |
 
 ## Example: transformation pipeline
 

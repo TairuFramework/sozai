@@ -26,6 +26,10 @@
   dir: packages/flow-graph
   intents:
     - angry-insects-dress
+"@sozai/flow-graph@0.3.0":
+  dir: packages/flow-graph
+  intents:
+    - real-olives-sell
 "@sozai/http-server@0.1.0":
   dir: packages/http-server
   intents:
@@ -34,6 +38,10 @@
   dir: packages/http-server
   intents:
     - calm-deadline-shared
+"@sozai/http-server@0.2.0":
+  dir: packages/http-server
+  intents:
+    - real-olives-sell
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:
@@ -58,6 +66,10 @@
   dir: packages/otel
   intents:
     - spicy-spoons-draw
+"@sozai/otel@0.4.0":
+  dir: packages/otel
+  intents:
+    - quick-beans-heal
 "@sozai/schema@0.1.3":
   dir: packages/schema
   intents:

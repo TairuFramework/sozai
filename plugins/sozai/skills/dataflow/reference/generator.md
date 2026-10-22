@@ -4,11 +4,11 @@ Utilities that bridge `EventEmitter` instances and `ReadableStream`s into typed 
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `consume` | function | Drive an `AsyncIterator<T>` to completion, calling a callback for each value; respects `AbortSignal` — calls `iterator.return()` and rejects on abort; returns `Promise<TReturn>` resolving to the iterator's return value |
-| `fromEmitter` | function | Return an `AsyncGenerator` that yields events from an `EventEmitter` channel; supports `filter` and `AbortSignal`. Implements `Symbol.asyncDispose` |
-| `fromStream` | function | Return an `AsyncGenerator` that yields chunks from a `ReadableStream`; cancels the stream on early exit (`return()`/`break`) unless `preventCancel` is set |
+| Export        | Kind     | Description                                                                                                                                                                                                                |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consume`     | function | Drive an `AsyncIterator<T>` to completion, calling a callback for each value; respects `AbortSignal` — calls `iterator.return()` and rejects on abort; returns `Promise<TReturn>` resolving to the iterator's return value |
+| `fromEmitter` | function | Return an `AsyncGenerator` that yields events from an `EventEmitter` channel; supports `filter` and `AbortSignal`. Implements `Symbol.asyncDispose`                                                                        |
+| `fromStream`  | function | Return an `AsyncGenerator` that yields chunks from a `ReadableStream`; cancels the stream on early exit (`return()`/`break`) unless `preventCancel` is set                                                                 |
 
 `fromEmitter` defines `[Symbol.asyncDispose]` on its returned object, calling `stop()` directly;
 `fromStream`, a native `async function*`, inherits `[Symbol.asyncDispose]` from the async-generator
@@ -36,15 +36,11 @@ const ticks = fromEmitter(emitter, 'tick', {
 })
 
 // Kick off the consumer in the background
-const done = consume(
-  ticks,
-  (n) => console.log('even tick:', n),
-  controller.signal,
-)
+const done = consume(ticks, (n) => console.log('even tick:', n), controller.signal)
 
-await emitter.emit('tick', 1)  // filtered out
-await emitter.emit('tick', 2)  // logs 'even tick: 2'
-await emitter.emit('tick', 4)  // logs 'even tick: 4'
+await emitter.emit('tick', 1) // filtered out
+await emitter.emit('tick', 2) // logs 'even tick: 2'
+await emitter.emit('tick', 4) // logs 'even tick: 4'
 
 controller.abort()
 await done.catch(() => {}) // resolves once iterator is cleaned up

@@ -14,7 +14,7 @@ same audit found.
 
 ## The central design decision
 
-The audit asked to *patch* the custom `tid`/`sid` propagation path — add a flags field, validate the
+The audit asked to _patch_ the custom `tid`/`sid` propagation path — add a flags field, validate the
 IDs. We **deleted it instead**.
 
 That path was a second, unvalidated encoding of the same three values (trace ID, span ID, flags) the
@@ -44,7 +44,7 @@ package. Any future change that adds a validation check elsewhere is regressing 
 - `formatTraceparent` returns `string | undefined` rather than emitting a structurally invalid header.
   Out-of-range flags are **rejected, not masked** — the audit suggested `& 0xff`, but that turns `256`
   into `00` and silently flips a sampled trace to unsampled.
-- `createTracerFactory(prefix, version?)` takes the *consuming* package's version. The old hardcoded
+- `createTracerFactory(prefix, version?)` takes the _consuming_ package's version. The old hardcoded
   `OTEL_PACKAGE_VERSION = '0.1.0'` was not merely stale but semantically wrong: the tracer name
   identifies the consumer, and OTel's instrumentation-scope version means the version of the
   instrumentation library — the consumer's, not ours.
@@ -56,10 +56,10 @@ package. Any future change that adds a validation check elsewhere is regressing 
 - `parseTraceparent` rejects version `ff`; parses the first four fields of a higher version and
   ignores trailing content, per the spec's forward-compatibility rule. Version `00` must carry
   exactly four fields.
-- `formatTracestate` drops duplicate keys (matching `parseTracestate`), and dedupes *before* applying
+- `formatTracestate` drops duplicate keys (matching `parseTracestate`), and dedupes _before_ applying
   the 32-entry cap so duplicates cannot consume cap budget.
 - Tracestate is truncated to 512 characters by dropping whole members from the end, on **both** the
-  extract and inject paths. Previously an over-512 header was dropped *entirely* — OTel's
+  extract and inject paths. Previously an over-512 header was dropped _entirely_ — OTel's
   `TraceStateImpl._parse` returns early past `MAX_TRACE_STATE_LEN`, leaving an empty map.
 - Successful spans are left `Unset` rather than set to `Ok`, per OTel guidance (both `withSpan` and
   `withSyncSpan`). OTel reserves `Ok` for an explicit application override.
@@ -74,16 +74,15 @@ package. Any future change that adds a validation check elsewhere is regressing 
 ## Bugs found that the audit missed
 
 Three defects surfaced during implementation and review that were not in the original audit:
-
 1. **The log sink silently dropped records.** `JSON.stringify` throws on `BigInt` and on circular
    structures, and logtape catches sink exceptions and meta-logs — so `` logger.info`req ${req}` ``
    with any back-referencing object (a request, a socket, a linked node) lost the record entirely.
    The renderer is now total, verified against 28 adversarial inputs (Proxy traps, revoked proxies,
    throwing `toString`/`toJSON`/`Symbol.toPrimitive`, null-prototype circulars, 200k-deep nesting).
 2. **Tracestate over 512 chars was dropped rather than truncated** — and after the first fix, still
-   was, on the *write* path. `TraceStateImpl.set()` does not enforce the length limit (only `_parse`
+   was, on the _write_ path. `TraceStateImpl.set()` does not enforce the length limit (only `_parse`
    does), so a vendor `set()` on a near-limit inbound tracestate produced an over-length header that
-   the *next* hop dropped in full.
+   the _next_ hop dropped in full.
 3. **`src/logger.ts` retained its own `=== ZERO_TRACE_ID` check**, so `traceLogger` and
    `getActiveTraceContext` disagreed on what a valid trace ID was — falsifying the branch's central
    invariant. No task's brief covered that file, so no per-task review could see it; only the

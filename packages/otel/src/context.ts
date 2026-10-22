@@ -36,10 +36,10 @@ export function injectW3CTraceContext<T extends Record<string, unknown>>(
     return meta
   }
   const serializedTraceState = spanContext.traceState?.serialize()
-  // Re-cap on the way out: OTel's TraceStateImpl.set() does NOT enforce the 512-char limit
-  // (only _parse does), so a vendor .set() can push a capped-on-input tracestate back over
-  // it. An over-length header isn't clipped downstream — the next hop's createTraceState
-  // drops it entirely.
+  // Re-cap on the way out: `TraceState` is an interface, and only OTel's own TraceStateImpl
+  // (since `@opentelemetry/api` 1.10) enforces the 512-char limit in set(). A foreign
+  // implementation can serialize past it, and an over-length header isn't clipped
+  // downstream — the next hop's createTraceState drops it entirely.
   const tracestate = serializedTraceState
     ? formatTracestate(parseTracestate(serializedTraceState))
     : undefined

@@ -44,28 +44,27 @@ manifests.
   when the parent is an array.
 - **`src/apply.ts` — no `-` append token.** RFC 6902 §4.1: `add /arr/-` appends. Currently
   `-` stays a string key and `setPath` throws `INVALID_INDEX`. Untested.
-- **`src/create.ts:48,90,102,137,143 — emitted paths never escaped.** Keys containing `/`
-  or `~` produce pointers like `/a/b` instead of `/a~1b`; apply then targets the wrong
-  location. `parsePath` unescapes correctly, so create→apply round-trip breaks exactly for
-  these keys. Fix: `key.replace(/~/g, '~0').replace(/\//g, '~1')`.
+- **`src/create.ts:48,90,102,137,143 — emitted paths never escaped.** Keys containing `/`  or`~`produce pointers like`/a/b`instead of`/a~1b`; apply then targets the wrong
+  location. `parsePath`unescapes correctly, so create→apply round-trip breaks exactly for
+  these keys. Fix:`key.replace(/~/g, '~0').replace(/\//g, '~1')`.
 - **`src/create.ts:66-84,112-126 — object↔array type change emits member-wise ops.**
-  `[1,2,3]` → `{foo:'bar'}` emits removes that splice a shrinking array (wrong elements
+  `[1,2,3]`→`{foo:'bar'}`emits removes that splice a shrinking array (wrong elements
   removed, then throws), and object → array yields a plain object with numeric keys.
   Existing unit tests enshrine the broken series; the round-trip integration test only
-  covers primitive type changes. Fix: emit `replace` whenever
-  `Array.isArray(from) !== Array.isArray(to)`.
-- **`src/apply.ts:236-253 — `copy`/`move` insert live references.** The same object stays
+  covers primitive type changes. Fix: emit`replace`whenever
+ `Array.isArray(from) !== Array.isArray(to)`.
+- **`src/apply.ts:236-253 — `copy`/`move`insert live references.** The same object stays
   reachable from both locations; later patches or caller mutations alias both subtrees.
-  Fix: `structuredClone` for `copy`. `move` is also missing the RFC check that `from` must
-  not be a proper prefix of `path`.
-- **`src/apply.ts:173 — `remove` at `index === length` silently no-ops** (bounds check
-  shared with the append case). Similarly non-strict `replace /arr/<length>` appends.
+  Fix:`structuredClone`for`copy`. `move`is also missing the RFC check that`from`must
+  not be a proper prefix of`path`.
+- **`src/apply.ts:173 — `remove`at`index === length`silently no-ops** (bounds check
+  shared with the append case). Similarly non-strict`replace /arr/<length>` appends.
   Fix: op-aware bounds (append allowed only for add/set).
 - **`src/apply.ts:208 — `applyPatches` is not atomic.** RFC 6902 requires all-or-nothing;
   a mid-sequence throw leaves data partially mutated. Fix: apply to a clone and assign
   back, or document loudly.
-- **`src/apply.ts:56 — root pointer `""` unsupported** (RFC 6901 empty pointer = whole
-  document); currently throws `INVALID_PATH`.
+- **`src/apply.ts:56 — root pointer `""`unsupported** (RFC 6901 empty pointer = whole
+  document); currently throws`INVALID_PATH`.
 - **API design: `createPatches(to, from)` argument order** is reversed from every
   mainstream diff API (`from, to`); swapped args produce plausible wrong patches with no
   error. Reorder before the package ossifies.
@@ -116,7 +115,7 @@ manifests.
   contract that `value`/`ifError`/iteration rely on. Fix: wrap the `nextContext`/`toContext`
   path with the same `Result.toError` catch used for `ctx.execute`.
 - `src/execution.ts:130-133` — `[Symbol.asyncDispose]` on a never-awaited Execution
-  *starts* it (forces the lazy promise, runs `execute`, arms the leaking timeouts).
+  _starts_ it (forces the lazy promise, runs `execute`, arms the leaking timeouts).
   Track whether the lazy was forced and short-circuit.
 - `src/execution.ts:194-198` — `abort()` after successful completion still aborts the
   controller and the whole previous chain, so `isAborted`/`isCanceled`/`isDisposed`

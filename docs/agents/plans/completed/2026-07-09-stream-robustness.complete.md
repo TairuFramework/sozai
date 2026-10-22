@@ -15,7 +15,6 @@ layer carries RPC framing for `enkaku`, so a wedged framer silently dropped mess
 (`src/channel.ts`, not exported from the package) that carries the abort, cancel, backpressure,
 and close-guard semantics in one place. `createPipe` became one channel plus `drain`;
 `createConnection` became two channels crossed. Behaviour delivered:
-
 - Aborting a writable errors the peer readable with the same reason, so a parked `read()` rejects
   instead of hanging forever holding the reader lock.
 - Cancelling a readable makes the peer's next `write`/`close` reject with the cancel reason,
@@ -31,7 +30,6 @@ and close-guard semantics in one place. `createPipe` became one channel plus `dr
   resorting to `Parameters<typeof createPipe>[0]`.
 
 **json-lines framer** (`src/json-lines.ts`):
-
 - A stray `]` or `}` line no longer drives `nestingDepth` negative forever. It now costs exactly
   one message: the offending text routes to `onInvalidJSON`, the framer resets, and framing
   resumes at the next newline. This was the core freeze-blocker.
@@ -91,7 +89,6 @@ the `infra-license-and-versioning` freeze-blocker.
 Executed subagent-driven: fresh implementer per task, a spec+quality review after each, and a broad
 whole-branch review at the end. The review loop caught four real defects, three of them in the plan
 itself rather than the implementations:
-
 - A whitespace leak: ignored blank lines left their characters in the buffer to be prepended to the
   next message, corrupting `onInvalidJSON`'s reported text and making `maxMessageSize` reject
   otherwise-valid messages. The plan's prescribed code had the bug; fixed across three tasks.
@@ -110,13 +107,12 @@ Landed on branch `stream-robustness`, 19 commits above `main`. Final state: 50 t
 
 A round of test-hardening followed the core work and is complete — all test-only, no shipped
 behaviour changed:
-
 - **`readable.cancel()` with no argument is pinned.** Cancelling with no reason sets the internal
   `failure` slot to `{ reason: undefined }`, so the peer's next write rejects with `undefined`
   verbatim. A test now guards this against a `failure ??= reason` simplification that would regress
   it to a hang.
 - **Timing-based non-settlement assertions removed.** The backpressure/park tests proved a promise
-  had *not* settled by awaiting a real 10ms `setTimeout` (a latent flake); they now use a
+  had _not_ settled by awaiting a real 10ms `setTimeout` (a latent flake); they now use a
   deterministic `flushMicrotasks()` helper — a parked write is released only by a real read, so
   after the flush a still-pending write has provably parked.
 - **`createConnection` backpressure asserted in both directions.** The reverse (server→client)

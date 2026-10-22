@@ -2,30 +2,30 @@ packages:
   - packages/*
 
 allowBuilds:
-  '@swc/core': true
+  "@swc/core": true
   esbuild: false
 
 publicHoistPattern:
   - typescript
-  - '@types/*'
-  - '@biomejs/*'
-  - '@swc/*'
+  - "@types/*"
+  - "@biomejs/*"
+  - "@swc/*"
   - vitest
-  - '@vitest/*'
+  - "@vitest/*"
   - tsx
   - turbo
   - del-cli
 
 catalog:
-  '@noble/hashes': ^2.0.1
-  '@kigu/dev': ^0.3.2
-  '@hono/node-server': ^2.1.5
-  '@hono/otel': ^1.2.0
-  '@logtape/logtape': ^2.4.2
-  '@opentelemetry/api': ^1.9.1
-  '@opentelemetry/api-logs': ^0.223.0
-  '@opentelemetry/sdk-trace-base': ^2.12.0
-  '@standard-schema/spec': ^1.1.0
+  "@noble/hashes": ^2.0.1
+  "@kigu/dev": ^0.3.3
+  "@hono/node-server": ^2.1.5
+  "@hono/otel": ^1.2.0
+  "@logtape/logtape": ^2.4.2
+  "@opentelemetry/api": ^1.10.0
+  "@opentelemetry/api-logs": ^0.223.0
+  "@opentelemetry/sdk-trace": ^3.0.0
+  "@standard-schema/spec": ^1.1.0
   ajv: ^8.20.0
   ajv-formats: ^3.0.1
   expo-crypto: ^58.0.7
@@ -37,11 +37,11 @@ catalog:
 catalogMode: prefer
 
 minimumReleaseAgeExclude:
-  - '@kigu/*'
+  - "@kigu/*"
 
 supportedArchitectures:
-  cpu: [ current ]
-  os: [ current ]
+  cpu: [current]
+  os: [current]
 
 publishBranch: main
 

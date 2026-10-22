@@ -1,4 +1,5 @@
 ---
+
 name: primitives
 description: Use when working with Option, Result, AsyncResult, or JSON patches in sozai.
 ---
@@ -19,7 +20,6 @@ JSON patches.
 ## Pick this when
 
 Use `@sozai/result` when:
-
 - A synchronous function can fail and callers should handle both outcomes without `try`/`catch` → `Result`, `reference/result.md`
 - A value may be absent, such as `Map.get` or nullable config → `Option`, `reference/result-option.md`
 - Wrapping an async operation that should stay awaitable and auto-catch promise rejections → `AsyncResult`, `reference/result-async.md`

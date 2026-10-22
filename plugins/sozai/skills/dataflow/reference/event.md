@@ -4,23 +4,23 @@ Typed event emitter with built-in stream bridging. A custom, lightweight impleme
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `EventEmitter` | class | Typed emitter: `on`, `once`, `emit`, `fire`, `readable`, `writable`. Constructor takes an optional `{ logger? }` |
-| `UnsubscribeFunction` | type | `() => void` returned by `on` |
-| `ListenerOptions` | type | `{ filter?, signal? }` for `on` / `readable` |
-| `DatalessEventNames` | type | Union of event names whose payload type is `void` |
+| Export                | Kind  | Description                                                                                                      |
+| --------------------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
+| `EventEmitter`        | class | Typed emitter: `on`, `once`, `emit`, `fire`, `readable`, `writable`. Constructor takes an optional `{ logger? }` |
+| `UnsubscribeFunction` | type  | `() => void` returned by `on`                                                                                    |
+| `ListenerOptions`     | type  | `{ filter?, signal? }` for `on` / `readable`                                                                     |
+| `DatalessEventNames`  | type  | Union of event names whose payload type is `void`                                                                |
 
 ## Methods on `EventEmitter<Events>`
 
-| Method | Description |
-|---|---|
-| `on(name, listener, options?)` | Subscribe; returns `UnsubscribeFunction` |
-| `once(name, options?)` | Returns a `Promise` that resolves on the next matching event |
-| `emit(name, data?)` | Emit to all listeners; awaits and rethrows listener failures (one as-is, several as an `AggregateError`) |
-| `fire(name, data?)` | Fire-and-forget emit; does not await, and swallows listener failures — logs via the constructor's `logger` if given, otherwise discards them |
-| `readable(name, options?)` | Bridge: events → `ReadableStream`; closes when `signal` aborts or stream is cancelled |
-| `writable(name)` | Bridge: `WritableStream` → events; each written chunk calls `emit` |
+| Method                         | Description                                                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `on(name, listener, options?)` | Subscribe; returns `UnsubscribeFunction`                                                                                                     |
+| `once(name, options?)`         | Returns a `Promise` that resolves on the next matching event                                                                                 |
+| `emit(name, data?)`            | Emit to all listeners; awaits and rethrows listener failures (one as-is, several as an `AggregateError`)                                     |
+| `fire(name, data?)`            | Fire-and-forget emit; does not await, and swallows listener failures — logs via the constructor's `logger` if given, otherwise discards them |
+| `readable(name, options?)`     | Bridge: events → `ReadableStream`; closes when `signal` aborts or stream is cancelled                                                        |
+| `writable(name)`               | Bridge: `WritableStream` → events; each written chunk calls `emit`                                                                           |
 
 ## Example: typed emitter and stream bridge
 
@@ -45,9 +45,9 @@ const stream = emitter.readable('data', {
 const [sink, results] = createArraySink<{ value: number }>()
 stream.pipeTo(sink)
 
-await emitter.emit('data', { value: 5 })   // filtered out
-await emitter.emit('data', { value: 15 })  // included
-await emitter.emit('data', { value: 20 })  // included
+await emitter.emit('data', { value: 5 }) // filtered out
+await emitter.emit('data', { value: 15 }) // included
+await emitter.emit('data', { value: 20 }) // included
 
 controller.abort() // closes the stream
 // results resolves to [{ value: 15 }, { value: 20 }]

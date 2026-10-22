@@ -1,5 +1,11 @@
 # @sozai/otel
 
+## 0.4.0
+
+### Minor Changes
+
+- Require `@opentelemetry/api` ^1.10.0 (OpenTelemetry JS v3 baseline). Consumers on api 1.9.x get a second api copy until they upgrade.
+
 ## 0.3.3
 
 ### Patch Changes
@@ -38,7 +44,6 @@
 - 9c0a867: W3C Trace Context compliance.
 
   **Breaking (`@sozai/otel`):**
-
   - `injectTraceContext` and `extractTraceContext` are **removed**. The custom `tid`/`sid`
     header contract was a second, unvalidated encoding of the same three values the W3C
     path already carries: it skipped ID validation entirely and hardcoded
@@ -57,7 +62,6 @@
     identifies the consumer.
 
   **Fixes (`@sozai/otel`):**
-
   - All-zero trace IDs and span IDs are rejected on both parse and format. They previously
     became remote `SpanContext`s that SDKs parented real spans to.
   - `parseTraceparent` rejects version `ff` and parses the first four fields of a higher

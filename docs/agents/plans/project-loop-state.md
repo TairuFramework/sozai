@@ -1,10 +1,10 @@
 # Project Loop State
 
 | Activity | Last performed |
-|----------|---------------|
-| Triage | 2026-07-16 |
-| Review | 2026-07-16 |
-| Roadmap | 2026-08-03 |
+| -------- | -------------- |
+| Triage   | 2026-07-16     |
+| Review   | 2026-07-16     |
+| Roadmap  | 2026-08-03     |
 
 Roadmap and next/backlog seeded from the [2026-07-02 repo audit](completed/2026-07-02-repo-audit.complete.md).
 Rewritten 2026-07-16: freeze-blocker sequence complete, roadmap re-cut as a backlog burndown.
@@ -13,7 +13,6 @@ Refreshed 2026-08-03 after three backlog closures; the cross-repo-audit tier is 
 ## 2026-07-16 review
 
 First review. Findings and disposition:
-
 - **`runtime-expo` fetch captured at import time — fixed.** The audit flagged it; no plan ever
   covered `runtime-expo`, so it was never picked up. `expoRuntime.fetch` now delegates at call
   time, matching `@sozai/runtime`. Its sibling finding (`polyfillFetch` no-op) had been fixed
@@ -39,7 +38,6 @@ First review. Findings and disposition:
 
 First triage. Nothing stale (oldest item traces to the 07-02 audit, 14 days), nothing removed,
 merged, or demoted — every item is still live.
-
 - **All 9 backlog files are now date-prefixed**, matching `completed/`. Six had no prefix, which
   made them invisible to the project-loop staleness rule that keys off exactly that prefix. Dates
   are found-dates, matching the source work. Inbound links updated in `roadmap.md`, this file, and

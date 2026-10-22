@@ -4,21 +4,21 @@ Thin wrapper over LogTape. Provides a one-call setup path and typed re-exports s
 
 ## Exports
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `getLogger` | function | Return a `Logger` scoped to `name` (string or (readonly) category array), optionally pre-bound with `properties`. |
-| `getSozaiLogger` | function | Shorthand: `getLogger(['sozai', namespace], properties)`. |
-| `getDefaultConfig` | function | Build a minimal `Config` that writes to the console sink at `error` level for both `logtape.meta` and `sozai` categories. Accepts optional `ConsoleSinkOptions`. |
-| `setup` | function | Configure LogTape synchronously, applying `getDefaultConfig()` when no argument is given. First call wins: if logging is already configured, logs an error and returns without reconfiguring — call `reset()` first to reconfigure deliberately. |
-| `reset` | function | Clear the logging configuration so `setup()` can configure it again. |
-| `isSetup` | function | Whether logging has been configured, via `setup()` or otherwise. |
-| `renderLogMessage` | function | Render `Pick<LogRecord, 'rawMessage' \| 'message'>` to a string without throwing. |
-| `getConsoleSink` | function | Re-export from LogTape. Create a console sink directly. |
-| `Config` | type | LogTape configuration shape. |
-| `ConsoleSinkOptions` | type | Options for the console sink. |
-| `Logger` | type | LogTape logger instance. |
-| `LogLevel` | type | `'trace' \| 'debug' \| 'info' \| 'warning' \| 'error' \| 'fatal'` |
-| `LogRecord` | type | LogTape's log record shape, re-exported so consumers (e.g. `@sozai/otel`'s log sink) don't need a direct `@logtape/logtape` dependency. |
+| Symbol               | Kind     | Description                                                                                                                                                                                                                                      |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getLogger`          | function | Return a `Logger` scoped to `name` (string or (readonly) category array), optionally pre-bound with `properties`.                                                                                                                                |
+| `getSozaiLogger`     | function | Shorthand: `getLogger(['sozai', namespace], properties)`.                                                                                                                                                                                        |
+| `getDefaultConfig`   | function | Build a minimal `Config` that writes to the console sink at `error` level for both `logtape.meta` and `sozai` categories. Accepts optional `ConsoleSinkOptions`.                                                                                 |
+| `setup`              | function | Configure LogTape synchronously, applying `getDefaultConfig()` when no argument is given. First call wins: if logging is already configured, logs an error and returns without reconfiguring — call `reset()` first to reconfigure deliberately. |
+| `reset`              | function | Clear the logging configuration so `setup()` can configure it again.                                                                                                                                                                             |
+| `isSetup`            | function | Whether logging has been configured, via `setup()` or otherwise.                                                                                                                                                                                 |
+| `renderLogMessage`   | function | Render `Pick<LogRecord, 'rawMessage' \| 'message'>` to a string without throwing.                                                                                                                                                                |
+| `getConsoleSink`     | function | Re-export from LogTape. Create a console sink directly.                                                                                                                                                                                          |
+| `Config`             | type     | LogTape configuration shape.                                                                                                                                                                                                                     |
+| `ConsoleSinkOptions` | type     | Options for the console sink.                                                                                                                                                                                                                    |
+| `Logger`             | type     | LogTape logger instance.                                                                                                                                                                                                                         |
+| `LogLevel`           | type     | `'trace' \| 'debug' \| 'info' \| 'warning' \| 'error' \| 'fatal'`                                                                                                                                                                                |
+| `LogRecord`          | type     | LogTape's log record shape, re-exported so consumers (e.g. `@sozai/otel`'s log sink) don't need a direct `@logtape/logtape` dependency.                                                                                                          |
 
 ## Example — bootstrap and log
 

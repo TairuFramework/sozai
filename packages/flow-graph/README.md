@@ -82,7 +82,6 @@ The runtime passes the run's `signal` in `options` when it resolves frames on `r
 `createMapResolver(definitions)` is an in-memory resolver. An unversioned lookup returns the highest version, and a miss throws `FlowReferenceError`. Pass a resolver to `createFlowGraph({ resolver, maxDepth })`. `maxDepth` bounds the frame stack including the root and defaults to 16.
 
 Three node shapes reference another flow. Each takes `flow`, optional `version` and optional `input` (values, resolved in the caller scope; an omitted `input` is `{}`):
-
 - `call` runs the callee as a new frame, then continues at `next`. The callee's `end` output is available as `results.<callNode>.output` and its outcome as `results.<callNode>.outcome`. A failure that no retry handles is routed to `onError`.
 - `goto` replaces the current frame with the target flow. The continuation of the replaced frame is kept, so an `end` in the target returns to the original caller. A `goto` in the root flow repins the root.
 - `loop` with `body: { flow, version?, input? }` runs the body flow on each iteration while `while` holds, up to `maxIterations`. Each body run's result lands in `results.<loopNode>` as `{ output, outcome? }`, so the next `while` check and the body `input` can read the previous iteration.
@@ -173,7 +172,6 @@ Every executed definition is a JSON snapshot taken at resolution, so a resolver 
 `graph.start()` with a definition that references flows requires a resolver. It runs `checkFlows` lazily on the first `next()`: error issues reject with `FlowDefinitionError` and commit nothing, warnings do not block.
 
 `graph.checkFlows(definition)` resolves references transitively and reports, with issue paths prefixed by `['flows', id, version]` inside a callee:
-
 - `missing_flow` (error): the resolver throws or returns a different `id` or `version`; the message tells the two apart and never includes the resolver's error.
 - `unbounded_cycle` (error): a cross-flow cycle made only of `goto` edges.
 - `recursive_call` (warning): a cycle through a `call` or loop body; `maxDepth` bounds it.
@@ -220,11 +218,10 @@ const graph = createFlowGraph({ resolver, validators })
 const validateToolInput = validators.get(toolInputSchema)
 ```
 
-| Schema | Compiled on |
-|---|---|
-| definition `input`, input-node `schema`, suspend `schema`, pending `schema` | `validators` |
-| kind `schema`, `authoringSchema`, `resultSchema` | a private bounded cache (`strict: false`) the graph owns |
-
+| Schema                                                                      | Compiled on                                              |
+| --------------------------------------------------------------------------- | -------------------------------------------------------- |
+| definition `input`, input-node `schema`, suspend `schema`, pending `schema` | `validators`                                             |
+| kind `schema`, `authoringSchema`, `resultSchema`                            | a private bounded cache (`strict: false`) the graph owns |
 - **Dialect and strictness** come from the host's cache: a `2020-12` cache compiles flow authors' schemas as 2020-12, and a `strict: false` cache accepts unknown keywords that the default path reports as `invalid_schema`.
 - **Issue order**: both caches compile snapshots, so validation issues follow sorted key order, in `FlowInputError`, `FlowResumeError` and kind validation issues from `check`.
 - **Kind schemas must be plain JSON**: with `validators`, `createFlowGraph` throws `TypeError` `Kind <kind> schema is not JSON` for a registered kind whose schema is not (an `undefined` property, a `toJSON` method).

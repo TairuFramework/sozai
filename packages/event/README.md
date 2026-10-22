@@ -24,7 +24,7 @@ const emitter = new EventEmitter<Events>()
 const off = emitter.on('data', (e) => console.log(e.value))
 
 await emitter.emit('data', { value: 42 }) // awaits listeners, rethrows failures
-emitter.fire('done')                      // fire-and-forget, errors swallowed
+emitter.fire('done') // fire-and-forget, errors swallowed
 
 off()
 ```

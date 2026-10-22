@@ -15,13 +15,11 @@ liveness proof and therefore its lock.
 Where no boot ID can be read, the package falls back to comparing a wall-clock-derived `bootAt`
 within a 30s tolerance, plus the hostname. On that path **a live holder that has held longer than
 `staleTimeout` is reaped** by either:
-
 - a forward wall-clock step larger than 30s, or
 - a hostname change (macOS renames the host from DHCP on network join).
 
 This is documented in the README, the reference docs, and `liveness.ts` — it is a known, stated
 limit, not a surprise. It bites two populations:
-
 1. **Windows.** No boot-ID source is implemented at all, so every Windows process is on the fallback.
 2. **Sandboxed macOS.** The darwin boot ID comes from spawning `/usr/sbin/sysctl`. An App Sandbox or
    hardened runtime that blocks `posix_spawn` puts that process permanently on the fallback — and it
@@ -40,10 +38,9 @@ limit, not a surprise. It bites two populations:
 ## Also accepted, and deliberately not fixed
 
 Recorded here so they are not rediscovered as bugs:
-
 - **`reapLockFile` has a residual TOCTOU window.** The guard reads the lockfile and then unlinks it —
   two syscalls — so two waiters that both classify the same stale lock can interleave such that the
-  second unlinks the first's *fresh* lock. POSIX has no unlink-if-identity, so it cannot be closed
+  second unlinks the first's _fresh_ lock. POSIX has no unlink-if-identity, so it cannot be closed
   with name operations; it is narrowed by jittering before a reap so waiters released by one stale
   lock do not reap in lockstep. (The identity compared is the record's per-claim **nonce**, not the
   inode: inode numbers are recycled on unlink — routinely on linux — so an inode-only guard let a

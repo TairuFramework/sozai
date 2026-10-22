@@ -40,7 +40,6 @@
   cannot be proven, the `staleTimeout` TTL (default 60s) applies.
 
   Known limits, all documented in the README:
-
   - Where no boot ID is readable (Windows; a failed read on linux/darwin, including a sandboxed macOS
     process that cannot spawn `sysctl`), the fallback compares wall-clock boot times and the hostname
     — so a live holder held past `staleTimeout` can be reaped by a >30s clock step or a hostname

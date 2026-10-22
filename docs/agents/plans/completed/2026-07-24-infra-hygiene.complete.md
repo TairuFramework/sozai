@@ -12,9 +12,9 @@ The mechanical half of the infra-hygiene item. READMEs (12 stubs) were split out
 
 - **Turbo `clean` rewired at the root.** `turbo.json` had a `clean` task and `build:js`'s
   `dependsOn: ["^clean"]` that matched no package script (packages define `build:clean`) — doubly
-  broken, since `^` is *upstream* scope, not self. Removed both. The real gap it was meant to plug:
-  the root `build` runs the `build:types` and `build:js` *tasks* directly, so it never invoked
-  `build:clean` (only each package's own `build` *script* does). Fixed by cleaning once at the root:
+  broken, since `^` is _upstream_ scope, not self. Removed both. The real gap it was meant to plug:
+  the root `build` runs the `build:types` and `build:js` _tasks_ directly, so it never invoked
+  `build:clean` (only each package's own `build` _script_ does). Fixed by cleaning once at the root:
   `build` is now `pnpm run clean && pnpm run build:types && pnpm run build:js`, with a new
   `"clean": "pnpm -r build:clean"`. Clean must run once before both passes — making it a per-task
   dependency would have the second pass (`build:js`/`build:types` share `lib/`) wipe the first's
@@ -24,7 +24,7 @@ The mechanical half of the infra-hygiene item. READMEs (12 stubs) were split out
   ["^build:types"]`, preserving the topological order the `-r` run relied on.
 - **`test:types` normalized.** `--skipLibCheck` was present in 9 packages, absent in 6 (codec, event,
   generator, runtime, schema, stream). Standardized ON across all 15. Safe direction: `--skipLibCheck`
-  only skips checking *dependency* `.d.ts`; a package's own src/test stay fully checked, so adding it
+  only skips checking _dependency_ `.d.ts`; a package's own src/test stay fully checked, so adding it
   to already-passing packages cannot break them. (runtime-expo's `tsconfig.json`→`tsconfig.test.json`
   was fixed in the same day's runtime-expo work.)
 - **Empty `keywords` filled** for the 8 that had none: async, execution, generator, lock, log,

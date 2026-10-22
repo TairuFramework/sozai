@@ -16,10 +16,9 @@ this layer.
 
 Five fixes across `packages/schema/src/{validation,errors,utils}.ts`, each TDD, per-task
 reviewed, plus a final whole-branch review (READY TO MERGE, no Critical/Important):
-
 1. **`removeSchema` `$id` guard (critical).** `createValidator` called
    `ajv.removeSchema(schema.$id)` after compiling; when `$id` was `undefined`,
-   `removeSchema(undefined)` wiped *all* schemas/refs/compile-cache on the shared instance.
+   `removeSchema(undefined)` wiped _all_ schemas/refs/compile-cache on the shared instance.
    Now guarded with `if (schema.$id != null)`. An `$id`-less schema registers nothing, so
    skipping the removal leaks nothing.
 
@@ -48,8 +47,8 @@ reviewed, plus a final whole-branch review (READY TO MERGE, no Critical/Importan
 ## Key design decisions
 
 - **Decode-site asymmetry is deliberate.** `errors.ts` tilde-unescapes only (Ajv
-  `instancePath` is a raw JSON Pointer, *not* URI-encoded — adding `decodeURIComponent` there
-  would corrupt keys with literal `%`). `utils.ts` does percent-decode *then* tilde-unescape
+  `instancePath` is a raw JSON Pointer, _not_ URI-encoded — adding `decodeURIComponent` there
+  would corrupt keys with literal `%`). `utils.ts` does percent-decode _then_ tilde-unescape
   (a `$ref` fragment is a URI JSON Pointer).
 - **Prototype-pollution defense via `Object.hasOwn`, not a blocklist.** Traversal is
   read-only; own-property-only lookups reject inherited names without false-positives on

@@ -17,7 +17,6 @@ text while its manifest declared MIT. Verified with `npm pack --dry-run` in
 Decision held: sozai versions per-package, `.changeset/config.json` keeps `fixed: []`.
 The docs were what contradicted the config, so they were reworded to drop the
 "fixed group" framing:
-
 - `AGENTS.md` — "frozen foundation" / "fixed group" → "stable foundation", versions move
   per-package via changesets, `runtime-expo` no longer framed as the one special case.
 - `docs/agents/architecture.md` — same change; diverged versions (e.g. `otel` 0.2.0 vs
@@ -28,7 +27,6 @@ The docs were what contradicted the config, so they were reworded to drop the
 Six merged PRs had shipped without changesets, so a release would have published `codec`
 and `schema` only and silently left the lifecycle (#3) and stream (#4) work unpublished.
 Wrote the missing changesets and ran `changeset version`:
-
 - minor: `async` 0.2.0, `codec` 0.2.0, `execution` 0.2.0, `flow` 0.2.0, `generator` 0.2.0,
   `stream` 0.2.0
 - patch: `event` 0.1.1, `schema` 0.1.1, `result` 0.1.1 (dependency-only bump)

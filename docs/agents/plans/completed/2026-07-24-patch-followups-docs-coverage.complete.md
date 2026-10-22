@@ -13,7 +13,7 @@ prototype-hardening item was deliberately left (remains in the backlog file).
 
 - **`move` with identical `from` and `path` is now a permitted no-op (behavior change).**
   `isProperPrefix` returned `true` for `from === path`, so `move /a → /a` threw `INVALID_PATH`. RFC
-  6902 §4.4 forbids only a *proper* prefix (move-into-descendant); an identical location is a
+  6902 §4.4 forbids only a _proper_ prefix (move-into-descendant); an identical location is a
   permitted no-op. Dropped the `path === from` clause — which also makes the function name accurate —
   and added a comment citing the RFC. `move` into an actual descendant (`/a → /a/b`) still throws.
   Requires a changeset (`.changeset/patch-move-identical-path.md`, patch).

@@ -33,13 +33,13 @@ Probed end to end through `LoggerProvider` → `SimpleLogRecordProcessor` →
 `InMemoryLogRecordExporter`, emitting exactly the way the sink does — forward the whole active
 context when `trace.getSpan(context.active())` returns a span:
 
-| Active span context | `isSpanContextValid` | Landed on the record |
-|---|---|---|
-| valid | true | `0af76519../b7ad6b7169203331` |
-| zero span ID, valid trace ID | false | none |
-| zero trace ID, valid span ID | false | none |
-| both zero | false | none |
-| non-hex trace ID | false | none |
+| Active span context          | `isSpanContextValid` | Landed on the record          |
+| ---------------------------- | -------------------- | ----------------------------- |
+| valid                        | true                 | `0af76519../b7ad6b7169203331` |
+| zero span ID, valid trace ID | false                | none                          |
+| zero trace ID, valid span ID | false                | none                          |
+| both zero                    | false                | none                          |
+| non-hex trace ID             | false                | none                          |
 
 The same predicate gates `Logger.enabled`'s trace-based filtering, so an invalid context cannot
 cause log records to be dropped either.

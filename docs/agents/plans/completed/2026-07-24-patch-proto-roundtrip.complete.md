@@ -11,7 +11,6 @@ Originally the deferred "atomic swap prototype hardening" minor from the RFC 690
 
 The backlog framed this as theoretical. Verified empirically, it is a **real, reproducible
 correctness bug**, which is why the earlier "leave it" call was reversed:
-
 - `JSON.parse('{"__proto__":{…},"a":1}')` produces an **own** `"__proto__"` data property (it does
   not invoke the accessor), and `structuredClone` preserves it.
 - The atomic swap ended with `Object.assign(data, working)`. `Object.assign`'s `[[Set]]` triggers the
@@ -21,7 +20,7 @@ correctness bug**, which is why the earlier "leave it" call was reversed:
   `data` itself). Not global pollution — instance-level data loss + surprise prototype mutation.
 
 It is also consistent with the package's existing posture: `parsePath`'s `FORBIDDEN_SEGMENTS` already
-rejects `__proto__`/`constructor`/`prototype` in patch *paths*; the swap was the one place the guard
+rejects `__proto__`/`constructor`/`prototype` in patch _paths_; the swap was the one place the guard
 was not applied.
 
 ## What was built

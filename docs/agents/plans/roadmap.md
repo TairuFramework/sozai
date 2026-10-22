@@ -35,7 +35,7 @@ it. The edit landed in the enkaku repo; nothing here changed.
 The codec's non-canonical base64 item closed — **with the opposite outcome to the one this
 roadmap predicted**. It was filed on the expectation that the audit would find no consumer
 treating a token string as an identity, and would close as a documented quirk. The audit found
-one: `@enkaku/server`'s replay cache keyed on the base64url signature *string* when a message
+one: `@enkaku/server`'s replay cache keyed on the base64url signature _string_ when a message
 carried no `jti`, and a 64-byte Ed25519 signature has 16 spellings that all verify, so a captured
 message could be replayed once per spelling. Both sides are fixed. `@sozai/codec` now rejects
 non-canonical encodings by default, with `{ strict: false }` restoring the old behaviour (minor —

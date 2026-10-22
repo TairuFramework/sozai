@@ -15,7 +15,6 @@ the contract could still be fixed cleanly.
 The audit framed the work as "make it RFC 6902 compliant," but the code was deliberately a
 **superset** (a non-standard `set` op and a `strict`/non-strict mode). Rather than strip the
 extensions or leave the standard ops non-conformant, we chose **Hybrid**:
-
 - The six RFC ops (`add`/`remove`/`replace`/`copy`/`move`/`test`) follow RFC 6902/6901 exactly.
 - `set` (assign/overwrite, **never inserts**) and non-strict mode survive as **documented
   non-standard extensions**. `set` gains a clean identity now that `add` inserts.
@@ -52,7 +51,7 @@ extensions or leave the standard ops non-conformant, we chose **Hybrid**:
   and an optional param can't precede a required one. Kept `(to, from?)`, documented as
   deliberate.
 - **`createPatches` is positional element-wise diffing, not LCS/insert-detection.** A middle
-  insertion emits replace+replace+add, not a clean `add`. RFC insert-before is an *apply*-side
+  insertion emits replace+replace+add, not a clean `add`. RFC insert-before is an _apply_-side
   capability (a hand-authored `add /arr/i` patch), not something `create` produces. The README
   example reflects this.
 - **Atomic swap replaces all nested object identities on success** (consequence of

@@ -1,5 +1,16 @@
 # @sozai/http-server
 
+## 0.2.0
+
+### Minor Changes
+
+- Depend on `@sozai/otel` ^0.4.0, which requires `@opentelemetry/api` ^1.10.0. Align a directly-installed `@sozai/otel` to ^0.4.0 to avoid duplicate copies.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @sozai/otel@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes

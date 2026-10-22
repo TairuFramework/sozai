@@ -2,15 +2,15 @@
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `canonicalize` | function | Serialize to canonical JSON (RFC 8785), or `undefined` |
-| `JSONValue` | type | JSON primitives, arrays and objects with finite numbers |
-| `isJSONValue` | function | Check that JSON serialisation reproduces a value unchanged |
-| `toJSONValue` | function | Coerce unknown input recursively to `JSONValue` without throwing |
-| `parse` | function | Parse JSON with a depth limit and optional prototype-key guard |
-| `ParseOptions` | type | `{ maxDepth?: number; protoKeys?: ProtoKeysMode }` |
-| `ProtoKeysMode` | type | `'allow' \| 'strip' \| 'reject'` |
+| Export          | Kind     | Description                                                      |
+| --------------- | -------- | ---------------------------------------------------------------- |
+| `canonicalize`  | function | Serialize to canonical JSON (RFC 8785), or `undefined`           |
+| `JSONValue`     | type     | JSON primitives, arrays and objects with finite numbers          |
+| `isJSONValue`   | function | Check that JSON serialisation reproduces a value unchanged       |
+| `toJSONValue`   | function | Coerce unknown input recursively to `JSONValue` without throwing |
+| `parse`         | function | Parse JSON with a depth limit and optional prototype-key guard   |
+| `ParseOptions`  | type     | `{ maxDepth?: number; protoKeys?: ProtoKeysMode }`               |
+| `ProtoKeysMode` | type     | `'allow' \| 'strip' \| 'reject'`                                 |
 
 ## Example
 
@@ -22,15 +22,15 @@ canonicalize({ z: 1, a: 2 }) === canonicalize({ a: 2, z: 1 }) // true — '{"a":
 
 // Like JSON.stringify on these points: dropped keys, null array holes, toJSON.
 canonicalize({ a: undefined, b: () => {}, c: 1 }) // '{"c":1}'
-canonicalize([undefined, 1])                      // '[null,1]'
-canonicalize({ d: new Date(0) })                  // '{"d":"1970-01-01T00:00:00.000Z"}'
+canonicalize([undefined, 1]) // '[null,1]'
+canonicalize({ d: new Date(0) }) // '{"d":"1970-01-01T00:00:00.000Z"}'
 
 // undefined when the value itself has no JSON representation
 canonicalize(undefined) // undefined
 
-parse('{"a":1}')                          // { a: 1 }
-parse(payload, { maxDepth: 32 })          // stricter nesting limit
-parse(untrusted, { protoKeys: 'strip' })  // drop __proto__ and constructor
+parse('{"a":1}') // { a: 1 }
+parse(payload, { maxDepth: 32 }) // stricter nesting limit
+parse(untrusted, { protoKeys: 'strip' }) // drop __proto__ and constructor
 ```
 
 ## Example: canonicalize error paths
@@ -40,7 +40,7 @@ parse(untrusted, { protoKeys: 'strip' })  // drop __proto__ and constructor
 `'Circular reference detected'`. This is stricter than `JSON.stringify`, which turns `NaN` and
 `Infinity` into `null`.
 
-It returns `undefined` — it does not throw — when the value *itself* is `undefined`, a function
+It returns `undefined` — it does not throw — when the value _itself_ is `undefined`, a function
 or a symbol, mirroring `JSON.stringify`. Wrap it if you need a guaranteed string;
 `@sozai/codec`'s `canonicalStringify` does exactly that.
 
@@ -93,7 +93,6 @@ toJSONValue({ count: 2n, missing: undefined, ok: [1, undefined] })
 
 `toJSONValue(value: unknown): JSONValue` converts each property independently, preserving valid sibling properties when conversion fails.
 Plain JSON input remains equal.
-
 - Non-finite numbers become `null`.
 - Bigints, symbols and functions use guarded `String()`.
 - Undefined object properties are omitted. Undefined array entries and holes become `null`. Top-level undefined becomes `'undefined'`.

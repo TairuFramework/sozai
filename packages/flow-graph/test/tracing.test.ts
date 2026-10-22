@@ -1,11 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@opentelemetry/api'
 import { context, ROOT_CONTEXT, SpanStatusCode, trace } from '@opentelemetry/api'
-import {
-  BasicTracerProvider,
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from '@opentelemetry/sdk-trace-base'
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace'
 import type { LogRecord } from '@sozai/log'
 import { getSozaiLogger, reset, setup } from '@sozai/log'
 import { createValidatorCache } from '@sozai/schema'
@@ -21,7 +17,7 @@ import {
 
 const exporter = new InMemorySpanExporter()
 
-const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+const provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] })
 
 const storage = new AsyncLocalStorage<Context>()
 

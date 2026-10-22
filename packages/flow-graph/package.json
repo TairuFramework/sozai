@@ -1,6 +1,6 @@
 {
   "name": "@sozai/flow-graph",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Persistent JSON flow graphs",
   "keywords": [
     "flow",
@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@opentelemetry/api": "catalog:",
-    "@opentelemetry/sdk-trace-base": "catalog:"
+    "@opentelemetry/sdk-trace": "catalog:"
   },
   "publishConfig": {
     "access": "public"

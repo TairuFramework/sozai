@@ -1,4 +1,5 @@
 ---
+
 name: observability
 description: Use when adding structured logging or OpenTelemetry tracing to sozai code.
 ---

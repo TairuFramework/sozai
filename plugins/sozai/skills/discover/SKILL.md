@@ -1,4 +1,5 @@
 ---
+
 name: discover
 description: Use when exploring sozai capabilities - progressive discovery of this repo's domain skills.
 ---

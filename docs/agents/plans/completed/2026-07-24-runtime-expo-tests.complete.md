@@ -22,7 +22,7 @@ fix was still unverified. Stand up a real suite mirroring `@sozai/runtime`.
   - `expoRuntime` wiring by identity (`getRandomID` → `randomUUID`, `getRandomValues`), asserted by
     call-through.
   - **`fetch` delegates to `globalThis.fetch` at call time** — the regression the suite exists for:
-    the spy is assigned to `globalThis.fetch` *after* import and must still apply.
+    the spy is assigned to `globalThis.fetch` _after_ import and must still apply.
   - `createRuntime` resolves the expo defaults and lets overrides win / omitted entries fall back.
   - `polyfillCrypto` install-when-absent, leave-when-present (`override=false`), replace
     (`override=true`), and install-only-the-missing-one; `polyfill` delegates to it. Global mutation

@@ -2,66 +2,71 @@
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `toB32` | function | Encode `Uint8Array` to RFC 4648 Base32 (lowercase, unpadded) |
-| `fromB32` | function | Decode lowercase, unpadded Base32 to `Uint8Array` (strict by default) |
-| `toB64` | function | Encode `Uint8Array` to standard Base64 (padded) |
-| `fromB64` | function | Decode standard Base64 to `Uint8Array` |
-| `toB64U` | function | Encode `Uint8Array` to URL-safe Base64 (no padding) |
-| `fromB64U` | function | Decode URL-safe Base64 to `Uint8Array` |
-| `fromUTF` | function | Encode UTF-8 string to `Uint8Array` |
-| `toUTF` | function | Decode `Uint8Array` to UTF-8 string |
-| `b64uFromUTF` | function | Encode UTF-8 string directly to Base64URL |
-| `b64uToUTF` | function | Decode Base64URL directly to UTF-8 string |
-| `b64uFromJSON` | function | Encode object to Base64URL (optionally canonical) |
-| `b64uToJSON` | function | Decode Base64URL string to typed object (depth-limited) |
-| `canonicalStringify` | function | Deterministic JSON stringify (RFC 8785) |
+| Export               | Kind     | Description                                                           |
+| -------------------- | -------- | --------------------------------------------------------------------- |
+| `toB32`              | function | Encode `Uint8Array` to RFC 4648 Base32 (lowercase, unpadded)          |
+| `fromB32`            | function | Decode lowercase, unpadded Base32 to `Uint8Array` (strict by default) |
+| `toB64`              | function | Encode `Uint8Array` to standard Base64 (padded)                       |
+| `fromB64`            | function | Decode standard Base64 to `Uint8Array`                                |
+| `toB64U`             | function | Encode `Uint8Array` to URL-safe Base64 (no padding)                   |
+| `fromB64U`           | function | Decode URL-safe Base64 to `Uint8Array`                                |
+| `fromUTF`            | function | Encode UTF-8 string to `Uint8Array`                                   |
+| `toUTF`              | function | Decode `Uint8Array` to UTF-8 string                                   |
+| `b64uFromUTF`        | function | Encode UTF-8 string directly to Base64URL                             |
+| `b64uToUTF`          | function | Decode Base64URL directly to UTF-8 string                             |
+| `b64uFromJSON`       | function | Encode object to Base64URL (optionally canonical)                     |
+| `b64uToJSON`         | function | Decode Base64URL string to typed object (depth-limited)               |
+| `canonicalStringify` | function | Deterministic JSON stringify (RFC 8785)                               |
 
 ## Example
 
 ```typescript
 import {
-  toB32, fromB32,
-  toB64, fromB64, toB64U, fromB64U,
-  fromUTF, toUTF, b64uFromUTF, b64uToUTF,
-  b64uFromJSON, b64uToJSON, canonicalStringify,
+  toB32,
+  fromB32,
+  toB64,
+  fromB64,
+  toB64U,
+  fromB64U,
+  fromUTF,
+  toUTF,
+  b64uFromUTF,
+  b64uToUTF,
+  b64uFromJSON,
+  b64uToJSON,
+  canonicalStringify,
 } from '@sozai/codec'
 
 // --- Base64 round-trips ---
-
 const bytes = new Uint8Array([104, 101, 108, 108, 111]) // "hello"
 
-const base32 = toB32(bytes)    // "nbswy3dp" (lowercase, unpadded)
-fromB32(base32)                // Uint8Array([104, 101, 108, 108, 111])
+const base32 = toB32(bytes) // "nbswy3dp" (lowercase, unpadded)
+fromB32(base32) // Uint8Array([104, 101, 108, 108, 111])
 
-const std = toB64(bytes)       // "aGVsbG8="   (padded)
-fromB64(std)                   // Uint8Array([104, 101, 108, 108, 111])
+const std = toB64(bytes) // "aGVsbG8="   (padded)
+fromB64(std) // Uint8Array([104, 101, 108, 108, 111])
 
-const url = toB64U(bytes)      // "aGVsbG8"    (URL-safe, no padding)
-fromB64U(url)                  // Uint8Array([104, 101, 108, 108, 111])
+const url = toB64U(bytes) // "aGVsbG8"    (URL-safe, no padding)
+fromB64U(url) // Uint8Array([104, 101, 108, 108, 111])
 
 // --- UTF-8 ↔ bytes ---
-
 const text = 'Hello, world!'
-const encoded = fromUTF(text)  // Uint8Array
-toUTF(encoded)                 // 'Hello, world!'
+const encoded = fromUTF(text) // Uint8Array
+toUTF(encoded) // 'Hello, world!'
 
-b64uFromUTF('Hello!')          // 'SGVsbG8h'
-b64uToUTF('SGVsbG8h')         // 'Hello!'
+b64uFromUTF('Hello!') // 'SGVsbG8h'
+b64uToUTF('SGVsbG8h') // 'Hello!'
 
 // --- JSON ↔ Base64URL ---
-
 type Entry = { id: string; value: number }
 const obj: Entry = { id: 'abc', value: 42 }
 
-const fast      = b64uFromJSON(obj, false) // fast, insertion order
-const canonical = b64uFromJSON(obj, true)  // deterministic (RFC 8785)
+const fast = b64uFromJSON(obj, false) // fast, insertion order
+const canonical = b64uFromJSON(obj, true) // deterministic (RFC 8785)
 
-b64uToJSON<Entry>(canonical)  // { id: 'abc', value: 42 }
+b64uToJSON<Entry>(canonical) // { id: 'abc', value: 42 }
 
 // --- Canonical stringify for deterministic JSON ---
-
 const a = { z: 1, a: 2 }
 const b = { a: 2, z: 1 }
 canonicalStringify(a) === canonicalStringify(b) // true — keys sorted
@@ -86,13 +91,13 @@ than 128 levels with `Error('JSON exceeds maximum nesting depth of 128')`, check
 ```typescript
 import { fromB64, fromB64U, toUTF } from '@sozai/codec'
 
-fromB64('aGVsbG8=\n')     // OK — trailing newline trimmed before validation
-fromB64U('aGVsbG8=')      // OK — fromB64U tolerates padding for older tokens
+fromB64('aGVsbG8=\n') // OK — trailing newline trimmed before validation
+fromB64U('aGVsbG8=') // OK — fromB64U tolerates padding for older tokens
 
 // Each call below throws independently:
-fromB64('aGVs bG8=')           // Error('Invalid base64 encoding'): embedded whitespace
-fromB64U('aGVsbG8 ')           // Error('Invalid base64url encoding'): trailing whitespace
-toUTF(new Uint8Array([0xff]))  // TypeError: invalid UTF-8
+fromB64('aGVs bG8=') // Error('Invalid base64 encoding'): embedded whitespace
+fromB64U('aGVsbG8 ') // Error('Invalid base64url encoding'): trailing whitespace
+toUTF(new Uint8Array([0xff])) // TypeError: invalid UTF-8
 ```
 
 ## Example: canonicalStringify error paths
@@ -106,12 +111,6 @@ turns `NaN`/`Infinity` into `null`, so the two `b64uFromJSON` modes diverge on m
 ```typescript
 import { canonicalStringify, b64uFromJSON } from '@sozai/codec'
 
-try {
-  canonicalStringify({ a: Number.NaN })
-} catch (err) {
-  console.log((err as Error).message) // 'NaN is not allowed'
-}
-
-// canonical mode throws on NaN; non-canonical mode silently encodes it as null
+canonicalStringify({ a: Number.NaN }) // throws TypeError('NaN is not allowed')
 b64uFromJSON({ a: Number.NaN }, false) // succeeds — decodes back to { a: null }
 ```

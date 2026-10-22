@@ -16,10 +16,12 @@ statics (`Result.ok`, `Result.error`, `Option.some`, `Option.of`), never with `n
 **A returned value is a value; only a throw or an explicit error makes an error Result.**
 
 ```ts
-Result.ok(1).map(() => new Error('x'))        // ok(Error) — a returned value is a value
-Result.ok(1).map(() => { throw 'oops' })      // error(Error('Unknown error', { cause: 'oops' }))
-Result.error(e).mapError(() => new Other())   // error(Other) — mapError's bare return is an error
-Result.error(e).mapError(() => Result.ok(1))  // ok(1) — recover explicitly
+Result.ok(1).map(() => new Error('x')) // ok(Error) — a returned value is a value
+Result.ok(1).map(() => {
+  throw 'oops'
+}) // error(Error('Unknown error', { cause: 'oops' }))
+Result.error(e).mapError(() => new Other()) // error(Other) — mapError's bare return is an error
+Result.error(e).mapError(() => Result.ok(1)) // ok(1) — recover explicitly
 ```
 
 The same rules hold for `AsyncResult`. Anything thrown or rejected is normalized through

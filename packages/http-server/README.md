@@ -38,7 +38,6 @@ Unhandled errors produce `{ "error": "Internal Server Error", "requestID": "..."
 ## Plugins
 
 A plugin has a `name`, an optional `dependsOn` list and a `setup(ctx)` function. Rules:
-
 - **One export.** `setup` returns the plugin's single export (any value), typed through the name created by `pluginName<Exports>()('name')`. Dependants read it with `ctx.use(name)`, which is typed from their `dependsOn` list and only accepts declared dependencies.
 - **`dependsOn`.** Plugins are set up in dependency order. Missing dependencies, duplicate names and cycles throw a `PluginGraphError` from `createServer`.
 - **Registration phases.** Routes, middleware, limits, health checks and hooks (`ctx.route`, `ctx.middleware`, `ctx.limits`, `ctx.addReadinessCheck`, `ctx.onShutdown`, `ctx.onClose`) can only be registered during `setup`; the context is sealed once `setup` settles. Routes may not use the health paths.
@@ -51,7 +50,6 @@ A failing `setup` disposes the server, running the hooks registered so far, and 
 ## Proxy trust
 
 `trustProxy` controls how the client IP is derived from `X-Forwarded-For`. It accepts three forms:
-
 - `false` (default): the socket peer is the client; the header is ignored.
 - A number `n`: trust `n` proxy hops; the client is the address `n` hops from the socket peer. When the chain (the socket peer plus the header entries) is shorter than `n + 1`, the left-most entry is returned.
 - An array of IPs and CIDR ranges: trust those proxies; the client is the nearest address in the chain that is not a trusted proxy.
@@ -79,7 +77,6 @@ Two routes are registered: `/health/live` (always `200 { "status": "ok" }`) and 
 Call `server.close()`, abort the `signal` passed to `createServer`, or call `server.handleSignals()` to dispose on `SIGTERM`/`SIGINT` (it returns a function removing the listeners; both listeners are removed once either signal fires, so a second signal gets Node's default behaviour). `listen()` rejects with `Server is disposed` if disposal starts first, and with `Server is already listening` on a second call. Server `error` events after binding are logged, never thrown.
 
 Sequence:
-
 1. Readiness starts failing and the server stops accepting connections.
 2. All `onShutdown` hooks run concurrently, bounded by the remaining grace time.
 3. In-flight responses drain, up to `graceMs` (default 10 000 ms) in total. If it expires, the shutdown is marked forced. Either way, every remaining connection is then closed.

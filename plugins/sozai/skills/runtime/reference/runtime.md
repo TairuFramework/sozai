@@ -5,13 +5,13 @@ consumers always get a fully resolved `Runtime` — no optional checks needed do
 
 ### Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `Fetch` | type | Type alias for `globalThis.fetch` |
-| `GetRandomID` | type | `() => string` — synchronous UUID generator |
-| `GetRandomValues` | type | `<T extends ArrayBufferView>(array: T) => T` — fills array with random bytes |
-| `Runtime` | type | Object with `fetch`, `getRandomID`, `getRandomValues` fields |
-| `createRuntime` | function | Returns a `Runtime` with globalThis defaults; accepts partial overrides |
+| Export            | Kind     | Description                                                                  |
+| ----------------- | -------- | ---------------------------------------------------------------------------- |
+| `Fetch`           | type     | Type alias for `globalThis.fetch`                                            |
+| `GetRandomID`     | type     | `() => string` — synchronous UUID generator                                  |
+| `GetRandomValues` | type     | `<T extends ArrayBufferView>(array: T) => T` — fills array with random bytes |
+| `Runtime`         | type     | Object with `fetch`, `getRandomID`, `getRandomValues` fields                 |
+| `createRuntime`   | function | Returns a `Runtime` with globalThis defaults; accepts partial overrides      |
 
 ### Runtime shape
 

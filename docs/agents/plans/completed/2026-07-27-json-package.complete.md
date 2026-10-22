@@ -10,7 +10,6 @@ backlog item (2026-07-11, now removed), which had been parked awaiting an upstre
 
 The backlog item said the fix belonged upstream and tracked `erdtman/canonicalize#22`. Two facts
 changed the calculus:
-
 - **Upstream stalled.** #22 was opened 2026-06-13 by the sole maintainer, one commit, zero review
   comments, no activity since; the repository's last commit was 2026-04-07.
 - **The dependency is 47 lines.** Owning it costs less than waiting for it.
@@ -19,9 +18,9 @@ The bug also turned out to be three bugs, not one. `canonicalize@3.0.0` emitted 
 three separate routes, all verified against the real package:
 
 ```js
-canonicalize({ a: () => {} })                          // '{"a":undefined}'
+canonicalize({ a: () => {} }) // '{"a":undefined}'
 canonicalize({ a: { toJSON: () => undefined }, b: 1 }) // '{"a":undefined,"b":1}'
-canonicalize([, 1])                                    // '[,1]'
+canonicalize([, 1]) // '[,1]'
 ```
 
 Since `@sozai/codec` sits under token signing, each could encode — and a caller could sign — a
@@ -76,7 +75,7 @@ Apache-2.0 — while the package's attribution file claimed `src/` was original 
 whole-branch review caught the contradiction and the serializer was rewritten independently from
 the RFC and the test suite, decomposed by value kind across seven functions with an ancestor stack
 in place of a `Set`. The re-review judged it a genuine independent expression, with the caveat that
-it is clean-room-*ish* rather than a true clean room, since the author had seen the original shape.
+it is clean-room-_ish_ rather than a true clean room, since the author had seen the original shape.
 Four error message strings were deliberately kept: they are asserted by tests and documented as
 `@sozai/codec` behaviour.
 

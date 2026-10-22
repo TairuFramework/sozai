@@ -13,7 +13,7 @@ import { isValidSpanContext } from './span-context.js'
  *
  * `options` is OTel's `TracerOptions`, so `schemaUrl` keeps the OTel API spelling. It is
  * forwarded through the provider because `trace.getTracer` drops `options` in
- * `@opentelemetry/api` 1.9.x.
+ * `@opentelemetry/api` 1.x (still as of 1.10).
  */
 export function createTracerFactory(
   prefix: string,

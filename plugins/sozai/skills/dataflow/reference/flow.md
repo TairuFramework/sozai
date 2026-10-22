@@ -4,18 +4,18 @@ Async-generator state machine. Define typed handler functions and iterate throug
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `createFlow` | function | Create a flow factory from a handlers record |
-| `createGenerator` | function | Lower-level: create an async generator from an initial action and handlers |
-| `FlowGenerator` | type | The async generator returned by a flow factory; also exposes `.events` (an `EventEmitter` of handler-emitted events) and `.getState()` (a frozen snapshot of the current state) |
-| `FlowAction` | type | `{ name: string; params?: unknown }` — an action to dispatch |
-| `Handler` | type | `(ctx) => GeneratorValue<S> \| Promise<GeneratorValue<S>>` |
-| `HandlersRecord` | type | Map of action name → `Handler` |
-| `HandlerExecutionContext` | type | `{ state: S; params: P; emit; signal? }` passed to each handler — `emit` fires flow events, `signal` reflects the flow's and the current step's abort state |
-| `GeneratorValue` | type | A non-terminal value yielded by the flow |
-| `GeneratorDoneValue` | type | The terminal value yielded when `status: 'end'` (or `'aborted'` / `'error'`) |
-| `MissingHandlerError` | class | Set as `error` on a terminal `{ status: 'error' }` value when an action name has no registered handler — not thrown |
+| Export                    | Kind     | Description                                                                                                                                                                     |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createFlow`              | function | Create a flow factory from a handlers record                                                                                                                                    |
+| `createGenerator`         | function | Lower-level: create an async generator from an initial action and handlers                                                                                                      |
+| `FlowGenerator`           | type     | The async generator returned by a flow factory; also exposes `.events` (an `EventEmitter` of handler-emitted events) and `.getState()` (a frozen snapshot of the current state) |
+| `FlowAction`              | type     | `{ name: string; params?: unknown }` — an action to dispatch                                                                                                                    |
+| `Handler`                 | type     | `(ctx) => GeneratorValue<S> \| Promise<GeneratorValue<S>>`                                                                                                                      |
+| `HandlersRecord`          | type     | Map of action name → `Handler`                                                                                                                                                  |
+| `HandlerExecutionContext` | type     | `{ state: S; params: P; emit; signal? }` passed to each handler — `emit` fires flow events, `signal` reflects the flow's and the current step's abort state                     |
+| `GeneratorValue`          | type     | A non-terminal value yielded by the flow                                                                                                                                        |
+| `GeneratorDoneValue`      | type     | The terminal value yielded when `status: 'end'` (or `'aborted'` / `'error'`)                                                                                                    |
+| `MissingHandlerError`     | class    | Set as `error` on a terminal `{ status: 'error' }` value when an action name has no registered handler — not thrown                                                             |
 
 Each handler returns `{ status: 'state' | 'action' | 'end', state, action?, params? }`. An unknown
 action name resolves `flow.next()` normally with `{ status: 'error', error: MissingHandlerError }`

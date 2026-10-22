@@ -2,30 +2,30 @@
 
 ## Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `Schema` | type | JSON Schema definition type |
-| `FromSchema` | type | Derive TypeScript type from schema |
-| `Validator` | type | Validator function type |
-| `ValidatorFactory` | type | Isolated validator factory with `createValidator`, `compiled`, `dispose` |
-| `ValidatorFactoryOptions` | type | Factory options: `draft`, `strict`, `logger` (`false` silences AJV warnings) |
-| `ValidatorCache` | type | Bounded validator cache with `get`, `stats`, `clear`, `dispose`, `disposed` |
-| `ValidatorCacheOptions` | type | Cache options: `factory`, `maxCompiles` (default 256), `maxEntries` (default 64) |
-| `ValidatorCacheStats` | type | `generation`, `compiles`, `entries` |
-| `ValidatorLogger` | type | Logger receiving AJV warnings |
-| `StandardSchemaV1` | type | Standard Schema v1 interface |
-| `ValidationError` | class | AggregateError with validation issues |
-| `ValidationErrorObject` | class | Single issue with AJV error details |
-| `createValidator` | function | Build reusable validator from schema |
-| `createValidatorFactory` | function | Own a disposable AJV instance for runtime schemas |
-| `createValidatorCache` | function | LRU of validators over recycled isolated factories, for runtime schemas |
-| `createStandardValidator` | function | Build Standard Schema v1 validator |
-| `toStandardValidator` | function | Wrap validator as Standard Schema v1 |
-| `assertType` | function | Assert value matches schema; throws on failure |
-| `asType` | function | Assert and return typed value |
-| `isType` | function | Type guard; returns boolean |
-| `resolveReference` | function | Resolve a `$ref` pointer string against a root schema |
-| `resolveSchema` | function | Resolve a schema's `$ref` via `resolveReference`, or return it unchanged |
+| Export                    | Kind     | Description                                                                      |
+| ------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `Schema`                  | type     | JSON Schema definition type                                                      |
+| `FromSchema`              | type     | Derive TypeScript type from schema                                               |
+| `Validator`               | type     | Validator function type                                                          |
+| `ValidatorFactory`        | type     | Isolated validator factory with `createValidator`, `compiled`, `dispose`         |
+| `ValidatorFactoryOptions` | type     | Factory options: `draft`, `strict`, `logger` (`false` silences AJV warnings)     |
+| `ValidatorCache`          | type     | Bounded validator cache with `get`, `stats`, `clear`, `dispose`, `disposed`      |
+| `ValidatorCacheOptions`   | type     | Cache options: `factory`, `maxCompiles` (default 256), `maxEntries` (default 64) |
+| `ValidatorCacheStats`     | type     | `generation`, `compiles`, `entries`                                              |
+| `ValidatorLogger`         | type     | Logger receiving AJV warnings                                                    |
+| `StandardSchemaV1`        | type     | Standard Schema v1 interface                                                     |
+| `ValidationError`         | class    | AggregateError with validation issues                                            |
+| `ValidationErrorObject`   | class    | Single issue with AJV error details                                              |
+| `createValidator`         | function | Build reusable validator from schema                                             |
+| `createValidatorFactory`  | function | Own a disposable AJV instance for runtime schemas                                |
+| `createValidatorCache`    | function | LRU of validators over recycled isolated factories, for runtime schemas          |
+| `createStandardValidator` | function | Build Standard Schema v1 validator                                               |
+| `toStandardValidator`     | function | Wrap validator as Standard Schema v1                                             |
+| `assertType`              | function | Assert value matches schema; throws on failure                                   |
+| `asType`                  | function | Assert and return typed value                                                    |
+| `isType`                  | function | Type guard; returns boolean                                                      |
+| `resolveReference`        | function | Resolve a `$ref` pointer string against a root schema                            |
+| `resolveSchema`           | function | Resolve a schema's `$ref` via `resolveReference`, or return it unchanged         |
 
 ## Example
 
@@ -108,7 +108,6 @@ cache.disposed // true
 For finer control, `createValidatorFactory()` gives one isolated instance with `compiled` and
 `dispose()`. Validators already returned keep working after `dispose()` and keep their instance
 alive until they are dropped too.
-
 - A validator checks a snapshot of the schema, so `ValidationError.schema` is that snapshot (equal to, not the same object as, the input) and its issues follow sorted key order.
 - Schemas must be self-contained: every compile leaves the instance as it found it, so `$ref` to another schema's `$id` does not resolve. A `$ref` to a location inside the same schema works.
 - A root `$id` equal to a meta-schema id is rejected with `Schema $id <id> is reserved`.

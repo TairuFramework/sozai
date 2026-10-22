@@ -9,12 +9,12 @@ afterward still applies). Also exports a helper to patch `globalThis.crypto` whe
 
 ### Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `expoRuntime` | const | Pre-built `Runtime`: `getRandomID`/`getRandomValues` from `expo-crypto`, `fetch` delegating to `globalThis.fetch` |
-| `createRuntime` | function | Returns a `Runtime` with `expoRuntime` defaults; accepts partial overrides |
-| `polyfillCrypto` | function | Patches `globalThis.crypto` with `expo-crypto`'s `getRandomValues`/`randomUUID` |
-| `polyfill` | function | Currently just calls `polyfillCrypto` — this package has no separate fetch polyfill |
+| Export           | Kind     | Description                                                                                                       |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `expoRuntime`    | const    | Pre-built `Runtime`: `getRandomID`/`getRandomValues` from `expo-crypto`, `fetch` delegating to `globalThis.fetch` |
+| `createRuntime`  | function | Returns a `Runtime` with `expoRuntime` defaults; accepts partial overrides                                        |
+| `polyfillCrypto` | function | Patches `globalThis.crypto` with `expo-crypto`'s `getRandomValues`/`randomUUID`                                   |
+| `polyfill`       | function | Currently just calls `polyfillCrypto` — this package has no separate fetch polyfill                               |
 
 `polyfillCrypto` and `polyfill` accept an optional `override: boolean` (default `false`). When
 `false`, an existing global is left untouched; pass `true` to force-replace it.
@@ -40,8 +40,7 @@ const runtime: Runtime = expoRuntime
 
 // Or create one with a custom fetch override
 const customRuntime: Runtime = createRuntime({
-  fetch: (input, init) =>
-    expoRuntime.fetch(input, { ...init, headers: { 'X-App': '1' } }),
+  fetch: (input, init) => expoRuntime.fetch(input, { ...init, headers: { 'X-App': '1' } }),
 })
 
 const id = customRuntime.getRandomID()

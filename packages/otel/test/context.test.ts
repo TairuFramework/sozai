@@ -1,3 +1,4 @@
+import type { TraceState } from '@opentelemetry/api'
 import { context, createTraceState, ROOT_CONTEXT, trace } from '@opentelemetry/api'
 import { describe, expect, test } from 'vitest'
 
@@ -149,15 +150,17 @@ describe('injectW3CTraceContext', () => {
   })
 
   test('caps an over-512-character tracestate on inject, and the emitted header survives createTraceState round-trip non-empty', () => {
-    // TraceStateImpl.set() does NOT enforce the 512-char cap (only _parse()
-    // does), so a TraceState built via chained .set() calls can exceed 512
-    // characters on serialize() even though it never went through a header
-    // string long enough to trip _parse's own bail-out. This is exactly the
-    // shape that reaches injectW3CTraceContext in practice: an inbound span
-    // whose tracestate a vendor then extends with .set().
-    let state = createTraceState()
-    for (let i = 0; i < 40; i++) {
-      state = state.set(`vendor${i}`, 'x'.repeat(20))
+    // Since `@opentelemetry/api` 1.10, OTel's own TraceStateImpl.set() refuses
+    // to grow past 512 characters, but `TraceState` is an interface: a foreign
+    // implementation can still serialize past the cap. This is the shape that
+    // reaches injectW3CTraceContext in practice: a span whose tracestate a
+    // vendor extended through its own TraceState implementation.
+    const members = Array.from({ length: 40 }, (_, i) => `vendor${i}=${'x'.repeat(20)}`)
+    const state: TraceState = {
+      set: () => state,
+      unset: () => state,
+      get: () => undefined,
+      serialize: () => members.join(','),
     }
     // Precondition: confirm the fixture actually exceeds the cap, so this
     // test cannot pass merely because the built state was already short.

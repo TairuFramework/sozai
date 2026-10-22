@@ -17,7 +17,6 @@ signature verification and private-key loading.
 
 The audit left this open, assuming padding was intentional because tests asserted it. The
 evidence said otherwise, and it was decisive:
-
 - The repo docs already documented `toB64U` as unpadded (`docs/reference/validation.md`,
   `docs/skills/validation.skill.md`). The code emitted `aGVsbG8=`. The docs were right; the
   code was wrong.
@@ -33,14 +32,14 @@ evidence said otherwise, and it was decisive:
 ## What shipped
 
 **`toB64U` is unpadded.** `toB64` stays **padded** — RFC 4648 §4 mandates it for standard
-base64; only the url-safe alphabet is unpadded in the JOSE context. `fromB64U` still *accepts*
+base64; only the url-safe alphabet is unpadded in the JOSE context. `fromB64U` still _accepts_
 padded input: **lenient decode, strict encode**. That asymmetry is deliberate and load-bearing
 — it is why tokens issued before this release keep verifying, with no coordinated migration.
 
 **`toUTF` uses a fatal decoder** (`{ fatal: true, ignoreBOM: true }`). Invalid UTF-8 throws a
 `TypeError` instead of decoding to U+FFFD-mangled text, and the throw propagates through
 `b64uToUTF` and `b64uToJSON`. Under signature verification, a corrupted payload must fail
-loudly rather than parse into *a* string. `ignoreBOM` is what makes `toUTF(fromUTF(x)) === x`
+loudly rather than parse into _a_ string. `ignoreBOM` is what makes `toUTF(fromUTF(x)) === x`
 actually hold.
 
 **`canonicalStringify` throws instead of lying.** It was declared `: string` but returned
@@ -61,9 +60,9 @@ whitespace-only input, so a blank secret cannot silently load as a zero-length k
 from files and env vars; `fromB64U` takes JWT segments off the wire, where whitespace is
 always corruption.
 
-**Both regexes are now real validators.** The originals checked alphabet and padding *shape*
+**Both regexes are now real validators.** The originals checked alphabet and padding _shape_
 but not that the padding count matched `dataLength % 4`, so `'AB='`, `'A'`, `'='` slipped past
-the guard and threw the *decoder's* error — a different error class depending on the runtime.
+the guard and threw the _decoder's_ error — a different error class depending on the runtime.
 The replacements only narrow input that already threw; property-testing against 1500 real JWS
 segments and real Ed25519 signature/key sizes confirmed **zero** previously-valid inputs are
 newly rejected.
@@ -88,10 +87,9 @@ now throws `SyntaxError`.
 ## Defects the reviews caught (worth remembering)
 
 Four things the plan itself got wrong, all found in review rather than by the plan author:
-
 - **The `fromB64` guard's stated rationale was false.** The plan claimed the native and `atob`
   decoders disagreed on whitespace. Measured across 15 inputs, they agree on every one — the
-  native decoder strips whitespace exactly as `atob` does. The guard is a *strictness* fix, not
+  native decoder strips whitespace exactly as `atob` does. The guard is a _strictness_ fix, not
   an alignment fix. The false story had reached a doc comment, the spec, and the changeset text.
 - **The strict guard broke private-key loading** (trailing newlines), which is what forced the
   trim contract above.

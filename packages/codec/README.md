@@ -12,7 +12,13 @@ pnpm add @sozai/codec
 
 ```ts
 import {
-  toB32, fromB32, toB64U, fromB64U, b64uFromJSON, b64uToJSON, canonicalStringify,
+  toB32,
+  fromB32,
+  toB64U,
+  fromB64U,
+  b64uFromJSON,
+  b64uToJSON,
+  canonicalStringify,
 } from '@sozai/codec'
 
 const bytes = new Uint8Array([104, 101, 108, 108, 111]) // "hello"

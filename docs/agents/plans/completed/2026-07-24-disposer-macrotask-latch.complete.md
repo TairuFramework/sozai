@@ -20,10 +20,9 @@ decide whether the platforms should agree and pin the behavior.
 **Pin and document — no behavior change (backlog Option A).** The divergence is intentional and
 defensible: the external signal genuinely aborted, so delivering its reason is correct on either
 platform. Two convergence alternatives were rejected:
-
-- *Always external reason on both platforms* — changes native behavior for a case no in-repo
+- _Always external reason on both platforms_ — changes native behavior for a case no in-repo
   consumer hits.
-- *Latch = construction frame only on both* — unreachable: the fallback platform has no
+- _Latch = construction frame only on both_ — unreachable: the fallback platform has no
   sub-macrotask deferral primitive, so it cannot clear the latch sooner than the dispose. It would
   ship "they now agree" that only half-holds.
 

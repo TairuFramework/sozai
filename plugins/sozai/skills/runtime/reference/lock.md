@@ -12,14 +12,14 @@ modes: the unsafe fallback path, TTL-bounded reboot recovery, and same-boot pid 
 
 ### Exports
 
-| Export | Kind | Description |
-|---|---|---|
-| `withFileLock` | function | Run a critical section under an exclusive cross-process lock |
-| `acquireFileLock` | function | Acquire the lock, returning a `Disposable` handle |
-| `FileLock` | type | The handle: `{ path, release() }`, also a `Disposable` |
-| `FileLockOptions` | type | `timeout`, `staleTimeout`, `retryDelay`, `maxRetryDelay`, `signal` |
-| `LockRecord` | type | The on-disk record: `pid`, `hostname`, `nonce`, `bootID`, `bootAt`, `startedAt`, `uptimeAt` |
-| `TimeoutInterruption` | class | Re-exported from `@sozai/async`; what acquisition throws on timeout |
+| Export                | Kind     | Description                                                                                 |
+| --------------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `withFileLock`        | function | Run a critical section under an exclusive cross-process lock                                |
+| `acquireFileLock`     | function | Acquire the lock, returning a `Disposable` handle                                           |
+| `FileLock`            | type     | The handle: `{ path, release() }`, also a `Disposable`                                      |
+| `FileLockOptions`     | type     | `timeout`, `staleTimeout`, `retryDelay`, `maxRetryDelay`, `signal`                          |
+| `LockRecord`          | type     | The on-disk record: `pid`, `hostname`, `nonce`, `bootID`, `bootAt`, `startedAt`, `uptimeAt` |
+| `TimeoutInterruption` | class    | Re-exported from `@sozai/async`; what acquisition throws on timeout                         |
 
 `LockEntry` (a `LockRecord` plus the inode and mtime it was read from) is internal — not exported.
 

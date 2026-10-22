@@ -8,40 +8,40 @@ OpenTelemetry utilities: tracer helpers, W3C context propagation, baggage codec,
 
 ### Tracing
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `createTracerFactory` | function | `createTracerFactory(prefix, version?)` — returns a `(name: string) => Tracer` factory; each call registers a tracer as `<prefix>.<name>`. `version` is the *consuming* package's version (reported as the instrumentation-scope version), not `@sozai/otel`'s. |
-| `withSpan` | function | `withSpan(tracer, name, options, fn, parentContext?)` — start an active span, await `fn(span)`, end the span. Leaves the span status `Unset` on success (per OTel guidance) and sets `ERROR` on a thrown error. Async. |
-| `withSyncSpan` | function | Same contract as `withSpan` but synchronous. |
-| `getActiveSpan` | function | Return the currently active `Span`, or `undefined` if none. |
-| `withActiveContext` | function | `withActiveContext(ctx, fn)` — run `fn` inside the given OTel `Context` (or the current active context when `undefined`). |
-| `setSpanOnContext` | function | Attach a `Span` to a `Context` and return the new `Context`. |
-| `TraceContext` | type | `{ traceID: string; spanID: string; traceFlags: number }` |
+| Symbol                | Kind     | Description                                                                                                                                                                                                                                                     |
+| --------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createTracerFactory` | function | `createTracerFactory(prefix, version?)` — returns a `(name: string) => Tracer` factory; each call registers a tracer as `<prefix>.<name>`. `version` is the _consuming_ package's version (reported as the instrumentation-scope version), not `@sozai/otel`'s. |
+| `withSpan`            | function | `withSpan(tracer, name, options, fn, parentContext?)` — start an active span, await `fn(span)`, end the span. Leaves the span status `Unset` on success (per OTel guidance) and sets `ERROR` on a thrown error. Async.                                          |
+| `withSyncSpan`        | function | Same contract as `withSpan` but synchronous.                                                                                                                                                                                                                    |
+| `getActiveSpan`       | function | Return the currently active `Span`, or `undefined` if none.                                                                                                                                                                                                     |
+| `withActiveContext`   | function | `withActiveContext(ctx, fn)` — run `fn` inside the given OTel `Context` (or the current active context when `undefined`).                                                                                                                                       |
+| `setSpanOnContext`    | function | Attach a `Span` to a `Context` and return the new `Context`.                                                                                                                                                                                                    |
+| `TraceContext`        | type     | `{ traceID: string; spanID: string; traceFlags: number }`                                                                                                                                                                                                       |
 
 ### Semantic constants
 
-| Symbol | Kind | Description |
-|---|---|---|
+| Symbol          | Kind  | Description                                                                                           |
+| --------------- | ----- | ----------------------------------------------------------------------------------------------------- |
 | `AttributeKeys` | const | Predefined OTel semantic attribute-key strings for instrumenting spans consistently across the stack. |
-| `ZERO_TRACE_ID` | const | The all-zero trace ID (`'00000000000000000000000000000000'`); used to detect no-op spans. |
+| `ZERO_TRACE_ID` | const | The all-zero trace ID (`'00000000000000000000000000000000'`); used to detect no-op spans.             |
 
 ### ID validation
 
-| Symbol | Kind | Description |
-|---|---|---|
+| Symbol           | Kind     | Description                                                                          |
+| ---------------- | -------- | ------------------------------------------------------------------------------------ |
 | `isValidTraceID` | function | Whether a string is a valid W3C trace ID: 32 lowercase hex characters, not all-zero. |
-| `isValidSpanID` | function | Whether a string is a valid W3C span ID: 16 lowercase hex characters, not all-zero. |
+| `isValidSpanID`  | function | Whether a string is a valid W3C span ID: 16 lowercase hex characters, not all-zero.  |
 
 ### Re-exports from `@opentelemetry/api`
 
-| Symbol | Kind |
-|---|---|
-| `Context` | type |
-| `Span` | type |
-| `SpanOptions` | type |
+| Symbol           | Kind |
+| ---------------- | ---- |
+| `Context`        | type |
+| `Span`           | type |
+| `SpanOptions`    | type |
 | `SpanStatusCode` | enum |
-| `TraceFlags` | enum |
-| `Tracer` | type |
+| `TraceFlags`     | enum |
+| `Tracer`         | type |
 
 ## Example — tracer and span
 

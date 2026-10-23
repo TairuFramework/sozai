@@ -2,4 +2,4 @@
 "@sozai/http-server": patch
 ---
 
-Add the `@sozai/http-server/transport` subpath: `transportInfo`, `isLoopbackAddress` and `isSecureTransport` read socket transport facts without runtime imports.
+Add `transportInfo`, `isLoopbackAddress` and `isSecureTransport`: socket transport facts (TLS, local and remote address) read from the Node connection, never from request headers, and a loopback check for both ends.

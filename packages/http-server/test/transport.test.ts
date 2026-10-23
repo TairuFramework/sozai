@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { Hono } from 'hono'
 import { describe, expect, onTestFinished, test } from 'vitest'
 
@@ -93,13 +92,5 @@ describe('transportInfo', () => {
       localAddress: '127.0.0.1',
       remoteAddress: '127.0.0.1',
     })
-  })
-
-  test('uses only type imports so it can load outside Node', async () => {
-    const source = await readFile(new URL('../src/transport.ts', import.meta.url), 'utf8')
-    const imports = source.split('\n').filter((line) => /^\s*import\b/.test(line))
-    for (const line of imports) {
-      expect(line).toMatch(/^\s*import type\b/)
-    }
   })
 })

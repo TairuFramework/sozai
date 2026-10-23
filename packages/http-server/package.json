@@ -17,8 +17,7 @@
   "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./lib/index.js",
-    "./transport": "./lib/transport.js"
+    ".": "./lib/index.js"
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

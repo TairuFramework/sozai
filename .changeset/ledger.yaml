@@ -30,6 +30,10 @@
   dir: packages/flow-graph
   intents:
     - real-olives-sell
+"@sozai/hlc@0.1.0":
+  dir: packages/hlc
+  intents:
+    - breezy-jokes-arrive
 "@sozai/http-server@0.1.0":
   dir: packages/http-server
   intents:

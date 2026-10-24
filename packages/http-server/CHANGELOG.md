@@ -1,5 +1,11 @@
 # @sozai/http-server
 
+## 0.2.1
+
+### Patch Changes
+
+- Add `transportInfo`, `isLoopbackAddress` and `isSecureTransport`: socket transport facts (TLS, local and remote address) read from the Node connection, never from request headers, and a loopback check for both ends.
+
 ## 0.2.0
 
 ### Minor Changes

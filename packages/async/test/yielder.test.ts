@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { createYielder, defaultYielder, maybeYield } from '../src/yielder.js'
 
@@ -122,6 +122,45 @@ describe('createYielder()', () => {
     await yielder.maybeYield()
     calls.push('over')
     expect(calls).toEqual(['within', 'timer', 'over'])
+  })
+})
+
+describe('fake timers', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test('a yielder created before timers are faked keeps yielding on real timers', async () => {
+    const clock = createClock()
+    const yielder = createYielder({ budgetMs: 8, now: clock.now })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    clock.set(100)
+    // With the faked setTimeout this would never resolve: nothing advances the fake clock.
+    await expect(yielder.maybeYield()).resolves.toBeUndefined()
+  })
+
+  test('schedules macrotask turns with the given scheduler', async () => {
+    const clock = createClock()
+    const scheduled: Array<() => void> = []
+    const yielder = createYielder({
+      budgetMs: 8,
+      now: clock.now,
+      schedule: (callback) => {
+        scheduled.push(callback)
+      },
+    })
+
+    clock.set(100)
+    let resumed = false
+    const waiting = yielder.maybeYield().then(() => {
+      resumed = true
+    })
+    await Promise.resolve()
+    expect(resumed).toBe(false)
+    for (const callback of scheduled.splice(0)) callback()
+    await waiting
+    expect(resumed).toBe(true)
   })
 })
 

@@ -6,6 +6,11 @@ export type YielderOptions = {
   budgetMs?: number
   /** Clock returning the current time in milliseconds. Defaults to `Date.now`. */
   now?: () => number
+  /**
+   * Runs a callback on a later macrotask turn. Defaults to the `setTimeout(callback, 0)` found when
+   * the yielder is created, so timers faked or patched afterwards (test fake timers) cannot stall it.
+   */
+  schedule?: (callback: () => void) => void
 }
 
 export type Yielder = {
@@ -14,6 +19,12 @@ export type Yielder = {
    * for a macrotask turn. Call between units of work in long async loops.
    */
   maybeYield: () => Promise<void>
+}
+
+function scheduleOnTimeout(timeout: typeof setTimeout): (callback: () => void) => void {
+  return (callback) => {
+    timeout.call(globalThis, callback, 0)
+  }
 }
 
 /**
@@ -32,6 +43,7 @@ export type Yielder = {
 export function createYielder(options: YielderOptions = {}): Yielder {
   const budgetMs = options.budgetMs ?? DEFAULT_YIELD_BUDGET_MS
   const now = options.now ?? Date.now
+  const schedule = options.schedule ?? scheduleOnTimeout(globalThis.setTimeout)
 
   const waiters: Array<() => void> = []
   let lastTurn = now()
@@ -47,7 +59,7 @@ export function createYielder(options: YielderOptions = {}): Yielder {
     lastTurn = now()
     const next = waiters.shift()
     if (waiters.length > 0) {
-      setTimeout(pump, 0)
+      schedule(pump)
     } else {
       pumping = false
     }
@@ -57,7 +69,7 @@ export function createYielder(options: YielderOptions = {}): Yielder {
   async function maybeYield(): Promise<void> {
     if (!marking) {
       marking = true
-      setTimeout(mark, 0)
+      schedule(mark)
     }
     if (waiters.length === 0 && now() - lastTurn < budgetMs) {
       return
@@ -66,7 +78,7 @@ export function createYielder(options: YielderOptions = {}): Yielder {
       waiters.push(resolve)
       if (!pumping) {
         pumping = true
-        setTimeout(pump, 0)
+        schedule(pump)
       }
     })
   }

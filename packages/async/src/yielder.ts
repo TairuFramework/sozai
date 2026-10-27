@@ -36,9 +36,10 @@ function scheduleOnTimeout(timeout: typeof setTimeout): (callback: () => void) =
  * macrotask turn. It deliberately uses `setTimeout` rather than `setImmediate` (which runs before
  * native events are drained on React Native) or microtasks (which never yield).
  *
- * Waiters resume one per macrotask turn in FIFO order, so concurrent loops interleave with the
- * event loop instead of all resuming in a single microtask drain. While waiters are queued, new
- * callers queue behind them even if within budget.
+ * A turn resumes waiters in FIFO order, checking the clock after each waiter's promise
+ * continuation runs. It stops at the budget or after the waiters present at the start of the
+ * turn, then schedules another turn for any remainder. While waiters are queued, new callers
+ * queue behind them even if within budget.
  */
 export function createYielder(options: YielderOptions = {}): Yielder {
   const budgetMs = options.budgetMs ?? DEFAULT_YIELD_BUDGET_MS
@@ -57,24 +58,39 @@ export function createYielder(options: YielderOptions = {}): Yielder {
 
   const pump = (): void => {
     lastTurn = now()
-    const next = waiters.shift()
-    if (waiters.length > 0) {
-      schedule(pump)
-    } else {
-      pumping = false
+    const turnStart = lastTurn
+    let remaining = waiters.length
+    let resumed = false
+
+    const resumeNext = (): void => {
+      if (remaining === 0 || (resumed && now() - turnStart >= budgetMs)) {
+        if (waiters.length > 0) {
+          schedule(pump)
+        } else {
+          pumping = false
+        }
+        return
+      }
+
+      remaining--
+      resumed = true
+      waiters.shift()?.()
+      // The resolved caller runs before this checkpoint in the same microtask drain.
+      queueMicrotask(resumeNext)
     }
-    next?.()
+
+    resumeNext()
   }
 
-  async function maybeYield(): Promise<void> {
+  function maybeYield(): Promise<void> {
     if (!marking) {
       marking = true
       schedule(mark)
     }
     if (waiters.length === 0 && now() - lastTurn < budgetMs) {
-      return
+      return Promise.resolve()
     }
-    await new Promise<void>((resolve) => {
+    return new Promise<void>((resolve) => {
       waiters.push(resolve)
       if (!pumping) {
         pumping = true

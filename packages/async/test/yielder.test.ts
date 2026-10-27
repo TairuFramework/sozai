@@ -62,23 +62,97 @@ describe('createYielder()', () => {
     await nextTurn()
   })
 
-  test('resumes waiters one per macrotask turn, in FIFO order', async () => {
+  test('resumes several waiters in FIFO order within one turn', async () => {
     const clock = createClock()
-    const yielder = createYielder({ budgetMs: 8, now: clock.now })
+    const scheduled: Array<() => void> = []
+    const yielder = createYielder({
+      budgetMs: 8,
+      now: clock.now,
+      schedule: (callback) => {
+        scheduled.push(callback)
+      },
+    })
     const calls: Array<string> = []
 
     clock.set(100)
-    const first = yielder.maybeYield().then(() => calls.push('first'))
-    const second = yielder.maybeYield().then(() => calls.push('second'))
-    const probe = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        calls.push('probe')
-        resolve()
-      }, 0)
+    const first = yielder.maybeYield().then(() => {
+      calls.push('first')
+      clock.set(102)
+    })
+    const second = yielder.maybeYield().then(() => {
+      calls.push('second')
+      clock.set(104)
+    })
+    const third = yielder.maybeYield().then(() => {
+      calls.push('third')
+      clock.set(106)
     })
 
-    await Promise.all([first, second, probe])
-    expect(calls).toEqual(['first', 'probe', 'second'])
+    for (const callback of scheduled.splice(0)) callback()
+    await first
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(calls).toEqual(['first', 'second', 'third'])
+    expect(scheduled).toHaveLength(0)
+    await Promise.all([second, third])
+  })
+
+  test('schedules another turn once resumed work uses the budget', async () => {
+    const clock = createClock()
+    const scheduled: Array<() => void> = []
+    const yielder = createYielder({
+      budgetMs: 8,
+      now: clock.now,
+      schedule: (callback) => {
+        scheduled.push(callback)
+      },
+    })
+    const calls: Array<string> = []
+
+    clock.set(100)
+    const first = yielder.maybeYield().then(() => {
+      calls.push('first')
+      clock.set(108)
+    })
+    const second = yielder.maybeYield().then(() => calls.push('second'))
+
+    for (const callback of scheduled.splice(0)) callback()
+    await first
+    await Promise.resolve()
+    expect(calls).toEqual(['first'])
+    expect(scheduled).toHaveLength(1)
+
+    scheduled.shift()?.()
+    await second
+    expect(calls).toEqual(['first', 'second'])
+  })
+
+  test('a resumed waiter can continue within the new turn budget', async () => {
+    const clock = createClock()
+    const scheduled: Array<() => void> = []
+    const yielder = createYielder({
+      budgetMs: 8,
+      now: clock.now,
+      schedule: (callback) => {
+        scheduled.push(callback)
+      },
+    })
+
+    clock.set(100)
+    let completed = false
+    const waiting = (async () => {
+      await yielder.maybeYield()
+      clock.set(102)
+      await yielder.maybeYield()
+      completed = true
+    })()
+
+    await Promise.resolve()
+    expect(completed).toBe(false)
+    for (const callback of scheduled.splice(0)) callback()
+    await waiting
+    expect(completed).toBe(true)
   })
 
   test('a new caller does not jump the queue even when within budget', async () => {

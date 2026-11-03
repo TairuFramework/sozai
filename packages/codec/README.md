@@ -1,6 +1,6 @@
 # @sozai/codec
 
-Base32 / Base64 / UTF-8 / JSON encoding and canonical stringify.
+Base32 / Base64 / UTF-8 / JSON encoding, unsigned varints and canonical stringify.
 
 ## Installation
 
@@ -19,6 +19,8 @@ import {
   b64uFromJSON,
   b64uToJSON,
   canonicalStringify,
+  encodeVarint,
+  decodeVarint,
 } from '@sozai/codec'
 
 const bytes = new Uint8Array([104, 101, 108, 108, 111]) // "hello"
@@ -38,6 +40,10 @@ b64uToJSON<Entry>(token) // { id: 'abc', value: 42 }
 
 // Deterministic JSON for content addressing / signatures (RFC 8785)
 canonicalStringify({ z: 1, a: 2 }) === canonicalStringify({ a: 2, z: 1 }) // true
+
+// Unsigned LEB128 varints (multiformats unsigned-varint)
+encodeVarint(300) // Uint8Array([0xac, 0x02])
+decodeVarint(new Uint8Array([0xac, 0x02])) // { value: 300, length: 2 }
 ```
 
 `fromB32` accepts lowercase, unpadded input only. It rejects whitespace, uppercase, padding and impossible lengths.

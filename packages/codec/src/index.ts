@@ -301,3 +301,49 @@ export function b64uToUTF(base64url: string): string {
 export function b64uToJSON<T = Record<string, unknown>>(base64url: string): T {
   return parseJSON<T>(b64uToUTF(base64url))
 }
+
+/**
+ * Encode a non-negative safe integer as an unsigned LEB128 varint (multiformats `unsigned-varint`).
+ *
+ * Throws a `RangeError` for negative, fractional or unsafe integers.
+ */
+export function encodeVarint(value: number): Uint8Array {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`Invalid varint value: ${value}`)
+  }
+  const out: Array<number> = []
+  let rest = value
+  while (rest >= 0x80) {
+    out.push((rest % 0x80) | 0x80)
+    rest = Math.floor(rest / 0x80)
+  }
+  out.push(rest)
+  return Uint8Array.from(out)
+}
+
+/** Decoded varint value and the number of bytes it occupied. */
+export type DecodedVarint = { value: number; length: number }
+
+/**
+ * Decode an unsigned LEB128 varint starting at `offset`.
+ *
+ * Non-minimal encodings (e.g. `[0x81, 0x00]` for 1) decode; callers needing a canonical form
+ * re-encode and compare. Truncated input or a value beyond the safe integer range throws a
+ * `RangeError`.
+ */
+export function decodeVarint(bytes: Uint8Array, offset = 0): DecodedVarint {
+  let value = 0
+  let multiplier = 1
+  for (let index = offset; index < bytes.length; index++) {
+    const byte = bytes[index] as number
+    value += (byte & 0x7f) * multiplier
+    if (!Number.isSafeInteger(value)) {
+      throw new RangeError('Varint exceeds safe integer range')
+    }
+    if ((byte & 0x80) === 0) {
+      return { value, length: index - offset + 1 }
+    }
+    multiplier *= 0x80
+  }
+  throw new RangeError('Truncated varint')
+}

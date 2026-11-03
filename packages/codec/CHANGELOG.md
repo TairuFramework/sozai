@@ -1,5 +1,11 @@
 # @sozai/codec
 
+## 0.4.4
+
+### Patch Changes
+
+- Add `encodeVarint` and `decodeVarint` (unsigned LEB128, multiformats `unsigned-varint`) for code-prefixed binary IDs.
+
 ## 0.4.2
 
 ### Patch Changes

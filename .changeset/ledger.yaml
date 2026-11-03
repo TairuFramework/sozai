@@ -18,6 +18,10 @@
   dir: packages/codec
   intents:
     - codec-strict-base64
+"@sozai/codec@0.4.4":
+  dir: packages/codec
+  intents:
+    - codec-varint
 "@sozai/event@0.1.6":
   dir: packages/event
   intents:

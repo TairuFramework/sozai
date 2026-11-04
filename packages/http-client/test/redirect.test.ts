@@ -117,7 +117,10 @@ test('refuses a hop to a private address', async () => {
     createHTTPClient({ policy, fetch, resolveHost }).request({ url }),
   ).rejects.toMatchObject({ code: 'ADDRESS_REFUSED', sent: true })
   expect(fetch.calls).toHaveLength(1)
-  expect(resolveHost.mock.calls).toEqual([['api.example.com'], ['cdn.example.com']])
+  expect(resolveHost.mock.calls.map(([hostname]) => hostname)).toEqual([
+    'api.example.com',
+    'cdn.example.com',
+  ])
 })
 
 test.each([undefined, 0])('stops after maxRedirects %s', async (maxRedirects) => {
@@ -254,3 +257,22 @@ test('wraps an unparseable Location as NETWORK with its TypeError cause', async 
   })
   expect(fetch.calls).toHaveLength(1)
 })
+
+test.each([false, true])(
+  'cancels a platform-followed refused body, cancellation fails: %s',
+  async (fail) => {
+    const cancel = vi.fn(async () => {
+      if (fail) throw new Error('cancel failed')
+    })
+    const fetch = createFakeFetch(() => {
+      const response = new Response(new ReadableStream({ cancel }))
+      Object.defineProperty(response, 'url', { value: 'https://evil.example/' })
+      return response
+    })
+    await expect(createHTTPClient({ policy, fetch }).request({ url })).rejects.toMatchObject({
+      code: 'ORIGIN_REFUSED',
+      sent: true,
+    })
+    expect(cancel).toHaveBeenCalledOnce()
+  },
+)

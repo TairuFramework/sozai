@@ -1,3 +1,5 @@
+import { raceSignal } from '@sozai/async'
+
 import { isIPLiteral, isLoopbackAddress, isPublicAddress } from './address.js'
 import { HTTPClientError } from './errors.js'
 import type { HTTPRetryPolicy, RateLimit, RequestPolicy, ResolveHost } from './types.js'
@@ -96,9 +98,10 @@ export async function checkTarget(params: {
   policy: ResolvedPolicy
   resolveHost?: ResolveHost
   sent: boolean
+  signal?: AbortSignal
 }): Promise<void> {
-  const { url, policy, resolveHost, sent } = params
-  const malformedHostname = url.hostname.endsWith('..')
+  const { url, policy, resolveHost, sent, signal } = params
+  const malformedHostname = url.hostname.includes('..')
   const hostname = normalizeHostname(url)
   const exempt = !malformedHostname && isExemptLoopback(hostname, policy.allowInsecureLoopback)
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && exempt)) {
@@ -134,7 +137,8 @@ export async function checkTarget(params: {
 
   let addresses: Array<string>
   try {
-    addresses = await resolveHost(hostname)
+    const lookup = resolveHost(hostname, { signal })
+    addresses = await (signal ? raceSignal(lookup, signal) : lookup)
   } catch (cause) {
     // biome-ignore lint/style/useErrorCause: HTTPClientError takes cause in its single params object.
     throw new HTTPClientError({ code: 'NETWORK', sent: false, cause })

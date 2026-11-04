@@ -198,3 +198,18 @@ test('does not apply auth when the first target is refused', async () => {
   expect(auth).not.toHaveBeenCalled()
   expect(fetch.calls).toHaveLength(0)
 })
+
+test('omits an auth query key from the reported response URL', async () => {
+  const fetch = createFakeFetch((href) => {
+    const response = new Response('ok')
+    Object.defineProperty(response, 'url', { value: href })
+    return response
+  })
+  const response = await createHTTPClient({
+    policy,
+    fetch,
+    auth: apiKeyAuth({ in: 'query', name: 'key', value: 'secret' }),
+  }).request({ url: 'https://api.example.com/items?view=full' })
+  expect(fetch.calls[0]?.url).toBe('https://api.example.com/items?view=full&key=secret')
+  expect(response.url).toBe('https://api.example.com/items?view=full')
+})

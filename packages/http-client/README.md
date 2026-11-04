@@ -33,11 +33,15 @@ The Node example injects DNS resolution. The package itself has no Node imports.
 `fetch` defaults to `createRuntime().fetch` from `@sozai/runtime`, which delegates to `globalThis.fetch` at call time.
 `fetch`, `resolveHost` and abortable `sleep` can be injected through `HTTPClientParams`.
 The default `sleep` comes from `@sozai/async`.
+`text()` and `json()` require `TextDecoder`. React Native apps on runtimes without it need a polyfill.
 
 `request()` returns a buffered `HTTPResponse`, including non-2xx responses.
 `client.json<T>()` sets `accept: application/json` unless supplied, throws `STATUS` for non-2xx responses, and parses successful responses.
 Requests default to `GET`. `json` sets `content-type: application/json` unless supplied and is mutually exclusive with `body`.
 `body` accepts a string or `Uint8Array`. Supplying both body forms throws `TypeError`.
+
+The reported response URL uses the hop URL before auth adds query credentials.
+A different platform-followed URL is reported only after its origin check.
 
 Responses expose `status`, `statusText`, `ok`, `headers`, `url`, `bytes()`, `text()` and `json<T>()`.
 `bytes()` returns the same buffered `Uint8Array` each time. `text()` uses a non-fatal `TextDecoder`.
@@ -71,7 +75,9 @@ Aborted waits refund their token. The first token wait is outside the attempt ti
 Every manually sent hop checks scheme, user info, origin and address, in that order.
 HTTPS is required. An undeclared private target fails with `ORIGIN_REFUSED` before the address check.
 Literal IPs are checked directly. `localhost`, `*.localhost` and trailing-dot variants are refused.
-Other hostnames use `resolveHost` when supplied. A rejected lookup or empty address list produces `NETWORK`.
+Hostnames containing consecutive dots, including two or more trailing dots, produce `ADDRESS_REFUSED` before resolution, even with loopback enabled.
+One trailing dot is removed for address checks. After literal-IP checks, remaining hosts containing only digits and dots produce `ADDRESS_REFUSED`.
+Valid public IP literals remain allowed. Other hostnames use `resolveHost` when supplied. A rejected lookup or empty address list produces `NETWORK`.
 Any private or unparseable resolved address produces `ADDRESS_REFUSED`.
 Without `resolveHost`, DNS hostnames receive no resolved-address check.
 
@@ -93,12 +99,17 @@ The origin must still be declared. Resolved loopback addresses receive no exempt
 An empty API key name throws `TypeError`. `noAuth` is the default applier.
 Auth runs after caller headers on every hop, using fresh headers and a URL copy. It can overwrite caller auth headers.
 The caller's URL is never mutated. Applier errors propagate unwrapped and are never retried.
+The attempt timer covers address checks, auth, fetch and body buffering after the first rate-limit token.
+`resolveHost` receives an optional `{ signal }` argument. Lookup and auth waits stop on timeout or caller abort.
+Before any fetch starts, these failures produce `TIMEOUT` or `ABORTED` with `sent: false`.
 
 The client requests `redirect: 'manual'` and follows 301, 302, 303, 307 and 308 responses with `Location`.
 Relative locations resolve against the hop URL. A redirect without `Location` is returned as a response.
 303 switches to GET except for HEAD. 301/302 switch POST to GET. These switches drop the body, `content-type` and `content-length`.
 307/308 preserve method and body. Each manually followed hop repeats the policy checks and reapplies auth.
 Cross-origin redirects strip caller `authorization`, `cookie` and `proxy-authorization` headers before auth runs again. Other caller headers carry over.
+Every declared origin receives the client's credential when a redirect reaches it.
+Caller-supplied credential headers other than `authorization`, `cookie` and `proxy-authorization` carry over to another declared origin.
 Redirect bodies are cancelled. Following beyond `maxRedirects` throws `TOO_MANY_REDIRECTS`.
 
 ## Retries
@@ -138,13 +149,13 @@ Abort errors use the caller signal's reason as `cause`, including aborts during 
 
 ## Known limits
 
+IPv4-translated (`::ffff:0:a.b.c.d`), 6to4 (`2002::/16`), Teredo (`2001::/32`), `64:ff9b:1::/48` and `192.0.0.0/24` addresses are not refused yet.
+
 DNS resolution checks precede fetch's own resolution. DNS rebinding between the check and fetch remains possible.
 React Native may follow redirects itself despite `redirect: 'manual'`.
 The client checks a differing, non-empty `response.url` against declared origins after fetch. It cannot inspect or prevent those intermediate hops.
 Browser-like opaque redirects and status 0 produce `NETWORK`.
 
-On a client with `rateLimit`, the first hop's `resolveHost` check runs before the attempt timer starts.
-The timer starts after the first token, so a slow DNS lookup there is not bounded by `timeoutMS`.
 `createHTTPClient` captures `Date.now` at construction for the rate limiter. Later replacements of `Date.now` do not change that captured clock.
 
 Without `response.body`, the client buffers through `arrayBuffer()` before checking the observed length. The cap cannot prevent that initial allocation.

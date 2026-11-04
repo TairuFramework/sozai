@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import { createHTTPClient } from '../src/index.js'
+import { bearerAuth, createHTTPClient } from '../src/index.js'
 import type { RequestPolicy } from '../src/types.js'
 import { createFakeFetch, recordingSleep } from './helpers.js'
 
@@ -318,3 +318,85 @@ test.each(['ABORTED', 'TIMEOUT'])(
     expect(vi.getTimerCount()).toBe(0)
   },
 )
+
+test.each([false, true])(
+  'bounds a hung lookup after the first token, rate limit: %s',
+  async (limited) => {
+    const fetch = hangingFetch()
+    let settled: unknown
+    const result = createHTTPClient({
+      policy: { ...policy, rateLimit: limited ? { requests: 1, perMS: 100 } : undefined },
+      fetch,
+      resolveHost: () => new Promise<Array<string>>(() => {}),
+    })
+      .request({ url })
+      .catch((error: unknown) => {
+        settled = error
+      })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(settled).toMatchObject({ code: 'TIMEOUT', sent: false })
+    await result
+    expect(fetch.calls).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
+  },
+)
+
+test('aborts a lookup that never settles', async () => {
+  const parent = new AbortController()
+  const cause = new Error('cancel hung lookup')
+  const fetch = hangingFetch()
+  let settled: unknown
+  const result = createHTTPClient({
+    policy,
+    fetch,
+    resolveHost: () => new Promise<Array<string>>(() => {}),
+  })
+    .request({ url, signal: parent.signal })
+    .catch((error: unknown) => {
+      settled = error
+    })
+  await vi.advanceTimersByTimeAsync(0)
+  parent.abort(cause)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(settled).toMatchObject({ code: 'ABORTED', sent: false, cause })
+  await result
+  expect(fetch.calls).toHaveLength(0)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test.each(['TIMEOUT', 'ABORTED'])('bounds a hung bearer token provider with %s', async (code) => {
+  const parent = new AbortController()
+  const fetch = hangingFetch()
+  let settled: unknown
+  const result = createHTTPClient({
+    policy,
+    fetch,
+    auth: bearerAuth(() => new Promise<string>(() => {})),
+  })
+    .request({ url, signal: parent.signal })
+    .catch((error: unknown) => {
+      settled = error
+    })
+  await vi.advanceTimersByTimeAsync(0)
+  if (code === 'ABORTED') parent.abort(new Error('cancel token provider'))
+  await vi.advanceTimersByTimeAsync(50)
+  expect(settled).toMatchObject({ code, sent: false })
+  await result
+  expect(fetch.calls).toHaveLength(0)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test('passes the attempt signal to the resolver', async () => {
+  const fetch = createFakeFetch(() => new Response('ok'))
+  let lookupSignal: AbortSignal | undefined
+  await createHTTPClient({
+    policy,
+    fetch,
+    resolveHost: async (_hostname, options) => {
+      lookupSignal = options?.signal
+      return ['8.8.8.8']
+    },
+  }).request({ url })
+  expect(lookupSignal).toBeInstanceOf(AbortSignal)
+  expect(lookupSignal).toBe(fetch.calls[0]?.init.signal)
+})

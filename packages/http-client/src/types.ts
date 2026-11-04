@@ -15,7 +15,10 @@ export type RequestPolicy = {
   allowInsecureLoopback?: boolean
 }
 
-export type ResolveHost = (hostname: string) => Promise<Array<string>>
+export type ResolveHost = (
+  hostname: string,
+  options?: { signal?: AbortSignal },
+) => Promise<Array<string>>
 
 export type HTTPClientParams = {
   policy: RequestPolicy

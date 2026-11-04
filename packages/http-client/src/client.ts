@@ -1,4 +1,4 @@
-import { sleep as defaultSleep } from '@sozai/async'
+import { sleep as defaultSleep, raceSignal } from '@sozai/async'
 import { createRuntime } from '@sozai/runtime'
 
 import { noAuth } from './auth.js'
@@ -30,20 +30,10 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     sent: boolean
     failure(cause: unknown): HTTPClientError
     markSent(): void
-  }): Promise<Response | HTTPClientError> {
+  }): Promise<{ response: Response; sentURL: string } | HTTPClientError> {
     const { method, body } = params
     let signal = params.signal
     const url = new URL(params.url.href)
-    if (signal?.aborted) return params.failure(signal.reason)
-    try {
-      await checkTarget({ url, policy, resolveHost, sent: params.sent })
-    } catch (cause) {
-      if (signal?.aborted) return params.failure(signal.reason)
-      if (cause instanceof HTTPClientError && cause.code === 'NETWORK') {
-        return params.failure(cause.cause)
-      }
-      throw cause
-    }
     if (signal?.aborted) return params.failure(signal.reason)
     try {
       await rateLimiter?.acquire(url.host, signal)
@@ -52,18 +42,35 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     }
     signal = params.startTimer()
     if (signal.aborted) return params.failure(signal.reason)
+    try {
+      await checkTarget({ url, policy, resolveHost, sent: params.sent, signal })
+    } catch (cause) {
+      if (signal.aborted) return params.failure(signal.reason)
+      if (cause instanceof HTTPClientError && cause.code === 'NETWORK') {
+        return params.failure(cause.cause)
+      }
+      throw cause
+    }
+    if (signal.aborted) return params.failure(signal.reason)
     const headers = new Headers(params.headers)
-    await auth({ url, headers })
+    try {
+      await raceSignal(Promise.resolve(auth({ url, headers })), signal)
+    } catch (cause) {
+      if (signal.aborted) return params.failure(signal.reason)
+      throw cause
+    }
     if (signal.aborted) return params.failure(signal.reason)
     params.markSent()
     try {
-      return await fetch(url.href, {
+      const sentURL = url.href
+      const response = await fetch(sentURL, {
         method,
         headers: Object.fromEntries(headers),
         body: body as BodyInit | undefined,
         signal,
         redirect: 'manual',
       })
+      return { response, sentURL }
     } catch (cause) {
       return params.failure(signal.aborted ? signal.reason : cause)
     }
@@ -79,9 +86,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     markSent(): void
     retryIndex?: number
   }): Promise<HTTPResponse | HTTPClientError | { retryDelayMS: number }> {
-    let linked = rateLimiter
-      ? undefined
-      : linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
+    let linked: ReturnType<typeof linkSignal> | undefined
     const startTimer = () => {
       linked ??= linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
       return linked.signal
@@ -103,7 +108,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
       const headers = new Headers(params.headers)
       let redirects = 0
       while (true) {
-        const response = await sendHop({
+        const hop = await sendHop({
           url,
           method,
           body,
@@ -117,12 +122,14 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
             params.markSent()
           },
         })
-        if (response instanceof HTTPClientError) return response
+        if (hop instanceof HTTPClientError) return hop
+        const { response, sentURL } = hop
         if (response.type === 'opaqueredirect' || response.status === 0) {
           return new HTTPClientError({ code: 'NETWORK', sent: true })
         }
-        const finalURL = response.url || url.href
+        const finalURL = response.url && response.url !== sentURL ? response.url : url.href
         if (finalURL !== url.href && !policy.origins.has(new URL(finalURL).origin)) {
+          await response.body?.cancel().catch(() => {})
           throw new HTTPClientError({ code: 'ORIGIN_REFUSED', sent: true })
         }
         const location = response.headers.get('location')

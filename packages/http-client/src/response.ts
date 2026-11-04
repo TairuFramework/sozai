@@ -9,7 +9,10 @@ export async function readBody(params: {
   signal?: AbortSignal
 }): Promise<Uint8Array> {
   const { response, maxBytes, signal } = params
-  if (signal?.aborted) throw signal.reason
+  if (signal?.aborted) {
+    await response.body?.cancel().catch(() => {})
+    throw signal.reason
+  }
   const tooLarge = () => {
     return new HTTPClientError({
       code: 'RESPONSE_TOO_LARGE',

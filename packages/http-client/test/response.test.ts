@@ -113,3 +113,19 @@ test('caps the real body even when content-length understates it', async () => {
   expect(cancel).toHaveBeenCalledOnce()
   expect(response.body?.locked).toBe(false)
 })
+
+test.each([false, true])(
+  'cancels the body on an already-aborted signal, cancellation fails: %s',
+  async (fail) => {
+    const parent = new AbortController()
+    const reason = new Error('already cancelled')
+    parent.abort(reason)
+    const cancel = vi.fn(async () => {
+      if (fail) throw new Error('cancel failed')
+    })
+    const response = new Response(new ReadableStream({ cancel }))
+    await expect(readBody({ response, maxBytes: 10, signal: parent.signal })).rejects.toBe(reason)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(response.body?.locked).toBe(false)
+  },
+)

@@ -243,7 +243,7 @@ test('checks resolved public addresses and normalizes the resolver hostname', as
       sent: false,
     }),
   ).resolves.toBeUndefined()
-  expect(resolveHost).toHaveBeenCalledExactlyOnceWith('api.example.com')
+  expect(resolveHost).toHaveBeenCalledExactlyOnceWith('api.example.com', { signal: undefined })
 })
 
 test.each([['93.184.216.34', '10.1.2.3'], ['garbage'], ['127.0.0.1']])(
@@ -320,5 +320,20 @@ test.each(['not a URL', '/relative', 'https://[invalid]'])(
     } catch (error) {
       expect(error).toMatchObject({ code: 'INSECURE_URL', sent: false })
     }
+  },
+)
+
+test.each(['api..example.com', 'a..localhost', 'api...example.com.'])(
+  'refuses consecutive hostname dots before resolution: %s',
+  async (hostname) => {
+    const url = new URL(`https://${hostname}/`)
+    const policy = resolvePolicy({ origins: [url.origin], allowInsecureLoopback: true })
+    const resolveHost = vi.fn(async () => ['93.184.216.34'])
+    await expectCode(
+      checkTarget({ url, policy, resolveHost, sent: false }),
+      'ADDRESS_REFUSED',
+      false,
+    )
+    expect(resolveHost).not.toHaveBeenCalled()
   },
 )

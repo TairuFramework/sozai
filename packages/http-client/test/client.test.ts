@@ -213,3 +213,41 @@ test('omits an auth query key from the reported response URL', async () => {
   expect(fetch.calls[0]?.url).toBe('https://api.example.com/items?view=full&key=secret')
   expect(response.url).toBe('https://api.example.com/items?view=full')
 })
+
+test.each([false, true])(
+  'omits fragments and auth query keys from the reported response URL, redirect: %s',
+  async (redirect) => {
+    const fetch = createFakeFetch((href) => {
+      const response =
+        redirect && new URL(href).pathname === '/start'
+          ? new Response(null, { status: 302, headers: { location: '/v1/items?x=1#frag' } })
+          : new Response('ok')
+      Object.defineProperty(response, 'url', { value: href.split('#')[0] })
+      return response
+    })
+    const callerURL = new URL(
+      redirect
+        ? 'https://api.example.com/start#start'
+        : 'https://api.example.com/v1/items?x=1#frag',
+    )
+    const response = await createHTTPClient({
+      policy,
+      fetch,
+      auth: apiKeyAuth({ in: 'query', name: 'key', value: 'secret' }),
+    }).request({ url: callerURL })
+    expect(response.url).toBe('https://api.example.com/v1/items?x=1')
+    expect(fetch.calls.map((call) => call.url)).toEqual(
+      redirect
+        ? [
+            'https://api.example.com/start?key=secret',
+            'https://api.example.com/v1/items?x=1&key=secret',
+          ]
+        : ['https://api.example.com/v1/items?x=1&key=secret'],
+    )
+    expect(callerURL.href).toBe(
+      redirect
+        ? 'https://api.example.com/start#start'
+        : 'https://api.example.com/v1/items?x=1#frag',
+    )
+  },
+)

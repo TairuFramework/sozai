@@ -33,6 +33,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
   }): Promise<{ response: Response; sentURL: string } | HTTPClientError> {
     const { method, body } = params
     let signal = params.signal
+    params.url.hash = ''
     const url = new URL(params.url.href)
     if (signal?.aborted) return params.failure(signal.reason)
     try {

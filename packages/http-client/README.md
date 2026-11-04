@@ -42,6 +42,7 @@ Requests default to `GET`. `json` sets `content-type: application/json` unless s
 
 The reported response URL uses the hop URL before auth adds query credentials.
 A different platform-followed URL is reported only after its origin check.
+URL fragments are never sent or reported, including fragments in redirect locations.
 
 Responses expose `status`, `statusText`, `ok`, `headers`, `url`, `bytes()`, `text()` and `json<T>()`.
 `bytes()` returns the same buffered `Uint8Array` each time. `text()` uses a non-fatal `TextDecoder`.

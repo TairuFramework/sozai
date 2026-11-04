@@ -18,10 +18,11 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     headers: Record<string, string>
     body?: string | Uint8Array
     signal: AbortSignal
+    sent: boolean
   }): Promise<Response> {
     const { method, body, signal } = params
     const url = new URL(params.url.href)
-    await checkTarget({ url, policy, resolveHost, sent: false })
+    await checkTarget({ url, policy, resolveHost, sent: params.sent })
     const headers = new Headers(params.headers)
     await auth({ url, headers })
     try {
@@ -45,15 +46,53 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     body?: string | Uint8Array
     signal: AbortSignal
   }): Promise<HTTPResponse> {
-    const response = await sendHop(params)
-    const bytes = await readBody({ response, maxBytes: policy.maxResponseBytes })
-    return createHTTPResponse({
-      status: response.status,
-      statusText: response.statusText ?? '',
-      headers: response.headers,
-      url: params.url.href,
-      bytes,
-    })
+    let { url, method, body } = params
+    const headers = new Headers(params.headers)
+    let redirects = 0
+    while (true) {
+      const response = await sendHop({
+        url,
+        method,
+        body,
+        headers: Object.fromEntries(headers),
+        signal: params.signal,
+        sent: redirects > 0,
+      })
+      if (response.type === 'opaqueredirect' || response.status === 0) {
+        throw new HTTPClientError({ code: 'NETWORK', sent: true })
+      }
+      const finalURL = response.url || url.href
+      if (finalURL !== url.href && !policy.origins.has(new URL(finalURL).origin)) {
+        throw new HTTPClientError({ code: 'ORIGIN_REFUSED', sent: true })
+      }
+      const location = response.headers.get('location')
+      if ([301, 302, 303, 307, 308].includes(response.status) && location !== null) {
+        await response.body?.cancel().catch(() => {})
+        if (redirects >= policy.maxRedirects) {
+          throw new HTTPClientError({ code: 'TOO_MANY_REDIRECTS', sent: true })
+        }
+        if (
+          (response.status === 303 && method !== 'HEAD') ||
+          ((response.status === 301 || response.status === 302) && method === 'POST')
+        ) {
+          method = 'GET'
+          body = undefined
+          headers.delete('content-type')
+          headers.delete('content-length')
+        }
+        url = new URL(location, url)
+        redirects++
+        continue
+      }
+      const bytes = await readBody({ response, maxBytes: policy.maxResponseBytes })
+      return createHTTPResponse({
+        status: response.status,
+        statusText: response.statusText ?? '',
+        headers: response.headers,
+        url: finalURL,
+        bytes,
+      })
+    }
   }
 
   async function request(request: HTTPRequest): Promise<HTTPResponse> {

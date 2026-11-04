@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { createHTTPClient } from '../src/index.js'
 import type { RequestPolicy } from '../src/types.js'
-import { createFakeFetch } from './helpers.js'
+import { createFakeFetch, recordingSleep } from './helpers.js'
 
 const url = 'https://api.example.com/items'
 const policy: RequestPolicy = {
@@ -242,3 +242,79 @@ test.each([false, true])('aborts a hanging body read without stream: %s', async 
   }
   expect(vi.getTimerCount()).toBe(0)
 })
+
+test('the timeout is per attempt', async () => {
+  const sleep = recordingSleep()
+  const fetch = createFakeFetch((_url, init) => {
+    if (fetch.calls.length === 2) return new Response('ok')
+    return new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    })
+  })
+  const result = createHTTPClient({
+    policy: { ...policy, retry: { attempts: 2, baseDelayMS: 250, maxDelayMS: 10_000 } },
+    fetch,
+    sleep,
+  }).request({ url })
+  const settled = result.catch((error: unknown) => error)
+  await vi.advanceTimersByTimeAsync(50)
+  expect(await settled).toMatchObject({ status: 200 })
+  expect(fetch.calls).toHaveLength(2)
+  expect(fetch.calls[0]?.init.signal).not.toBe(fetch.calls[1]?.init.signal)
+  expect(sleep.delays).toHaveLength(1)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test('aborts during backoff', async () => {
+  const parent = new AbortController()
+  const cause = new Error('cancel backoff')
+  const sleep = vi.fn(async (_ms: number, signal?: AbortSignal) => {
+    const wait = new Promise<void>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+    })
+    parent.abort(cause)
+    await wait
+  })
+  const fetch = createFakeFetch(() => new Response(null, { status: 503 }))
+  await expect(
+    createHTTPClient({
+      policy: { ...policy, retry: { attempts: 3, baseDelayMS: 250, maxDelayMS: 10_000 } },
+      fetch,
+      sleep,
+    }).request({ url, signal: parent.signal }),
+  ).rejects.toMatchObject({ code: 'ABORTED', sent: true, cause })
+  expect(fetch.calls).toHaveLength(1)
+  expect(sleep).toHaveBeenCalledWith(expect.any(Number), parent.signal)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+test.each(['ABORTED', 'TIMEOUT'])(
+  'maps a resolver rejection after %s before sending',
+  async (code) => {
+    const parent = new AbortController()
+    const cause = new Error('caller cancelled DNS')
+    const fetch = hangingFetch()
+    const auth = vi.fn()
+    const result = createHTTPClient({
+      policy,
+      fetch,
+      auth,
+      resolveHost: async () => {
+        if (code === 'ABORTED') parent.abort(cause)
+        else await new Promise((resolve) => setTimeout(resolve, 50))
+        throw new Error('resolver rejection')
+      },
+    })
+      .request({ url, signal: parent.signal })
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(await result).toMatchObject({
+      code,
+      sent: false,
+      cause: code === 'ABORTED' ? cause : expect.any(Error),
+    })
+    expect(fetch.calls).toHaveLength(0)
+    expect(auth).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  },
+)

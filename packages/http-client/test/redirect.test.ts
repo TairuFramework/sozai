@@ -6,6 +6,7 @@ import { createFakeFetch } from './helpers.js'
 
 const policy: RequestPolicy = {
   origins: ['https://api.example.com', 'https://cdn.example.com'],
+  retry: { attempts: 1, baseDelayMS: 0, maxDelayMS: 0 },
 }
 const url = 'https://api.example.com/a/x'
 

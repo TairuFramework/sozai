@@ -1,6 +1,8 @@
+import { sleep as defaultSleep } from '@sozai/async'
 import { createRuntime } from '@sozai/runtime'
 
 import { noAuth } from './auth.js'
+import { getBackoffDelay, parseRetryAfter, RETRYABLE_STATUSES } from './backoff.js'
 import { HTTPClientError } from './errors.js'
 import { checkTarget, resolvePolicy, toURL } from './policy.js'
 import { createHTTPResponse, readBody } from './response.js'
@@ -12,6 +14,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
   const fetch = params.fetch ?? createRuntime().fetch
   const auth = params.auth ?? noAuth
   const resolveHost = params.resolveHost
+  const sleep = params.sleep ?? defaultSleep
 
   async function sendHop(params: {
     url: URL
@@ -20,18 +23,25 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     body?: string | Uint8Array
     signal: AbortSignal
     sent: boolean
-    checkAbort(): void
     failure(cause: unknown): HTTPClientError
     markSent(): void
-  }): Promise<Response> {
+  }): Promise<Response | HTTPClientError> {
     const { method, body, signal } = params
     const url = new URL(params.url.href)
-    params.checkAbort()
-    await checkTarget({ url, policy, resolveHost, sent: params.sent })
-    params.checkAbort()
+    if (signal.aborted) return params.failure(signal.reason)
+    try {
+      await checkTarget({ url, policy, resolveHost, sent: params.sent })
+    } catch (cause) {
+      if (signal.aborted) return params.failure(signal.reason)
+      if (cause instanceof HTTPClientError && cause.code === 'NETWORK') {
+        return params.failure(cause.cause)
+      }
+      throw cause
+    }
+    if (signal.aborted) return params.failure(signal.reason)
     const headers = new Headers(params.headers)
     await auth({ url, headers })
-    params.checkAbort()
+    if (signal.aborted) return params.failure(signal.reason)
     params.markSent()
     try {
       return await fetch(url.href, {
@@ -42,7 +52,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
         redirect: 'manual',
       })
     } catch (cause) {
-      throw params.failure(signal.aborted ? signal.reason : cause)
+      return params.failure(signal.aborted ? signal.reason : cause)
     }
   }
 
@@ -52,18 +62,18 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     headers: Record<string, string>
     body?: string | Uint8Array
     signal?: AbortSignal
-  }): Promise<HTTPResponse> {
+    sent: boolean
+    markSent(): void
+    retryIndex?: number
+  }): Promise<HTTPResponse | HTTPClientError | { retryDelayMS: number }> {
     const linked = linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
-    let sent = false
+    let sent = params.sent
     const failure = (cause: unknown) => {
       return new HTTPClientError({
         code: linked.timedOut() ? 'TIMEOUT' : linked.signal.aborted ? 'ABORTED' : 'NETWORK',
         sent,
         cause,
       })
-    }
-    const checkAbort = () => {
-      if (linked.signal.aborted) throw failure(linked.signal.reason)
     }
     try {
       let { url, method, body } = params
@@ -77,14 +87,15 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           headers: Object.fromEntries(headers),
           signal: linked.signal,
           sent,
-          checkAbort,
           failure,
           markSent: () => {
             sent = true
+            params.markSent()
           },
         })
+        if (response instanceof HTTPClientError) return response
         if (response.type === 'opaqueredirect' || response.status === 0) {
-          throw new HTTPClientError({ code: 'NETWORK', sent: true })
+          return new HTTPClientError({ code: 'NETWORK', sent: true })
         }
         const finalURL = response.url || url.href
         if (finalURL !== url.href && !policy.origins.has(new URL(finalURL).origin)) {
@@ -109,8 +120,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           try {
             nextURL = new URL(location, url)
           } catch (cause) {
-            // biome-ignore lint/style/useErrorCause: HTTPClientError takes cause in its single params object.
-            throw new HTTPClientError({ code: 'NETWORK', sent: true, cause })
+            return new HTTPClientError({ code: 'NETWORK', sent: true, cause })
           }
           if (nextURL.origin !== url.origin) {
             headers.delete('authorization')
@@ -121,6 +131,21 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           redirects++
           continue
         }
+        if (params.retryIndex !== undefined && RETRYABLE_STATUSES.has(response.status)) {
+          const retryAfterMS = parseRetryAfter(response.headers.get('retry-after'), Date.now())
+          if (retryAfterMS === undefined || retryAfterMS <= policy.retry.maxDelayMS) {
+            await response.body?.cancel().catch(() => {})
+            return {
+              retryDelayMS:
+                retryAfterMS ??
+                getBackoffDelay({
+                  retry: policy.retry,
+                  retryIndex: params.retryIndex,
+                  random: Math.random,
+                }),
+            }
+          }
+        }
         let bytes: Uint8Array
         try {
           bytes = await readBody({
@@ -130,7 +155,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           })
         } catch (cause) {
           if (cause instanceof HTTPClientError) throw cause
-          throw failure(cause)
+          return failure(cause)
         }
         return createHTTPResponse({
           status: response.status,
@@ -155,13 +180,41 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
       body = JSON.stringify(request.json)
       if (!headers.has('content-type')) headers.set('content-type', 'application/json')
     }
-    return runAttempt({
-      url: toURL(request.url),
-      method: (request.method ?? 'GET').toUpperCase(),
-      headers: Object.fromEntries(headers),
-      body,
-      signal: request.signal,
-    })
+    const url = toURL(request.url)
+    const method = (request.method ?? 'GET').toUpperCase()
+    const idempotent = request.idempotent ?? (method === 'GET' || method === 'HEAD')
+    let sent = false
+    for (let attempt = 1; ; attempt++) {
+      const canRetry = idempotent && attempt < policy.retry.attempts
+      const result = await runAttempt({
+        url,
+        method,
+        headers: Object.fromEntries(headers),
+        body,
+        signal: request.signal,
+        sent,
+        markSent: () => {
+          sent = true
+        },
+        retryIndex: canRetry ? attempt : undefined,
+      })
+      let delayMS: number
+      if (result instanceof HTTPClientError) {
+        if (!canRetry || (result.code !== 'NETWORK' && result.code !== 'TIMEOUT')) throw result
+        delayMS = getBackoffDelay({ retry: policy.retry, retryIndex: attempt, random: Math.random })
+      } else if ('retryDelayMS' in result) {
+        delayMS = result.retryDelayMS
+      } else {
+        return result
+      }
+      try {
+        await sleep(delayMS, request.signal)
+      } catch (cause) {
+        if (!request.signal?.aborted) throw cause
+        // biome-ignore lint/style/useErrorCause: HTTPClientError takes cause in its single params object.
+        throw new HTTPClientError({ code: 'ABORTED', sent, cause: request.signal.reason })
+      }
+    }
   }
 
   return {
@@ -176,6 +229,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           sent: true,
           status: response.status,
           response,
+          retryAfterMS: parseRetryAfter(response.headers.get('retry-after'), Date.now()),
         })
       }
       return response.json<T>()

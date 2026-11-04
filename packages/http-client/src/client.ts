@@ -5,6 +5,7 @@ import { noAuth } from './auth.js'
 import { getBackoffDelay, parseRetryAfter, RETRYABLE_STATUSES } from './backoff.js'
 import { HTTPClientError } from './errors.js'
 import { checkTarget, resolvePolicy, toURL } from './policy.js'
+import { createRateLimiter } from './rate-limit.js'
 import { createHTTPResponse, readBody } from './response.js'
 import { linkSignal } from './signal.js'
 import type { HTTPClient, HTTPClientParams, HTTPRequest, HTTPResponse } from './types.js'
@@ -15,29 +16,41 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
   const auth = params.auth ?? noAuth
   const resolveHost = params.resolveHost
   const sleep = params.sleep ?? defaultSleep
+  const rateLimiter = policy.rateLimit
+    ? createRateLimiter({ rateLimit: policy.rateLimit, now: Date.now, sleep })
+    : undefined
 
   async function sendHop(params: {
     url: URL
     method: string
     headers: Record<string, string>
     body?: string | Uint8Array
-    signal: AbortSignal
+    signal?: AbortSignal
+    startTimer(): AbortSignal
     sent: boolean
     failure(cause: unknown): HTTPClientError
     markSent(): void
   }): Promise<Response | HTTPClientError> {
-    const { method, body, signal } = params
+    const { method, body } = params
+    let signal = params.signal
     const url = new URL(params.url.href)
-    if (signal.aborted) return params.failure(signal.reason)
+    if (signal?.aborted) return params.failure(signal.reason)
     try {
       await checkTarget({ url, policy, resolveHost, sent: params.sent })
     } catch (cause) {
-      if (signal.aborted) return params.failure(signal.reason)
+      if (signal?.aborted) return params.failure(signal.reason)
       if (cause instanceof HTTPClientError && cause.code === 'NETWORK') {
         return params.failure(cause.cause)
       }
       throw cause
     }
+    if (signal?.aborted) return params.failure(signal.reason)
+    try {
+      await rateLimiter?.acquire(url.host, signal)
+    } catch (cause) {
+      return params.failure(signal?.aborted ? signal.reason : cause)
+    }
+    signal = params.startTimer()
     if (signal.aborted) return params.failure(signal.reason)
     const headers = new Headers(params.headers)
     await auth({ url, headers })
@@ -66,11 +79,21 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
     markSent(): void
     retryIndex?: number
   }): Promise<HTTPResponse | HTTPClientError | { retryDelayMS: number }> {
-    const linked = linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
+    let linked = rateLimiter
+      ? undefined
+      : linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
+    const startTimer = () => {
+      linked ??= linkSignal({ parent: params.signal, timeoutMS: policy.timeoutMS })
+      return linked.signal
+    }
     let sent = params.sent
     const failure = (cause: unknown) => {
       return new HTTPClientError({
-        code: linked.timedOut() ? 'TIMEOUT' : linked.signal.aborted ? 'ABORTED' : 'NETWORK',
+        code: linked?.timedOut()
+          ? 'TIMEOUT'
+          : (linked?.signal ?? params.signal)?.aborted
+            ? 'ABORTED'
+            : 'NETWORK',
         sent,
         cause,
       })
@@ -85,7 +108,8 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           method,
           body,
           headers: Object.fromEntries(headers),
-          signal: linked.signal,
+          signal: linked?.signal ?? params.signal,
+          startTimer,
           sent,
           failure,
           markSent: () => {
@@ -151,7 +175,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
           bytes = await readBody({
             response,
             maxBytes: policy.maxResponseBytes,
-            signal: linked.signal,
+            signal: startTimer(),
           })
         } catch (cause) {
           if (cause instanceof HTTPClientError) throw cause
@@ -166,7 +190,7 @@ export function createHTTPClient(params: HTTPClientParams): HTTPClient {
         })
       }
     } finally {
-      linked.dispose()
+      linked?.dispose()
     }
   }
 

@@ -12,6 +12,7 @@ repo, a cross-process mutex.
 
 ## Packages
 
+- **@sozai/http-client** -- policy-checked outbound HTTP, retries, rate limits and auth appliers. → `reference/http-client.md`
 - **@sozai/runtime** — platform abstraction (`fetch`, randomness) via `createRuntime`. → `reference/runtime.md`
 - **@sozai/runtime-expo** — Expo / React Native runtime binding. → `reference/runtime-expo.md`
 - **@sozai/lock** — filesystem-based cross-process mutex. → `reference/lock.md`, and
@@ -19,6 +20,7 @@ repo, a cross-process mutex.
 
 ## Pick this when
 
+- Sending policy-checked outbound HTTP with declared origins, private-address refusal, retries or rate limits → `@sozai/http-client`, `reference/http-client.md`
 - Writing library code that must run unchanged across Node, browsers, and workers, accepting a
   `Runtime` parameter instead of calling `globalThis` directly, or injecting a controlled runtime
   in tests → `@sozai/runtime`, `reference/runtime.md`

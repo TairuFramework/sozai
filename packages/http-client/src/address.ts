@@ -50,11 +50,14 @@ export function isIPLiteral(host: string): boolean {
 }
 
 function isPublicIPv4(bytes: Uint8Array): boolean {
-  const second = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint8(1)
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const second = view.getUint8(1)
   return !(
     bytes[0] === 0 ||
     bytes[0] === 10 ||
     bytes[0] === 127 ||
+    view.getUint8(0) >= 224 ||
+    (bytes[0] === 198 && (second === 18 || second === 19)) ||
     (bytes[0] === 172 && (second & 0xf0) === 16) ||
     (bytes[0] === 192 && bytes[1] === 168) ||
     (bytes[0] === 169 && bytes[1] === 254) ||
@@ -70,8 +73,19 @@ export function isPublicAddress(address: string): boolean {
   if (ipv6.slice(0, 10).every((byte) => byte === 0) && ipv6[10] === 255 && ipv6[11] === 255) {
     return isPublicIPv4(ipv6.subarray(12))
   }
+  if (
+    ipv6.slice(0, 12).every((byte) => byte === 0) ||
+    (ipv6[0] === 0 &&
+      ipv6[1] === 0x64 &&
+      ipv6[2] === 0xff &&
+      ipv6[3] === 0x9b &&
+      ipv6.slice(4, 12).every((byte) => byte === 0))
+  ) {
+    return isPublicIPv4(ipv6.subarray(12))
+  }
   const view = new DataView(ipv6.buffer, ipv6.byteOffset, ipv6.byteLength)
   return !(
+    ipv6[0] === 0xff ||
     (view.getUint8(0) & 0xfe) === 0xfc ||
     (ipv6[0] === 0xfe && (view.getUint8(1) & 0xc0) === 0x80) ||
     (ipv6.slice(0, 15).every((byte) => byte === 0) && view.getUint8(15) <= 1)

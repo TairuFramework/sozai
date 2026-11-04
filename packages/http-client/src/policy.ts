@@ -98,8 +98,9 @@ export async function checkTarget(params: {
   sent: boolean
 }): Promise<void> {
   const { url, policy, resolveHost, sent } = params
+  const malformedHostname = url.hostname.endsWith('..')
   const hostname = normalizeHostname(url)
-  const exempt = isExemptLoopback(hostname, policy.allowInsecureLoopback)
+  const exempt = !malformedHostname && isExemptLoopback(hostname, policy.allowInsecureLoopback)
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && exempt)) {
     throw new HTTPClientError({ code: 'INSECURE_URL', sent })
   }
@@ -108,6 +109,9 @@ export async function checkTarget(params: {
   }
   if (!policy.origins.has(url.origin)) {
     throw new HTTPClientError({ code: 'ORIGIN_REFUSED', sent })
+  }
+  if (malformedHostname) {
+    throw new HTTPClientError({ code: 'ADDRESS_REFUSED', sent })
   }
   if (exempt) return
 

@@ -143,6 +143,10 @@ test.each([
   'https://a.localhost',
   'https://localhost.',
   'https://a.localhost.',
+  'https://localhost..',
+  'https://a.localhost..',
+  'https://localhost...',
+  'https://a.localhost...',
 ])('refuses private literals and localhost names: %s', async (origin) => {
   const policy = resolvePolicy({ origins: [origin] })
   const resolveHost = vi.fn(async () => ['93.184.216.34'])
@@ -159,6 +163,21 @@ test.each(['1.2.3.4..', '.', '..', '...'])(
   async (hostname) => {
     const url = new URL(`https://${hostname}/`)
     const policy = resolvePolicy({ origins: [url.origin] })
+    const resolveHost = vi.fn(async () => ['93.184.216.34'])
+    await expectCode(
+      checkTarget({ url, policy, resolveHost, sent: false }),
+      'ADDRESS_REFUSED',
+      false,
+    )
+    expect(resolveHost).not.toHaveBeenCalled()
+  },
+)
+
+test.each(['localhost..', 'a.localhost..', 'localhost...', 'api.example.com..'])(
+  'refuses multiple trailing dots even with loopback enabled: %s',
+  async (hostname) => {
+    const url = new URL(`https://${hostname}/`)
+    const policy = resolvePolicy({ origins: [url.origin], allowInsecureLoopback: true })
     const resolveHost = vi.fn(async () => ['93.184.216.34'])
     await expectCode(
       checkTarget({ url, policy, resolveHost, sent: false }),

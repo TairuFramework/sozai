@@ -186,3 +186,15 @@ test('uses the runtime fetch and resolves global fetch at call time', async () =
   expect((await client.request({ url })).text()).toBe('runtime')
   expect(fetch.calls).toHaveLength(1)
 })
+
+test('does not apply auth when the first target is refused', async () => {
+  const auth = vi.fn()
+  const fetch = createFakeFetch(() => new Response())
+  await expect(
+    createHTTPClient({ policy, fetch, auth }).request({
+      url: 'https://evil.example/',
+    }),
+  ).rejects.toMatchObject({ code: 'ORIGIN_REFUSED', sent: false })
+  expect(auth).not.toHaveBeenCalled()
+  expect(fetch.calls).toHaveLength(0)
+})

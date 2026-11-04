@@ -197,3 +197,59 @@ test('cancels the redirect body when the redirect limit is reached', async () =>
   ).rejects.toMatchObject({ code: 'TOO_MANY_REDIRECTS', sent: true })
   expect(cancel).toHaveBeenCalledTimes(1)
 })
+
+test('drops caller credentials on origin changes and still applies auth on every hop', async () => {
+  const seen: Array<Record<string, string>> = []
+  const fetch = createFakeFetch((target) => {
+    if (target === url) return redirect(302, '/same')
+    if (target === 'https://api.example.com/same') return redirect()
+    if (target === 'https://cdn.example.com/f') return redirect(302, url.replace('/a/x', '/back'))
+    return new Response('ok')
+  })
+  await createHTTPClient({
+    policy,
+    fetch,
+    auth: ({ headers }) => {
+      seen.push(Object.fromEntries(headers))
+      headers.set('authorization', 'Bearer fresh')
+    },
+  }).request({
+    url,
+    headers: {
+      Authorization: 'caller',
+      Cookie: 'session=secret',
+      'Proxy-Authorization': 'proxy secret',
+      'x-caller': 'kept',
+    },
+  })
+  expect(seen).toEqual([
+    {
+      authorization: 'caller',
+      cookie: 'session=secret',
+      'proxy-authorization': 'proxy secret',
+      'x-caller': 'kept',
+    },
+    {
+      authorization: 'caller',
+      cookie: 'session=secret',
+      'proxy-authorization': 'proxy secret',
+      'x-caller': 'kept',
+    },
+    { 'x-caller': 'kept' },
+    { 'x-caller': 'kept' },
+  ])
+  expect(fetch.calls).toHaveLength(4)
+  for (const call of fetch.calls) {
+    expect(new Headers(call.init.headers).get('authorization')).toBe('Bearer fresh')
+  }
+})
+
+test('wraps an unparseable Location as NETWORK with its TypeError cause', async () => {
+  const fetch = createFakeFetch(() => redirect(302, 'https://['))
+  await expect(createHTTPClient({ policy, fetch }).request({ url })).rejects.toMatchObject({
+    code: 'NETWORK',
+    sent: true,
+    cause: expect.any(TypeError),
+  })
+  expect(fetch.calls).toHaveLength(1)
+})

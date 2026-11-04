@@ -93,3 +93,23 @@ test.each([199, 200, 299, 300])('derives ok from status %s', (status) => {
   })
   expect(response.ok).toBe(status === 200 || status === 299)
 })
+
+test('caps the real body even when content-length understates it', async () => {
+  const cancel = vi.fn()
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(11))
+      },
+      cancel,
+    }),
+    { headers: { 'content-length': '1' } },
+  )
+  await expect(readBody({ response, maxBytes: 10 })).rejects.toMatchObject({
+    code: 'RESPONSE_TOO_LARGE',
+    sent: true,
+    status: 200,
+  })
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(response.body?.locked).toBe(false)
+})

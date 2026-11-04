@@ -1,11 +1,15 @@
+import { raceSignal } from '@sozai/async'
+
 import { HTTPClientError } from './errors.js'
 import type { HTTPResponse } from './types.js'
 
 export async function readBody(params: {
   response: Response
   maxBytes: number
+  signal?: AbortSignal
 }): Promise<Uint8Array> {
-  const { response, maxBytes } = params
+  const { response, maxBytes, signal } = params
+  if (signal?.aborted) throw signal.reason
   const tooLarge = () => {
     return new HTTPClientError({
       code: 'RESPONSE_TOO_LARGE',
@@ -18,7 +22,8 @@ export async function readBody(params: {
     throw tooLarge()
   }
   if (response.body == null) {
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    const buffer = response.arrayBuffer()
+    const bytes = new Uint8Array(await (signal ? raceSignal(buffer, signal) : buffer))
     if (bytes.byteLength > maxBytes) throw tooLarge()
     return bytes
   }
@@ -28,7 +33,8 @@ export async function readBody(params: {
   let length = 0
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const read = reader.read()
+      const { done, value } = await (signal ? raceSignal(read, signal) : read)
       if (done) break
       length += value.byteLength
       if (length > maxBytes) {
@@ -37,6 +43,9 @@ export async function readBody(params: {
       }
       chunks.push(value)
     }
+  } catch (cause) {
+    if (signal?.aborted) void reader.cancel().catch(() => {})
+    throw cause
   } finally {
     reader.releaseLock()
   }

@@ -8,7 +8,7 @@ description: Use when exploring sozai capabilities - progressive discovery of th
 
 Sozai (素材 — "raw material") is the core-utilities layer of the stack: stable,
 environment-agnostic packages that everything else depends on downward. One exception,
-`@sozai/lock`, is filesystem-based. 17 packages across 5 domains.
+`@sozai/lock`, is filesystem-based. 18 packages across 5 domains.
 
 ## By domain
 
@@ -18,7 +18,7 @@ environment-agnostic packages that everything else depends on downward. One exce
 - **Validation** — JSON Schema with compile-time type generation (`FromSchema`), message encoding
   and decoding, plus canonical JSON and hardened parsing. → `/sozai:validation`
 - **Runtime** — environment-agnostic `fetch` and randomness via `createRuntime`, the Expo /
-  React Native binding, and a filesystem-based cross-process mutex. → `/sozai:runtime`
+  React Native binding, policy-checked outbound HTTP, and a filesystem-based cross-process mutex. → `/sozai:runtime`
 - **Observability** — LogTape-based namespaced loggers, and OpenTelemetry tracing with W3C
   context propagation and baggage. → `/sozai:observability`
 - **Primitives** — `Option`, `Result`, and `AsyncResult` for explicit success and failure, plus
@@ -48,7 +48,7 @@ depend on `flow`.
 
 **Validation** — `@sozai/schema`, `@sozai/codec`, `@sozai/json`
 
-**Runtime** — `@sozai/runtime`, `@sozai/runtime-expo`, `@sozai/lock`
+**Runtime** — `@sozai/runtime`, `@sozai/runtime-expo`, `@sozai/http-client`, `@sozai/http-util`, `@sozai/lock`
 
 **Observability** — `@sozai/log`, `@sozai/otel`
 

@@ -5,11 +5,14 @@ packages with no upward dependencies.
 
 ## Packages
 
-async, codec, event, execution, flow, flow-graph, generator, hlc, http-server, json, lock, log, otel, patch,
+async, codec, event, execution, flow, flow-graph, generator, hlc, http-client, http-server, http-util, json, lock, log, otel, patch,
 result, runtime, schema, stream -- the stable group. Every package versions independently, via pnpm's native
 versioning (`pnpm change` / `pnpm version -r`); `versioning.fixed` in `pnpm-workspace.yaml` is
 unset, so there is no lock between them and versions legitimately diverge. `runtime-expo` is bound
 to the Expo SDK but is not otherwise a special case.
+
+`http-client` provides environment-agnostic, policy-checked outbound HTTP for Node, Electron and React Native/Hermes.
+`http-util` holds its dependency-free helpers for other consumers: IP address parsing and classification, loopback hostnames and `Retry-After`.
 
 Two packages are Node-only rather than environment-agnostic. `lock` is filesystem-based
 (`node:fs`); it exists because kokuin's keystores need a cross-process mutex and may only depend

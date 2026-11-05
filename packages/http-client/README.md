@@ -97,6 +97,8 @@ The origin must still be declared. Resolved loopback addresses receive no exempt
 
 `bearerAuth(token)` accepts a string or a synchronous or asynchronous token provider.
 `apiKeyAuth({ in: 'header' | 'query', name, value })` sets a header or replaces a query parameter through `searchParams.set`.
+`basicAuth({ username, password })` sets `authorization: Basic ...` from the UTF-8 encoded `username:password` (RFC 7617).
+It throws `TypeError` for an empty username, a username containing `:`, or control characters in either value.
 An empty API key name throws `TypeError`. `noAuth` is the default applier.
 Auth runs after caller headers on every hop, using fresh headers and a URL copy. It can overwrite caller auth headers.
 The caller's URL is never mutated. Applier errors propagate unwrapped and are never retried.

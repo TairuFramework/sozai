@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { apiKeyAuth, bearerAuth, noAuth } from '../src/index.js'
+import { apiKeyAuth, basicAuth, bearerAuth, noAuth } from '../src/index.js'
 
 const target = () => ({ url: new URL('https://api.example.com/x?a=1'), headers: new Headers() })
 
@@ -71,4 +71,23 @@ test('noAuth changes nothing', async () => {
   await noAuth(request)
   expect([...request.headers]).toEqual([['authorization', 'existing']])
   expect(request.url.href).toBe(href)
+})
+
+test('basicAuth sets the authorization header from UTF-8 credentials', async () => {
+  const request = target()
+  request.headers.set('authorization', 'old')
+  await basicAuth({ username: 'Aladdin', password: 'open sesame' })(request)
+  expect(request.headers.get('authorization')).toBe('Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==')
+  await basicAuth({ username: 'test', password: '123£' })(request)
+  expect(request.headers.get('authorization')).toBe('Basic dGVzdDoxMjPCow==')
+  await basicAuth({ username: 'user', password: '' })(request)
+  expect(request.headers.get('authorization')).toBe('Basic dXNlcjo=')
+})
+
+test('basicAuth rejects invalid usernames and passwords', () => {
+  expect(() => basicAuth({ username: '', password: 'p' })).toThrow(TypeError)
+  expect(() => basicAuth({ username: 'a:b', password: 'p' })).toThrow(TypeError)
+  expect(() => basicAuth({ username: 'a\nb', password: 'p' })).toThrow(TypeError)
+  expect(() => basicAuth({ username: 'a', password: 'p\r\n' })).toThrow(TypeError)
+  expect(() => basicAuth({ username: 'a', password: 'pa:ss' })).not.toThrow()
 })

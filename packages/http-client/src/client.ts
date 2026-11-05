@@ -1,8 +1,9 @@
 import { sleep as defaultSleep, raceSignal } from '@sozai/async'
+import { parseRetryAfter } from '@sozai/http-util'
 import { createRuntime } from '@sozai/runtime'
 
 import { noAuth } from './auth.js'
-import { getBackoffDelay, parseRetryAfter, RETRYABLE_STATUSES } from './backoff.js'
+import { getBackoffDelay, RETRYABLE_STATUSES } from './backoff.js'
 import { HTTPClientError } from './errors.js'
 import { checkTarget, resolvePolicy, toURL } from './policy.js'
 import { createRateLimiter } from './rate-limit.js'

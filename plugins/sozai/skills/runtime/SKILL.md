@@ -13,6 +13,7 @@ repo, a cross-process mutex.
 ## Packages
 
 - **@sozai/http-client** -- policy-checked outbound HTTP, retries, rate limits and auth appliers. → `reference/http-client.md`
+- **@sozai/http-util** -- IP address parsing and classification (`isPublicAddress`, `isLoopbackHost`), hostnames and `parseRetryAfter`, with no dependencies. → `packages/http-util/README.md`
 - **@sozai/runtime** — platform abstraction (`fetch`, randomness) via `createRuntime`. → `reference/runtime.md`
 - **@sozai/runtime-expo** — Expo / React Native runtime binding. → `reference/runtime-expo.md`
 - **@sozai/lock** — filesystem-based cross-process mutex. → `reference/lock.md`, and

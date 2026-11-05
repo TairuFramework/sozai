@@ -1,6 +1,12 @@
 import type { Fetch } from '@sozai/runtime'
 
-export type AuthApplier = (request: { url: URL; headers: Headers }) => void | Promise<void>
+export type AuthTarget = { url: URL; headers: Headers }
+export type AuthApplier = (request: AuthTarget) => void | Promise<void>
+
+export type BearerTokenProvider = () => string | Promise<string>
+export type BearerToken = string | BearerTokenProvider
+export type APIKeyAuthParams = { in: 'header' | 'query'; name: string; value: string }
+export type BasicAuthParams = { username: string; password: string }
 
 export type HTTPRetryPolicy = { attempts: number; baseDelayMS: number; maxDelayMS: number }
 export type RateLimit = { requests: number; perMS: number }
@@ -15,17 +21,17 @@ export type RequestPolicy = {
   allowInsecureLoopback?: boolean
 }
 
-export type ResolveHost = (
-  hostname: string,
-  options?: { signal?: AbortSignal },
-) => Promise<Array<string>>
+export type ResolveHostOptions = { signal?: AbortSignal }
+export type ResolveHost = (hostname: string, options?: ResolveHostOptions) => Promise<Array<string>>
+
+export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>
 
 export type HTTPClientParams = {
   policy: RequestPolicy
   auth?: AuthApplier
   fetch?: Fetch
   resolveHost?: ResolveHost
-  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
+  sleep?: Sleep
 }
 
 export type HTTPRequest = {

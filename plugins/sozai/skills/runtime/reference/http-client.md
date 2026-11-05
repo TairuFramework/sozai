@@ -9,9 +9,12 @@ Policy-checked outbound HTTP for Node, Electron and React Native/Hermes.
 | `createHTTPClient` | function | Accepts `HTTPClientParams`, returns `HTTPClient` |
 | `bearerAuth` | function | Bearer token string or sync/async token provider |
 | `apiKeyAuth` | function | `{ in: 'header' \| 'query', name, value }` applier. Empty names throw `TypeError` |
+| `basicAuth` | function | `{ username, password }` applier (RFC 7617, UTF-8). Empty usernames, colons in usernames and control characters throw `TypeError` |
 | `noAuth` | value | Default no-op `AuthApplier` |
 | `HTTPClientError` | class | Error with `code`, `sent`, optional `status`, `retryAfterMS`, `response` and native `cause` |
-| `AuthApplier` | type | Receives `{ url: URL, headers: Headers }`, returns void or a promise |
+| `AuthApplier` | type | Receives an `AuthTarget` (`{ url: URL, headers: Headers }`), returns void or a promise |
+| `BearerToken`, `BearerTokenProvider`, `APIKeyAuthParams`, `BasicAuthParams` | type | Auth applier parameters |
+| `ResolveHostOptions`, `Sleep` | type | `ResolveHost` options and the injected `sleep` |
 | `HTTPRetryPolicy` | type | `{ attempts, baseDelayMS, maxDelayMS }` |
 | `RateLimit` | type | `{ requests, perMS }` |
 | `RequestPolicy` | type | Declared origins and optional timeout, body cap, redirects, retries, rate limit and loopback exemption |

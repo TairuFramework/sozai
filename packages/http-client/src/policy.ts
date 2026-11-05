@@ -1,6 +1,6 @@
 import { raceSignal } from '@sozai/async'
+import { isIPLiteral, isLoopbackHost, isPublicAddress, normalizeHostname } from '@sozai/http-util'
 
-import { isIPLiteral, isLoopbackAddress, isPublicAddress } from './address.js'
 import { HTTPClientError } from './errors.js'
 import type { HTTPRetryPolicy, RateLimit, RequestPolicy, ResolveHost } from './types.js'
 
@@ -14,15 +14,8 @@ export type ResolvedPolicy = {
   allowInsecureLoopback: boolean
 }
 
-function normalizeHostname(url: URL): string {
-  return url.hostname
-    .toLowerCase()
-    .replace(/\.$/, '')
-    .replace(/^\[|\]$/g, '')
-}
-
 function isExemptLoopback(hostname: string, allowInsecureLoopback: boolean): boolean {
-  return allowInsecureLoopback && (hostname === 'localhost' || isLoopbackAddress(hostname))
+  return allowInsecureLoopback && isLoopbackHost(hostname)
 }
 
 export function resolvePolicy(policy: RequestPolicy): ResolvedPolicy {

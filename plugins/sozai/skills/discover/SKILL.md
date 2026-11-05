@@ -48,7 +48,7 @@ depend on `flow`.
 
 **Validation** — `@sozai/schema`, `@sozai/codec`, `@sozai/json`
 
-**Runtime** — `@sozai/runtime`, `@sozai/runtime-expo`, `@sozai/http-client`, `@sozai/lock`
+**Runtime** — `@sozai/runtime`, `@sozai/runtime-expo`, `@sozai/http-client`, `@sozai/http-util`, `@sozai/lock`
 
 **Observability** — `@sozai/log`, `@sozai/otel`
 

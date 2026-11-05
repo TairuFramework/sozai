@@ -37,6 +37,8 @@
   },
   "dependencies": {
     "@sozai/async": "workspace:^",
+    "@sozai/codec": "workspace:^",
+    "@sozai/http-util": "workspace:^",
     "@sozai/runtime": "workspace:^"
   },
   "publishConfig": {

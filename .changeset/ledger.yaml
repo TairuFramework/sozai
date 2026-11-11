@@ -58,6 +58,10 @@
   dir: packages/http-server
   intents:
     - sweet-socks-hear
+"@sozai/http-server@0.2.2":
+  dir: packages/http-server
+  intents:
+    - http-server-plugin-exports
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:

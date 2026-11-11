@@ -1,5 +1,11 @@
 # @sozai/http-server
 
+## 0.2.2
+
+### Patch Changes
+
+- Add `HTTPServer.use(name)`: read a plugin's export from the server once `createServer` resolves, typed through the plugin name, so callers no longer need a capturing plugin to reach it.
+
 ## 0.2.1
 
 ### Patch Changes

@@ -5,7 +5,7 @@ import { type LogRecord, reset, setup } from '@sozai/log'
 import getPort from 'get-port'
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 
-import { createServer, definePlugin, type HTTPServer } from '../src/index.js'
+import { createServer, definePlugin, type HTTPServer, pluginName } from '../src/index.js'
 
 const nodeServers = vi.hoisted(() => [] as Array<Server>)
 
@@ -319,5 +319,28 @@ describe('HTTPServer', () => {
     const res = await server.app.request('/health/ready')
     expect(res.status).toBe(503)
     expect(await res.json()).toEqual({ status: 'unavailable', checks: { 'test:check': false } })
+  })
+
+  test('use reads a plugin export after setup', async () => {
+    const counterName = pluginName<{ count: number }>()('test:counter')
+    const counter = definePlugin({
+      name: counterName,
+      setup: () => ({ count: 1 }),
+    })
+    const server = await create({ plugins: [counter] })
+    const exported: { count: number } = server.use(counterName)
+    expect(exported).toEqual({ count: 1 })
+  })
+
+  test('use returns an undefined export of a registered plugin', async () => {
+    const server = await create({ plugins: [hello] })
+    expect(server.use(pluginName<void>()('test:hello'))).toBeUndefined()
+  })
+
+  test('use throws for an unregistered plugin', async () => {
+    const server = await create({ plugins: [hello] })
+    expect(() => server.use(pluginName<number>()('test:missing'))).toThrow(
+      'Plugin "test:missing" is not registered',
+    )
   })
 })

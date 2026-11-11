@@ -14,7 +14,13 @@ import { HealthRoutes, type HealthRoutesParams } from './health.js'
 import { LimitsTable } from './limits.js'
 import { PluginRegistrar } from './registrar.js'
 import { runHooks } from './shutdown.js'
-import type { AnyHTTPPlugin, ShutdownReport, TrustProxy } from './types.js'
+import type {
+  AnyHTTPPlugin,
+  AnyPluginName,
+  ExportsOf,
+  ShutdownReport,
+  TrustProxy,
+} from './types.js'
 
 const DEFAULT_PORT = 3000
 const DEFAULT_BODY_BYTES = 1_048_576
@@ -71,6 +77,7 @@ export class HTTPServer extends Disposer {
   #tracer: Tracer
   #parentSignal: AbortSignal | undefined
   #registrars: Array<PluginRegistrar> = []
+  #exports = new Map<string, unknown>()
   #setupInProgress: Promise<unknown> | undefined
   #app: Hono | undefined
   #server: Server | undefined
@@ -109,6 +116,20 @@ export class HTTPServer extends Disposer {
       throw new Error('Server is not set up')
     }
     return this.#app
+  }
+
+  /**
+   * Read the export of a plugin set up on this server, typed through its plugin name.
+   * Throws when the server is not set up or no plugin has that name.
+   */
+  use<Name extends AnyPluginName>(name: Name): ExportsOf<Name> {
+    if (this.#app == null) {
+      throw new Error('Server is not set up')
+    }
+    if (!this.#exports.has(name)) {
+      throw new Error(`Plugin "${name}" is not registered`)
+    }
+    return this.#exports.get(name) as ExportsOf<Name>
   }
 
   get url(): string {
@@ -218,7 +239,7 @@ export class HTTPServer extends Disposer {
   }
 
   async #setup(plugins: Array<AnyHTTPPlugin>): Promise<void> {
-    const exports = new Map<string, unknown>()
+    const exports = this.#exports
     for (const plugin of plugins) {
       // The parent signal is checked directly: an already aborted one only disposes
       // this server on the next microtask.

@@ -38,7 +38,7 @@ Unhandled errors produce `{ "error": "Internal Server Error", "requestID": "..."
 ## Plugins
 
 A plugin has a `name`, an optional `dependsOn` list and a `setup(ctx)` function. Rules:
-- **One export.** `setup` returns the plugin's single export (any value), typed through the name created by `pluginName<Exports>()('name')`. Dependants read it with `ctx.use(name)`, which is typed from their `dependsOn` list and only accepts declared dependencies.
+- **One export.** `setup` returns the plugin's single export (any value), typed through the name created by `pluginName<Exports>()('name')`. Dependants read it with `ctx.use(name)`, which is typed from their `dependsOn` list and only accepts declared dependencies. Code holding the server reads it with `server.use(name)` once `createServer` resolves; it throws for a name no plugin registered.
 - **`dependsOn`.** Plugins are set up in dependency order. Missing dependencies, duplicate names and cycles throw a `PluginGraphError` from `createServer`.
 - **Registration phases.** Routes, middleware, limits, health checks and hooks (`ctx.route`, `ctx.middleware`, `ctx.limits`, `ctx.addReadinessCheck`, `ctx.onShutdown`, `ctx.onClose`) can only be registered during `setup`; the context is sealed once `setup` settles. Routes may not use the health paths.
 - **`ctx.middleware(handler, path?)`.** Applies to every route, or, with a path, to a segment-aware prefix: `/api` covers `/api` and `/api/...`, not `/apix`.

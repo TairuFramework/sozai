@@ -199,7 +199,7 @@
     {
       "name": "one-e21",
       "input": {
-        "value": 1e+21
+        "value": 1e21
       },
       "expected": "1e+21"
     },
@@ -263,11 +263,7 @@
     {
       "name": "literals",
       "input": {
-        "value": [
-          null,
-          true,
-          false
-        ]
+        "value": [null, true, false]
       },
       "expected": "[null,true,false]"
     },
@@ -293,9 +289,7 @@
       "name": "nested-lone-surrogate",
       "input": {
         "value": {
-          "value": [
-            "\ud800"
-          ]
+          "value": ["\ud800"]
         }
       },
       "expected": {

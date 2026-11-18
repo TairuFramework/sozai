@@ -108,10 +108,18 @@ export class HLC {
    * to it because every comparison against NaN is false.
    */
   static tryParse(s: string): HLCTimestamp | null {
+    const match =
+      /^(?:[0-9]{4}|[+-][0-9]{6})-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z:([0-9]{8,}):([\s\S]+)$/.exec(
+        s,
+      )
+    if (match === null) return null
     const ts = HLC.parse(s)
-    return Number.isFinite(ts.wallTime) && Number.isFinite(ts.counter) && ts.nodeID !== ''
-      ? ts
-      : null
+    if (!Number.isFinite(ts.wallTime) || ts.counter > 0xffffffff) return null
+    const iso = s.slice(0, s.indexOf('Z') + 1)
+    // Rust also accepts six-digit positive years below 10000.
+    const normalizedISO = iso.startsWith('+00') ? iso.slice(3) : iso
+    if (new Date(ts.wallTime).toISOString() !== normalizedISO) return null
+    return ts
   }
 
   static compare(a: HLCTimestamp, b: HLCTimestamp): number {

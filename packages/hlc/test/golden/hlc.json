@@ -412,6 +412,188 @@
         },
         "encoded": "2025-02-14T13:30:00.001Z:00000001:did:key:local"
       }
+    },
+    {
+      "name": "parse-missing-node-separator",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:12345678"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-empty-node",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:00000001:"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-negative-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:-0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-signed-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:+0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-junk",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:0000001x:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-space",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z: 0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-newline",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:00000001\n:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-short-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:1:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-overflow",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:4294967296:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-missing-time-separator",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Zx00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-missing-milliseconds",
+      "input": {
+        "encoded": "2026-01-01T00:00:00Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-invalid-date",
+      "input": {
+        "encoded": "2026-02-30T00:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-invalid-hour",
+      "input": {
+        "encoded": "2026-01-01T24:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-colon-node",
+      "input": {
+        "encoded": "2025-02-14T13:30:00.000Z:00000042:did:key:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 42,
+          "nodeID": "did:key:node"
+        }
+      }
+    },
+    {
+      "name": "parse-max-counter",
+      "input": {
+        "encoded": "2025-02-14T13:30:00.000Z:4294967295:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 4294967295,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-extended-year",
+      "input": {
+        "encoded": "+010000-01-01T00:00:00.000Z:00000000:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 253402300800000,
+          "counter": 0,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-negative-year",
+      "input": {
+        "encoded": "-000001-01-01T00:00:00.000Z:00000000:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": -62198755200000,
+          "counter": 0,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-padded-positive-year",
+      "input": {
+        "encoded": "+002026-01-01T00:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1767225600000,
+          "counter": 1,
+          "nodeID": "node"
+        }
+      }
     }
   ]
 }

@@ -63,6 +63,41 @@ function hlcCases(): Array<GoldenCase> {
   } finally {
     vi.useRealTimers()
   }
+  const invalidStamps: Record<string, string> = {
+    'missing-node-separator': '2026-01-01T00:00:00.000Z:12345678',
+    'empty-node': '2026-01-01T00:00:00.000Z:00000001:',
+    'negative-counter': '2026-01-01T00:00:00.000Z:-0000001:node',
+    'signed-counter': '2026-01-01T00:00:00.000Z:+0000001:node',
+    'counter-junk': '2026-01-01T00:00:00.000Z:0000001x:node',
+    'counter-space': '2026-01-01T00:00:00.000Z: 0000001:node',
+    'counter-newline': '2026-01-01T00:00:00.000Z:00000001\n:node',
+    'short-counter': '2026-01-01T00:00:00.000Z:1:node',
+    'counter-overflow': '2026-01-01T00:00:00.000Z:4294967296:node',
+    'missing-time-separator': '2026-01-01T00:00:00.000Zx00000001:node',
+    'missing-milliseconds': '2026-01-01T00:00:00Z:00000001:node',
+    'invalid-date': '2026-02-30T00:00:00.000Z:00000001:node',
+    'invalid-hour': '2026-01-01T24:00:00.000Z:00000001:node',
+  }
+  for (const [name, encoded] of Object.entries(invalidStamps)) {
+    const parsed = HLC.tryParse(encoded)
+    expect(parsed, name).toBeNull()
+    cases.push({ name: `parse-${name}`, input: { encoded }, expected: { parsed } })
+  }
+  for (const [name, timestamp] of Object.entries({
+    'colon-node': { wallTime, counter: 42, nodeID: 'did:key:node' },
+    'max-counter': { wallTime, counter: 4294967295, nodeID: 'node' },
+    'extended-year': { wallTime: 253402300800000, counter: 0, nodeID: 'node' },
+    'negative-year': { wallTime: -62198755200000, counter: 0, nodeID: 'node' },
+  })) {
+    const encoded = HLC.serialize(timestamp)
+    const parsed = HLC.tryParse(encoded)
+    expect(parsed, name).toEqual(timestamp)
+    cases.push({ name: `parse-${name}`, input: { encoded }, expected: { parsed } })
+  }
+  const encoded = '+002026-01-01T00:00:00.000Z:00000001:node'
+  const parsed = HLC.tryParse(encoded)
+  expect(parsed).toEqual({ wallTime: 1767225600000, counter: 1, nodeID: 'node' })
+  cases.push({ name: 'parse-padded-positive-year', input: { encoded }, expected: { parsed } })
   return cases
 }
 

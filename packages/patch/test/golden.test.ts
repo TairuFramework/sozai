@@ -103,6 +103,41 @@ function patchCases(): Array<GoldenCase> {
       error: 'PATH_NOT_FOUND',
     },
   ]
+  for (const key of ['9007199254740993', '1000000000000000000000']) {
+    for (const op of ['set', 'add'] as const) {
+      fixtures.push({
+        name: `${op}-exact-object-key-${key}`,
+        document: {},
+        patches: [
+          { op, path: `/${key}`, value: { child: 1 } },
+          { op: 'replace', path: `/${key}/child`, value: 2 },
+          { op: 'test', path: `/${key}/child`, value: 2 },
+        ],
+      })
+    }
+  }
+  for (const path of ['/toString', '/arr/length', '/arr/1', '/s/length', '/s/0']) {
+    for (const op of ['test', 'copy', 'move', 'replace', 'remove'] as const) {
+      fixtures.push({
+        name: `${op}-missing-json-member-${path.slice(1).replace('/', '-')}`,
+        document: { arr: [1], s: 'abc' },
+        patches: [
+          op === 'copy' || op === 'move'
+            ? { op, from: path, path: '/destination' }
+            : { op, path, value: 1 },
+        ],
+        error: 'PATH_NOT_FOUND',
+      })
+    }
+  }
+  fixtures.push({
+    name: 'test-own-object-members',
+    document: { toString: 7, length: 8 },
+    patches: [
+      { op: 'test', path: '/toString', value: 7 },
+      { op: 'test', path: '/length', value: 8 },
+    ],
+  })
   return fixtures.map(({ name, document, patches, error: expectedError }) => {
     const result = structuredClone(document)
     let failure: { error: string; code: string } | undefined

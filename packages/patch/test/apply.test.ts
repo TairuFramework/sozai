@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { deletePath, getPath, PatchError, parsePath, setPath } from '../src/apply.js'
+import { applyPatches } from '../src/index.js'
 
 describe('parsePath()', () => {
   it('should parse simple paths', () => {
@@ -124,6 +125,57 @@ describe('PatchError', () => {
     for (const code of codes) {
       const error = new PatchError('Message', code)
       expect(error.code).toBe(code)
+    }
+  })
+})
+
+describe('own JSON member reads', () => {
+  const document = { arr: [10], s: 'abc', n: null, own: { toString: 7, length: 8 } }
+  const missing = ['/toString', '/arr/length', '/arr/1', '/s/length', '/s/0', '/n/x']
+
+  it.each(missing)('does not read %s', (path) => {
+    expect(getPath(document, path)).toBeUndefined()
+    for (const op of ['test', 'replace', 'remove', 'copy', 'move'] as const) {
+      const data = structuredClone(document)
+      const patch =
+        op === 'copy' || op === 'move'
+          ? { op, from: path, path: '/destination' }
+          : { op, path, value: 0 }
+      expect(() => applyPatches(data, [patch])).toThrow(
+        expect.objectContaining({ code: 'PATH_NOT_FOUND' }),
+      )
+      expect(data).toEqual(document)
+    }
+  })
+
+  it('keeps own object members and array indices readable', () => {
+    expect(getPath(document, '/own/toString')).toBe(7)
+    expect(getPath(document, '/own/length')).toBe(8)
+    expect(getPath(document, '/arr/0')).toBe(10)
+    expect(getPath(document, '/n')).toBeNull()
+    expect(getPath(document, '')).toBe(document)
+    expect(getPath({ arr: [10] }, '/arr/00')).toBeUndefined()
+  })
+
+  it('does not traverse inherited or primitive members for writes or deletes', () => {
+    for (const path of ['/toString/x', '/arr/length/x', '/s/0/x']) {
+      expect(() => setPath(structuredClone(document), path, 1)).toThrow(
+        expect.objectContaining({ code: 'PATH_NOT_FOUND' }),
+      )
+      expect(() => deletePath(structuredClone(document), path)).toThrow(
+        expect.objectContaining({ code: 'PATH_NOT_FOUND' }),
+      )
+      expect(() => deletePath(structuredClone(document), path, false)).not.toThrow()
+    }
+  })
+
+  it('ignores absent copy and move sources in non-strict mode', () => {
+    for (const from of missing) {
+      for (const op of ['copy', 'move'] as const) {
+        const data = structuredClone(document)
+        applyPatches(data, [{ op, from, path: '/destination' }], false)
+        expect(data).toEqual(document)
+      }
     }
   })
 })

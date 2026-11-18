@@ -106,13 +106,27 @@ export function parsePath(path: string): Array<string | number> {
       if (FORBIDDEN_SEGMENTS.has(unescaped)) {
         throw new PatchError(`Forbidden path segment: ${unescaped}`, 'INVALID_PATH')
       }
-      // Convert canonical array indices to numbers; keep everything else (including
-      // the empty string and the '-' append sentinel) as a string key.
+      // Keep unsafe integers as strings so object member names remain exact.
       if (unescaped === '' || unescaped === '-') {
         return unescaped
       }
-      return ARRAY_INDEX_RE.test(unescaped) ? Number(unescaped) : unescaped
+      return ARRAY_INDEX_RE.test(unescaped) && Number.isSafeInteger(Number(unescaped))
+        ? Number(unescaped)
+        : unescaped
     })
+}
+
+function getMember(value: unknown, key: string | number): unknown {
+  if (Array.isArray(value)) {
+    const index = Number(key)
+    return ARRAY_INDEX_RE.test(String(key)) && index < value.length && Object.hasOwn(value, index)
+      ? value[index]
+      : undefined
+  }
+  if (typeof value !== 'object' || value === null) return undefined
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return undefined
+  return Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined
 }
 
 /**
@@ -125,9 +139,7 @@ export function parsePath(path: string): Array<string | number> {
  * @public
  */
 export function getPath(obj: unknown, path: string): unknown {
-  const keys = parsePath(path)
-  // @ts-expect-error index signature
-  return keys.reduce((acc, key) => acc?.[key], obj)
+  return parsePath(path).reduce<unknown>(getMember, obj)
 }
 
 /**
@@ -154,12 +166,11 @@ export function setPath(
   if (lastKey === undefined) {
     throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
   }
-  const target = keys.reduce((acc, key) => {
+  const target = keys.reduce<unknown>((acc, key) => {
     if (acc === undefined) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
     }
-    // @ts-expect-error unknown object
-    return acc[key]
+    return getMember(acc, key)
   }, obj)
 
   if (target === undefined) {
@@ -174,22 +185,23 @@ export function setPath(
       target.push(value)
       return
     }
-    if (typeof lastKey !== 'number') {
+    if (!ARRAY_INDEX_RE.test(String(lastKey))) {
       throw new PatchError('Array index must be a number', 'INVALID_INDEX')
     }
+    const index = Number(lastKey)
     const max = allowAppend ? target.length : target.length - 1
-    if (lastKey < 0 || lastKey > max) {
+    if (index < 0 || index > max) {
       throw new PatchError(
         `Array index ${lastKey} out of bounds (length: ${target.length})`,
         'INVALID_INDEX',
       )
     }
     if (insert) {
-      target.splice(lastKey, 0, value)
-    } else if (lastKey === target.length) {
+      target.splice(index, 0, value)
+    } else if (index === target.length) {
       target.push(value)
     } else {
-      target[lastKey] = value
+      target[index] = value
     }
   } else {
     if (shouldExist && !Object.hasOwn(target as object, lastKey as string)) {
@@ -220,15 +232,14 @@ export function deletePath(
   if (lastKey === undefined) {
     throw new PatchError('Root mutation unsupported', 'INVALID_PATH')
   }
-  const target = keys.reduce((acc, key) => {
+  const target = keys.reduce<unknown>((acc, key) => {
     if (acc === undefined) {
       if (strict) {
         throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')
       }
       return undefined
     }
-    // @ts-expect-error unknown object
-    return acc[key]
+    return getMember(acc, key)
   }, obj)
 
   if (target === undefined) {
@@ -239,16 +250,17 @@ export function deletePath(
   }
 
   if (Array.isArray(target)) {
-    if (typeof lastKey !== 'number') {
+    if (!ARRAY_INDEX_RE.test(String(lastKey))) {
       throw new PatchError('Array index must be a number', 'INVALID_INDEX')
     }
-    if (lastKey < 0 || lastKey >= target.length) {
+    const index = Number(lastKey)
+    if (index < 0 || index >= target.length) {
       throw new PatchError(
         `Array index ${lastKey} out of bounds (length: ${target.length})`,
         'INVALID_INDEX',
       )
     }
-    target.splice(lastKey, 1)
+    target.splice(index, 1)
   } else {
     if (!Object.hasOwn(target as object, lastKey as string) && strict) {
       throw new PatchError(`Path ${path} does not exist`, 'PATH_NOT_FOUND')

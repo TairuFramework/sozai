@@ -42,6 +42,10 @@
   dir: packages/hlc
   intents:
     - breezy-jokes-arrive
+"@sozai/hlc@0.1.1":
+  dir: packages/hlc
+  intents:
+    - hlc-strict-try-parse
 "@sozai/http-server@0.1.0":
   dir: packages/http-server
   intents:
@@ -90,6 +94,10 @@
   dir: packages/otel
   intents:
     - quick-beans-heal
+"@sozai/patch@0.1.4":
+  dir: packages/patch
+  intents:
+    - patch-own-members
 "@sozai/schema@0.1.3":
   dir: packages/schema
   intents:

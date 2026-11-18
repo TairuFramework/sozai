@@ -8,6 +8,6 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-ryu-js = "=1.0.2"
+ryu-js = "=1.0.3"
 serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
 hex = "=0.4.3"

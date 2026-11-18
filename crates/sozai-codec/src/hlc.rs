@@ -154,12 +154,12 @@ pub fn format(ts: &Timestamp) -> Result<String, HlcError> {
     Ok(out)
 }
 
-/// Parse a stamp from a peer, as `HLC.tryParse`, but strictly.
+/// Parse a stamp from a peer, as `HLC.tryParse`: every error here is a TS `null`.
 ///
-/// Accepts exactly what [`format`] emits: a `Date#toISOString` time (`YYYY-MM-DDTHH:mm:ss.sssZ`,
-/// or a `±YYYYYY` year), `:`, at least 8 ASCII digits, `:`, and a non-empty node ID (which may
-/// itself hold `:`). TS parses the time with `new Date()` and the counter with `parseInt`, both
-/// of which accept other spellings; those fail here with [`HlcError::Malformed`].
+/// Accepts what [`format`] emits: a `Date#toISOString` time (`YYYY-MM-DDTHH:mm:ss.sssZ`, or a
+/// `±YYYYYY` year, also a padded positive one such as `+002026`), `:`, at least 8 ASCII digits
+/// within `u32`, `:`, and a non-empty node ID (which may itself hold `:`). An invalid calendar
+/// date or `24:00` fails. The permissive TS `HLC.parse` has no counterpart.
 pub fn parse(text: &str) -> Result<Timestamp, HlcError> {
     let z_index = text.find('Z').ok_or(HlcError::Malformed)?;
     let wall_time = parse_iso(&text[..z_index])?;

@@ -207,7 +207,7 @@ fn format_and_parse(ts: &Timestamp, expected: &Value) -> Result<String, String> 
 
 #[test]
 fn golden_hlc() {
-    check(HLC, 22, |case| {
+    check(HLC, 40, |case| {
         let input = input_value(case);
         let expected = &case.expected;
         if case.name.starts_with("timestamp-") {
@@ -221,6 +221,12 @@ fn golden_hlc() {
             let encoded_b = hlc::format(&b).map_err(|e| format!("{e:?}"))?;
             let lexical = sign(encoded_a.encode_utf16().cmp(encoded_b.encode_utf16()));
             same(Some(lexical), expected["lexical"].as_i64(), "lexical")?;
+        } else if case.name.starts_with("parse-") {
+            let encoded = input["encoded"].as_str().ok_or("encoded")?;
+            let parsed = hlc::parse(encoded)
+                .map(|ts| timestamp_json(&ts))
+                .unwrap_or(Value::Null);
+            same(&parsed, &expected["parsed"], "parse")?;
         } else if case.name == "counter-ceiling" {
             let physical = input["physicalTime"].as_i64().ok_or("physicalTime")?;
             let node_id = input["nodeID"].as_str().ok_or("nodeID")?;
@@ -243,9 +249,11 @@ fn golden_hlc() {
 
 #[test]
 fn golden_patch() {
-    check(PATCH, 19, |case| {
+    check(PATCH, 64, |case| {
         let input = input_value(case);
         let document = &input["document"];
+        // Omitted means strict, the `applyPatches` default.
+        let strict = input["strict"].as_bool().unwrap_or(true);
         let operations = input["patches"]
             .as_array()
             .ok_or("patches is not an array")?
@@ -253,8 +261,12 @@ fn golden_patch() {
             .map(patch::Operation::from_value)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("operation: {e}"))?;
-        let outcome = match patch::apply(document, &operations) {
+        let outcome = match patch::apply_with(document, &operations, strict) {
             Ok(result) => json!({ "document": result }),
+            // The TS harness records a plain `TypeError` as `{"error":"TypeError"}`.
+            Err(error) if error.kind == patch::PatchErrorCode::InvalidTarget => {
+                json!({ "error": "TypeError", "document": document })
+            }
             Err(error) => {
                 json!({ "error": "PatchError", "code": error.code(), "document": document })
             }

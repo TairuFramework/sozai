@@ -3,9 +3,10 @@
 //! [`apply`] works on a copy and returns it, so a failing patch leaves the input untouched, as
 //! the TS function leaves `data` untouched.
 //!
-//! The document is plain JSON. The TS version reads paths with JavaScript property access, so it
-//! also "finds" inherited members (`/toString`), array and string `length`, and string indices
-//! (`/name/0`); this port finds own JSON members only.
+//! Paths read own JSON members only, as the TS `getMember`: an object member, or an in-bounds
+//! array element at a canonical index. Inherited members (`/toString`), `length` and string
+//! indices (`/name/0`) are absent, and walking through `null` or another primitive finds nothing.
+//! A numeric segment stays an exact member name on objects and is an index only on arrays.
 
 use std::fmt;
 
@@ -44,8 +45,8 @@ pub enum PatchErrorCode {
     /// `INVALID_OPERATION`
     InvalidOperation,
     /// `INVALID_TARGET`: Rust only. Writing a member of `null`, a number, a string or a boolean,
-    /// or walking through `null` in `add`, `set` or a non-strict `remove`, where the TS code
-    /// throws a plain `TypeError` rather than a `PatchError`.
+    /// removing a member of `null`, or removing a string's own `length` or index, where the TS
+    /// code throws a plain `TypeError` rather than a `PatchError`.
     InvalidTarget,
 }
 
@@ -370,13 +371,14 @@ fn split_last(path: &str) -> Result<(Vec<Key>, Key), PatchError> {
     }
 }
 
-/// TS reads a member of `null` with plain property access while walking a path, which throws a
-/// `TypeError`; this is that case.
-fn null_parent(path: &str) -> PatchError {
-    PatchError::new(
-        PatchErrorCode::InvalidTarget,
-        format!("Cannot traverse {path}: parent is null"),
-    )
+/// Whether `Object.hasOwn(text, key)` holds for a string primitive: `length`, or an index below
+/// its UTF-16 length. Those members are read-only, so TS throws a `TypeError` writing or deleting
+/// them.
+fn string_has_own(text: &str, key: &Key) -> bool {
+    key.name() == "length"
+        || key
+            .index()
+            .is_some_and(|index| index < text.encode_utf16().count())
 }
 
 fn out_of_bounds(index: &Key, length: usize) -> PatchError {
@@ -419,9 +421,6 @@ fn set_path(
     let (parents, last) = split_last(path)?;
     let mut target = document;
     for key in &parents {
-        if target.is_null() {
-            return Err(null_parent(path));
-        }
         target = child_mut(target, key).ok_or_else(|| PatchError::not_found(path))?;
     }
     match target {
@@ -469,9 +468,15 @@ fn set_path(
             Ok(())
         }
         _ => {
-            // TS: `Object.hasOwn` finds no member on a primitive (PATH_NOT_FOUND), and assigning
-            // to one throws a TypeError in strict-mode code.
-            if mode.should_exist && !target.is_null() {
+            // TS: `Object.hasOwn(null, key)` throws a TypeError; on another primitive it finds no
+            // member (PATH_NOT_FOUND) except a string's own `length` and indices. Assigning to a
+            // primitive's member throws a TypeError in strict-mode code.
+            let has_own = match target {
+                Value::Null => true,
+                Value::String(text) => string_has_own(text, &last),
+                _ => false,
+            };
+            if mode.should_exist && !has_own {
                 return Err(PatchError::not_found(path));
             }
             Err(PatchError::new(
@@ -491,9 +496,6 @@ fn delete_path(
     let (parents, last) = split_last(path)?;
     let mut target = document;
     for key in &parents {
-        if target.is_null() {
-            return Err(null_parent(path));
-        }
         match child_mut(target, key) {
             Some(next) => target = next,
             None if strict => return Err(PatchError::not_found(path)),
@@ -520,7 +522,17 @@ fn delete_path(
             None if strict => Err(PatchError::not_found(path)),
             None => Ok(None),
         },
-        Value::Null => Err(null_parent(path)),
+        // TS: `Object.hasOwn(null, key)` throws a TypeError, strict or not.
+        Value::Null => Err(PatchError::new(
+            PatchErrorCode::InvalidTarget,
+            format!("Cannot remove {path}: parent is null"),
+        )),
+        // TS: a string's own `length` and indices pass `Object.hasOwn`, then `delete` throws a
+        // TypeError because they are read-only.
+        Value::String(text) if string_has_own(text, &last) => Err(PatchError::new(
+            PatchErrorCode::InvalidTarget,
+            format!("Cannot remove {path}: member is read-only"),
+        )),
         _ if strict => Err(PatchError::not_found(path)),
         _ => Ok(None),
     }
@@ -640,7 +652,21 @@ mod tests {
                 json!({"a": null}),
                 json!([{"op": "add", "path": "/a/b/c", "value": 1}])
             ),
-            "INVALID_TARGET"
+            "PATH_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                json!({"a": null}),
+                json!([{"op": "set", "path": "/a/b/c", "value": 1}])
+            ),
+            "PATH_NOT_FOUND"
+        );
+        assert_eq!(
+            code(
+                json!({"a": "s"}),
+                json!([{"op": "add", "path": "/a/0/c", "value": 1}])
+            ),
+            "PATH_NOT_FOUND"
         );
         assert_eq!(
             code(
@@ -691,5 +717,59 @@ mod tests {
         let mut expected = doc.clone();
         expected["b"] = json!(1);
         assert_eq!(lenient, Ok(expected));
+    }
+
+    #[test]
+    fn non_strict_null_and_primitive_targets() {
+        let doc = json!({"n": null, "s": "ab", "x": 1, "o": {}});
+        let lenient = |operations: Value| apply_with(&doc, &ops(operations), false);
+        // A missing parent behind `null` is a no-op.
+        assert_eq!(
+            lenient(json!([{"op": "remove", "path": "/n/b/c"}])),
+            Ok(doc.clone())
+        );
+        // Members of a number, and a string's non-members, are absent.
+        assert_eq!(
+            lenient(json!([
+                {"op": "remove", "path": "/x/b"},
+                {"op": "remove", "path": "/s/2"},
+                {"op": "remove", "path": "/s/b"},
+                {"op": "copy", "from": "/s/0", "path": "/c"},
+                {"op": "move", "from": "/s/length", "path": "/m"}
+            ])),
+            Ok(doc.clone())
+        );
+        let invalid_target = |operations: Value| lenient(operations).expect_err("fails").code();
+        // TS `Object.hasOwn(null, key)` throws.
+        assert_eq!(
+            invalid_target(json!([{"op": "remove", "path": "/n/b"}])),
+            "INVALID_TARGET"
+        );
+        assert_eq!(
+            invalid_target(json!([{"op": "replace", "path": "/n/b", "value": 1}])),
+            "INVALID_TARGET"
+        );
+        // TS deletes a read-only own member of a string.
+        assert_eq!(
+            invalid_target(json!([{"op": "remove", "path": "/s/1"}])),
+            "INVALID_TARGET"
+        );
+        assert_eq!(
+            invalid_target(json!([{"op": "remove", "path": "/s/length"}])),
+            "INVALID_TARGET"
+        );
+        // TS assigns to a primitive's member.
+        assert_eq!(
+            invalid_target(json!([{"op": "replace", "path": "/x/b", "value": 1}])),
+            "INVALID_TARGET"
+        );
+        // Numeric segments stay exact member names on objects.
+        assert_eq!(
+            apply(
+                &doc,
+                &ops(json!([{"op": "add", "path": "/o/007", "value": 1}]))
+            ),
+            Ok(json!({"n": null, "s": "ab", "x": 1, "o": {"007": 1}}))
+        );
     }
 }

@@ -1,0 +1,491 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "add-property",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/b",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": 1,
+          "b": 2
+        }
+      }
+    },
+    {
+      "name": "add-array-insert",
+      "input": {
+        "document": {
+          "a": [
+            1,
+            3
+          ]
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/1",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            1,
+            2,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "name": "add-array-append",
+      "input": {
+        "document": {
+          "a": [
+            1
+          ]
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "name": "remove-property",
+      "input": {
+        "document": {
+          "a": 1,
+          "b": 2
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "b": 2
+        }
+      }
+    },
+    {
+      "name": "remove-array",
+      "input": {
+        "document": {
+          "a": [
+            1,
+            2,
+            3
+          ]
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/1"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            1,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "name": "replace",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a",
+            "value": {
+              "b": 2
+            }
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "b": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "move",
+      "input": {
+        "document": {
+          "a": {
+            "x": 1
+          },
+          "b": {}
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/a",
+            "path": "/b/c"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "b": {
+            "c": {
+              "x": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "move-array",
+      "input": {
+        "document": {
+          "a": [
+            1,
+            2,
+            3
+          ]
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/a/0",
+            "path": "/a/2"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            2,
+            3,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "copy",
+      "input": {
+        "document": {
+          "a": {
+            "x": 1
+          }
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/a",
+            "path": "/b"
+          },
+          {
+            "op": "replace",
+            "path": "/b/x",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "x": 1
+          },
+          "b": {
+            "x": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "test",
+      "input": {
+        "document": {
+          "a": {
+            "x": [
+              1,
+              true,
+              null
+            ]
+          }
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/a",
+            "value": {
+              "x": [
+                1,
+                true,
+                null
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "x": [
+              1,
+              true,
+              null
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "set-create",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "set-replace",
+      "input": {
+        "document": {
+          "a": [
+            1,
+            2
+          ]
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/0",
+            "value": 3
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            3,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "name": "set-append",
+      "input": {
+        "document": {
+          "a": [
+            1
+          ]
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "name": "escaped-pointer",
+      "input": {
+        "document": {
+          "a/b": {
+            "~": 1
+          }
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a~1b/~0",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a/b": {
+            "~": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-path",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/missing"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "failed-test-atomic",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/a",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "TEST_FAILED",
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "remove-array-dash",
+      "input": {
+        "document": {
+          "a": [
+            1
+          ]
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/-"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "replace-array-dash",
+      "input": {
+        "document": {
+          "a": [
+            1
+          ]
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "test-array-dash",
+      "input": {
+        "document": {
+          "a": [
+            1
+          ]
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/a/-",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [
+            1
+          ]
+        }
+      }
+    }
+  ]
+}

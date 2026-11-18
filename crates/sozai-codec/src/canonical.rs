@@ -40,6 +40,9 @@ impl std::error::Error for CanonicalError {}
 
 /// Serialize a JSON value canonically.
 ///
+/// The value must be within [`crate::json::MAX_DEPTH`] opened containers. Callers bound
+/// untrusted values with [`crate::json::check_value_depth`] before this recursive operation.
+///
 /// A `serde_json::Value` cannot hold `NaN`, `Infinity` or a lone surrogate, so this never fails
 /// today; the `Result` keeps the signature aligned with [`stringify_text`] and the TS function.
 /// Every number is formatted as the double it denotes, as `JSON.parse` would have read it:
@@ -59,8 +62,8 @@ pub fn stringify(value: &Value) -> Result<String, CanonicalError> {
 /// `JSON.parse`.
 pub fn stringify_text(json: &str) -> Result<String, CanonicalError> {
     check_surrogate_escapes(json)?;
-    let value: Value = serde_json::from_str(json)
-        .map_err(|error| CanonicalError::InvalidJSON(error.to_string()))?;
+    let value =
+        crate::json::parse(json).map_err(|error| CanonicalError::InvalidJSON(error.to_string()))?;
     stringify(&value)
 }
 
@@ -288,6 +291,17 @@ mod tests {
             stringify(&value).as_deref(),
             Ok("\"\\u001f\u{7f}\u{2028}/\"")
         );
+    }
+
+    #[test]
+    fn text_accepts_exactly_128_containers() {
+        let at_limit = format!("{}{}", "[".repeat(128), "]".repeat(128));
+        assert_eq!(stringify_text(&at_limit).as_deref(), Ok(at_limit.as_str()));
+        let over = format!("{}{}", "[".repeat(129), "]".repeat(129));
+        assert!(matches!(
+            stringify_text(&over),
+            Err(CanonicalError::InvalidJSON(_))
+        ));
     }
 
     #[test]

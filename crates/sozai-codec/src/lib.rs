@@ -10,6 +10,7 @@ pub mod base64;
 pub mod base64url;
 pub mod canonical;
 pub mod hlc;
+pub mod json;
 pub mod patch;
 pub mod varint;
 

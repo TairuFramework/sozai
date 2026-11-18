@@ -46,7 +46,7 @@ pub enum PatchErrorCode {
     InvalidOperation,
     /// `INVALID_TARGET`: Rust only. Writing a member of `null`, a number, a string or a boolean,
     /// removing a member of `null`, or removing a string's own `length` or index, where the TS
-    /// code throws a plain `TypeError` rather than a `PatchError`.
+    /// code throws a plain `TypeError` rather than a `PatchError`. Kubun classifies both as transient.
     InvalidTarget,
 }
 
@@ -167,6 +167,9 @@ impl Operation {
 
 /// Apply operations in order to a copy of `document`, in strict mode (the TS default): a
 /// missing path fails with `PATH_NOT_FOUND`.
+///
+/// `document` and operation values must be within [`crate::json::MAX_DEPTH`] opened containers.
+/// Callers bound them with [`crate::json::check_value_depth`] before this recursive operation.
 pub fn apply(document: &Value, operations: &[Operation]) -> Result<Value, PatchError> {
     apply_with(document, operations, true)
 }
@@ -175,6 +178,9 @@ pub fn apply(document: &Value, operations: &[Operation]) -> Result<Value, PatchE
 ///
 /// With `strict` off, `remove`, `replace`, `copy` and `move` skip missing paths instead of
 /// failing, as `applyPatches(data, patches, false)`. `test` always requires its path.
+///
+/// `document` and operation values must be within [`crate::json::MAX_DEPTH`] opened containers.
+/// Callers bound them with [`crate::json::check_value_depth`] before this recursive operation.
 pub fn apply_with(
     document: &Value,
     operations: &[Operation],

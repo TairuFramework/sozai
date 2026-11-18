@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::value::RawValue;
 use serde_json::{Number, Value, json};
-use sozai_codec::hlc::{self, Hlc, Timestamp};
+use sozai_codec::hlc::{self, HLC, Timestamp};
 use sozai_codec::{base32, base64, base64url, canonical, patch, varint};
 
 const CANONICAL_JSON: &str =
@@ -230,13 +230,13 @@ fn golden_hlc() {
         } else if case.name == "counter-ceiling" {
             let physical = input["physicalTime"].as_i64().ok_or("physicalTime")?;
             let node_id = input["nodeID"].as_str().ok_or("nodeID")?;
-            let mut clock = Hlc::new(node_id);
+            let mut clock = HLC::new(node_id);
             let result = clock.receive(&timestamp(&input["remote"])?, physical);
             same(&timestamp_json(&result), &expected["timestamp"], "receive")?;
             format_and_parse(&result, expected)?;
         } else if case.name == "after-ceiling" {
             let physical = input["physicalTime"].as_i64().ok_or("physicalTime")?;
-            let mut clock = Hlc::resume(timestamp(&input["previous"])?);
+            let mut clock = HLC::resume(timestamp(&input["previous"])?);
             let next = clock.now(physical);
             same(&timestamp_json(&next), &expected["timestamp"], "now")?;
             format_and_parse(&next, expected)?;

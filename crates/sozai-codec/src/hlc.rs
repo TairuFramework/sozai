@@ -31,7 +31,7 @@ pub struct Timestamp {
 
 /// A stamp that cannot be serialized or parsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HlcError {
+pub enum HLCError {
     /// The wall time is outside the JavaScript `Date` range, where `toISOString` throws a
     /// `RangeError`.
     WallTimeOutOfRange,
@@ -42,7 +42,7 @@ pub enum HlcError {
     CounterOverflow,
 }
 
-impl fmt::Display for HlcError {
+impl fmt::Display for HLCError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::WallTimeOutOfRange => "Invalid time value",
@@ -52,17 +52,17 @@ impl fmt::Display for HlcError {
     }
 }
 
-impl std::error::Error for HlcError {}
+impl std::error::Error for HLCError {}
 
 /// A hybrid logical clock for one node.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Hlc {
+pub struct HLC {
     node_id: String,
     last_wall_time: i64,
     last_counter: u32,
 }
 
-impl Hlc {
+impl HLC {
     /// A fresh clock for `node_id`, as `new HLC({ nodeID })`.
     pub fn new(node_id: impl Into<String>) -> Self {
         Self {
@@ -142,7 +142,7 @@ pub fn compare(a: &Timestamp, b: &Timestamp) -> Ordering {
 }
 
 /// Serialize a stamp, as `HLC.serialize`. Fails only for a wall time outside the `Date` range.
-pub fn format(ts: &Timestamp) -> Result<String, HlcError> {
+pub fn format(ts: &Timestamp) -> Result<String, HLCError> {
     let mut out = format_iso(ts.wall_time)?;
     let _ = write!(
         out,
@@ -160,19 +160,19 @@ pub fn format(ts: &Timestamp) -> Result<String, HlcError> {
 /// `±YYYYYY` year, also a padded positive one such as `+002026`), `:`, at least 8 ASCII digits
 /// within `u32`, `:`, and a non-empty node ID (which may itself hold `:`). An invalid calendar
 /// date or `24:00` fails. The permissive TS `HLC.parse` has no counterpart.
-pub fn parse(text: &str) -> Result<Timestamp, HlcError> {
-    let z_index = text.find('Z').ok_or(HlcError::Malformed)?;
+pub fn parse(text: &str) -> Result<Timestamp, HLCError> {
+    let z_index = text.find('Z').ok_or(HLCError::Malformed)?;
     let wall_time = parse_iso(&text[..z_index])?;
     let rest = text[z_index + 1..]
         .strip_prefix(':')
-        .ok_or(HlcError::Malformed)?;
-    let (counter, node_id) = rest.split_once(':').ok_or(HlcError::Malformed)?;
+        .ok_or(HLCError::Malformed)?;
+    let (counter, node_id) = rest.split_once(':').ok_or(HLCError::Malformed)?;
     if counter.len() < COUNTER_PAD || !counter.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(HlcError::Malformed);
+        return Err(HLCError::Malformed);
     }
-    let counter: u32 = counter.parse().map_err(|_| HlcError::CounterOverflow)?;
+    let counter: u32 = counter.parse().map_err(|_| HLCError::CounterOverflow)?;
     if node_id.is_empty() {
-        return Err(HlcError::Malformed);
+        return Err(HLCError::Malformed);
     }
     Ok(Timestamp {
         wall_time,
@@ -227,9 +227,9 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 }
 
 /// `Date#toISOString`, trailing `Z` included.
-fn format_iso(wall_time: i64) -> Result<String, HlcError> {
+fn format_iso(wall_time: i64) -> Result<String, HLCError> {
     if !(-MAX_WALL_TIME..=MAX_WALL_TIME).contains(&wall_time) {
-        return Err(HlcError::WallTimeOutOfRange);
+        return Err(HLCError::WallTimeOutOfRange);
     }
     let days = wall_time.div_euclid(MS_PER_DAY);
     let mut ms = wall_time.rem_euclid(MS_PER_DAY);
@@ -260,8 +260,8 @@ fn digits(text: &str) -> Option<i64> {
 }
 
 /// Parse the part of a `toISOString` result before its `Z`.
-fn parse_iso(text: &str) -> Result<i64, HlcError> {
-    let malformed = HlcError::Malformed;
+fn parse_iso(text: &str) -> Result<i64, HLCError> {
+    let malformed = HLCError::Malformed;
     let (year, rest) = match text.as_bytes().first() {
         Some(b'+' | b'-') => {
             let (sign_year, rest) = text.split_at_checked(7).ok_or(malformed)?;
@@ -355,7 +355,7 @@ mod tests {
         }
         assert_eq!(
             format(&ts(MAX_WALL_TIME + 1, 0, "n")),
-            Err(HlcError::WallTimeOutOfRange)
+            Err(HLCError::WallTimeOutOfRange)
         );
     }
 
@@ -377,11 +377,11 @@ mod tests {
             "+275760-09-13T00:00:00.001Z:00000000:n",
             "2025-02-14 13:30:00.000Z:00000000:n",
         ] {
-            assert_eq!(parse(bad), Err(HlcError::Malformed), "{bad:?}");
+            assert_eq!(parse(bad), Err(HLCError::Malformed), "{bad:?}");
         }
         assert_eq!(
             parse("2025-02-14T13:30:00.000Z:99999999999:n"),
-            Err(HlcError::CounterOverflow)
+            Err(HLCError::CounterOverflow)
         );
         assert_eq!(
             parse("2025-02-14T13:30:00.000Z:000000001:a:b"),
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn clock_paths() {
-        let mut clock = Hlc::new("local");
+        let mut clock = HLC::new("local");
         assert_eq!(clock.now(100), ts(100, 0, "local"));
         assert_eq!(clock.now(100), ts(100, 1, "local"));
         assert_eq!(clock.now(50), ts(100, 2, "local"));
@@ -408,9 +408,9 @@ mod tests {
         assert_eq!(clock.receive(&ts(90, 99, "r"), 100), ts(100, 11, "local"));
         assert_eq!(clock.receive(&ts(200, 4, "r"), 150), ts(200, 5, "local"));
         assert_eq!(clock.receive(&ts(200, 4, "r"), 300), ts(300, 0, "local"));
-        let mut full = Hlc::resume(ts(300, COUNTER_CEILING - 1, "local"));
+        let mut full = HLC::resume(ts(300, COUNTER_CEILING - 1, "local"));
         assert_eq!(full.now(300), ts(301, 0, "local"));
-        let mut far = Hlc::new("local");
+        let mut far = HLC::new("local");
         assert_eq!(far.receive(&ts(5, u32::MAX, "r"), 0), ts(6, 0, "local"));
     }
 }

@@ -11,6 +11,9 @@ type Fixture = {
   name: string
   document: Record<string, unknown>
   patches: Array<PatchOperation>
+  // Omitted means strict, the `applyPatches` default. Recorded in the input only when false.
+  strict?: boolean
+  // A `PatchError` code, or `TypeError` for a plain TypeError.
   error?: string
 }
 
@@ -138,20 +141,113 @@ function patchCases(): Array<GoldenCase> {
       { op: 'test', path: '/length', value: 8 },
     ],
   })
-  return fixtures.map(({ name, document, patches, error: expectedError }) => {
+  // Paths through `null` and onto primitives. Writing or deleting a member of `null`, or of a
+  // primitive's read-only own member, throws a plain TypeError rather than a PatchError.
+  const nullDocument = { a: null, s: 'abc', x: 1 }
+  const targets: Array<Omit<Fixture, 'document'>> = [
+    {
+      name: 'nonstrict-remove-through-null',
+      patches: [{ op: 'remove', path: '/a/b/c' }],
+      strict: false,
+    },
+    {
+      name: 'add-through-null',
+      patches: [{ op: 'add', path: '/a/b/c', value: 1 }],
+      error: 'PATH_NOT_FOUND',
+    },
+    {
+      name: 'set-through-null',
+      patches: [{ op: 'set', path: '/a/b/c', value: 1 }],
+      error: 'PATH_NOT_FOUND',
+    },
+    {
+      name: 'nonstrict-add-through-null',
+      patches: [{ op: 'add', path: '/a/b/c', value: 1 }],
+      strict: false,
+      error: 'PATH_NOT_FOUND',
+    },
+    {
+      name: 'nonstrict-remove-string-length',
+      patches: [{ op: 'remove', path: '/s/length' }],
+      strict: false,
+      error: 'TypeError',
+    },
+    {
+      name: 'nonstrict-remove-string-index',
+      patches: [{ op: 'remove', path: '/s/1' }],
+      strict: false,
+      error: 'TypeError',
+    },
+    {
+      name: 'nonstrict-remove-string-out-of-range',
+      patches: [{ op: 'remove', path: '/s/3' }],
+      strict: false,
+    },
+    {
+      name: 'nonstrict-remove-number-member',
+      patches: [{ op: 'remove', path: '/x/b' }],
+      strict: false,
+    },
+    {
+      name: 'add-null-target',
+      patches: [{ op: 'add', path: '/a/b', value: 1 }],
+      error: 'TypeError',
+    },
+    {
+      name: 'set-null-target',
+      patches: [{ op: 'set', path: '/a/b', value: 1 }],
+      error: 'TypeError',
+    },
+    {
+      name: 'replace-null-target',
+      patches: [{ op: 'replace', path: '/a/b', value: 1 }],
+      error: 'PATH_NOT_FOUND',
+    },
+    {
+      name: 'nonstrict-replace-null-target',
+      patches: [{ op: 'replace', path: '/a/b', value: 1 }],
+      strict: false,
+      error: 'TypeError',
+    },
+    {
+      name: 'remove-null-target',
+      patches: [{ op: 'remove', path: '/a/b' }],
+      error: 'PATH_NOT_FOUND',
+    },
+    {
+      name: 'nonstrict-remove-null-target',
+      patches: [{ op: 'remove', path: '/a/b' }],
+      strict: false,
+      error: 'TypeError',
+    },
+    {
+      name: 'add-number-target',
+      patches: [{ op: 'add', path: '/x/b', value: 1 }],
+      error: 'TypeError',
+    },
+  ]
+  for (const target of targets) {
+    fixtures.push({ ...target, document: nullDocument })
+  }
+  return fixtures.map(({ name, document, patches, strict, error: expectedError }) => {
     const result = structuredClone(document)
-    let failure: { error: string; code: string } | undefined
+    let failure: { error: string; code?: string } | undefined
     try {
-      applyPatches(result, patches)
+      applyPatches(result, patches, strict ?? true)
     } catch (error) {
-      if (!(error instanceof PatchError)) throw error
-      failure = { error: error.name, code: error.code }
+      if (error instanceof PatchError) {
+        failure = { error: error.name, code: error.code }
+      } else if (error instanceof TypeError) {
+        failure = { error: 'TypeError' }
+      } else {
+        throw error
+      }
     }
-    expect(failure?.code, name).toBe(expectedError)
+    expect(failure?.code ?? failure?.error, name).toBe(expectedError)
     if (failure) expect(result, `${name}: atomic failure`).toEqual(document)
     return {
       name,
-      input: { document, patches },
+      input: strict === false ? { document, patches, strict } : { document, patches },
       expected: failure ? { ...failure, document: result } : { document: result },
     }
   })

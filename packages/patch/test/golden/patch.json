@@ -1179,6 +1179,384 @@
           "length": 8
         }
       }
+    },
+    {
+      "name": "nonstrict-remove-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b/c"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "set-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-add-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-length",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/length"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-index",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/1"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-out-of-range",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/3"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-number-member",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/x/b"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "set-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "replace-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-replace-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/b",
+            "value": 1
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "remove-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-number-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/x/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
     }
   ]
 }

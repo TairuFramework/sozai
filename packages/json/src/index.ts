@@ -21,9 +21,9 @@
  * and throw.
  *
  * Throws a `TypeError` on values that cannot be represented in canonical JSON: `NaN`, `Infinity`,
- * `BigInt`, and circular references. This is stricter than `JSON.stringify`, which turns
- * `NaN` and `Infinity` into `null`. Deeply nested values may throw a `RangeError` from stack
- * exhaustion, as `JSON.stringify` does.
+ * `BigInt`, lone UTF-16 surrogates (including property names), and circular references. This is
+ * stricter than `JSON.stringify`, which turns `NaN` and `Infinity` into `null`. Deeply nested
+ * values may throw a `RangeError` from stack exhaustion, as `JSON.stringify` does.
  *
  * On these specific points it follows `JSON.stringify`: `toJSON` is honored and receives the
  * property key, boxed `Number`/`String`/`Boolean` objects are unwrapped, each property is read
@@ -260,16 +260,35 @@ function encodeMember(member: unknown, key: string, ancestors: Ancestors): strin
 /** Encode any non-`object` value, plus `null`. */
 function encodeScalar(scalar: unknown): string | undefined {
   switch (typeof scalar) {
+    case 'string':
+      return encodeString(scalar)
     case 'number':
       return encodeNumber(scalar)
     case 'bigint':
       // RFC 8785 has no integer type beyond the JSON number, whose range this exceeds.
       throw new TypeError('BigInt is not allowed')
     default:
-      // Strings (RFC 8785 section 3.2.1), booleans and null serialize as themselves; undefined,
+      // Booleans and null serialize as themselves; undefined,
       // functions and symbols yield undefined, both exactly as JSON.stringify does.
       return JSON.stringify(scalar)
   }
+}
+
+/** Reject unpaired UTF-16 surrogates per RFC 8785 section 3.2.2.2. */
+function encodeString(value: string): string {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index)
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new TypeError('Lone UTF-16 surrogate is not allowed')
+      }
+      index++
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new TypeError('Lone UTF-16 surrogate is not allowed')
+    }
+  }
+  return JSON.stringify(value)
 }
 
 /** Encode a number per RFC 8785 section 3.2.2, rejecting the values section 3.2.2.2 excludes. */
@@ -338,11 +357,12 @@ function encodeObject(object: Record<string, unknown>, ancestors: Ancestors): st
   const keys = Object.keys(object).sort()
   const members: Array<string> = []
   for (const key of keys) {
+    const encodedKey = encodeString(key)
     // Read once and reused below, so a getter fires exactly once.
     const encoded = encodeMember(object[key], key, ancestors)
     // A property with no JSON representation is dropped rather than nulled.
     if (encoded !== undefined) {
-      members.push(`${JSON.stringify(key)}:${encoded}`)
+      members.push(`${encodedKey}:${encoded}`)
     }
   }
   return `{${members.join(',')}}`

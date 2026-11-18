@@ -5,3 +5,5 @@ node_modules
 .superpowers
 lib
 .skill-check
+.pnpm
+target

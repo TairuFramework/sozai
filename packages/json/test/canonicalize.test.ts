@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { canonicalize } from '../src/index.js'
+import { canonicalize, canonicalizeJSON, type JSONValue } from '../src/index.js'
 
 describe('canonicalize()', () => {
   test('sorts object keys by UTF-16 code unit', () => {
@@ -132,3 +132,35 @@ describe('canonicalize()', () => {
     expect(canonicalize(value)).toBe(`[${Array.from({ length: 50 }, () => '{"v":1}').join(',')}]`)
   })
 })
+
+for (const serialize of [canonicalize, canonicalizeJSON]) {
+  describe(`${serialize.name} Unicode validation`, () => {
+    test.each([
+      '\ud800',
+      '\udbff',
+      '\udc00',
+      '\udfff',
+      'a\ud800b',
+      '\ud800\ud800',
+      '\udc00\ud800',
+      '\ud83d\ude02\ud800',
+    ])('rejects unpaired surrogates in %j', (value) => {
+      for (const input of [value, [value], { value }, { [value]: 1 }] satisfies Array<JSONValue>) {
+        expect(() => serialize(input)).toThrow(TypeError)
+      }
+    })
+
+    test.each([
+      '',
+      'plain',
+      '\ud800\udc00',
+      '\udbff\udfff',
+      'a\ud83d\ude02b',
+      '\ud83d\ude02\ud83d\ude02',
+    ])('preserves valid Unicode in %j', (value) => {
+      for (const input of [value, [value], { value }, { [value]: 1 }] satisfies Array<JSONValue>) {
+        expect(serialize(input)).toBe(JSON.stringify(input))
+      }
+    })
+  })
+}

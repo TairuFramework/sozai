@@ -1,0 +1,599 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "timestamp-0",
+      "input": {
+        "wallTime": 1739539800000,
+        "counter": 0,
+        "nodeID": "did:key:aaa"
+      },
+      "expected": {
+        "encoded": "2025-02-14T13:30:00.000Z:00000000:did:key:aaa",
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      }
+    },
+    {
+      "name": "timestamp-1",
+      "input": {
+        "wallTime": 1739539800000,
+        "counter": 99999999,
+        "nodeID": "did:key:aaa"
+      },
+      "expected": {
+        "encoded": "2025-02-14T13:30:00.000Z:99999999:did:key:aaa",
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        }
+      }
+    },
+    {
+      "name": "timestamp-2",
+      "input": {
+        "wallTime": 1739539800000,
+        "counter": 0,
+        "nodeID": "did:key:bbb"
+      },
+      "expected": {
+        "encoded": "2025-02-14T13:30:00.000Z:00000000:did:key:bbb",
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        }
+      }
+    },
+    {
+      "name": "timestamp-3",
+      "input": {
+        "wallTime": 1739539800001,
+        "counter": 0,
+        "nodeID": "did:key:aaa"
+      },
+      "expected": {
+        "encoded": "2025-02-14T13:30:00.001Z:00000000:did:key:aaa",
+        "parsed": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      }
+    },
+    {
+      "name": "compare-0-0",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 0,
+        "lexical": 0
+      }
+    },
+    {
+      "name": "compare-0-1",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-0-2",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-0-3",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-1-0",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-1-1",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 0,
+        "lexical": 0
+      }
+    },
+    {
+      "name": "compare-1-2",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-1-3",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-2-0",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-2-1",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-2-2",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        }
+      },
+      "expected": {
+        "numeric": 0,
+        "lexical": 0
+      }
+    },
+    {
+      "name": "compare-2-3",
+      "input": {
+        "a": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        },
+        "b": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": -1,
+        "lexical": -1
+      }
+    },
+    {
+      "name": "compare-3-0",
+      "input": {
+        "a": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-3-1",
+      "input": {
+        "a": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-3-2",
+      "input": {
+        "a": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800000,
+          "counter": 0,
+          "nodeID": "did:key:bbb"
+        }
+      },
+      "expected": {
+        "numeric": 1,
+        "lexical": 1
+      }
+    },
+    {
+      "name": "compare-3-3",
+      "input": {
+        "a": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        },
+        "b": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:aaa"
+        }
+      },
+      "expected": {
+        "numeric": 0,
+        "lexical": 0
+      }
+    },
+    {
+      "name": "counter-ceiling",
+      "input": {
+        "physicalTime": 1739539800000,
+        "nodeID": "did:key:local",
+        "remote": {
+          "wallTime": 1739539800000,
+          "counter": 99999999,
+          "nodeID": "did:key:remote"
+        }
+      },
+      "expected": {
+        "timestamp": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:local"
+        },
+        "encoded": "2025-02-14T13:30:00.001Z:00000000:did:key:local",
+        "parsed": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:local"
+        }
+      }
+    },
+    {
+      "name": "after-ceiling",
+      "input": {
+        "physicalTime": 1739539800000,
+        "previous": {
+          "wallTime": 1739539800001,
+          "counter": 0,
+          "nodeID": "did:key:local"
+        }
+      },
+      "expected": {
+        "timestamp": {
+          "wallTime": 1739539800001,
+          "counter": 1,
+          "nodeID": "did:key:local"
+        },
+        "encoded": "2025-02-14T13:30:00.001Z:00000001:did:key:local"
+      }
+    },
+    {
+      "name": "parse-missing-node-separator",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:12345678"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-empty-node",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:00000001:"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-negative-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:-0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-signed-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:+0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-junk",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:0000001x:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-space",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z: 0000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-newline",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:00000001\n:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-short-counter",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:1:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-counter-overflow",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Z:4294967296:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-missing-time-separator",
+      "input": {
+        "encoded": "2026-01-01T00:00:00.000Zx00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-missing-milliseconds",
+      "input": {
+        "encoded": "2026-01-01T00:00:00Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-invalid-date",
+      "input": {
+        "encoded": "2026-02-30T00:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-invalid-hour",
+      "input": {
+        "encoded": "2026-01-01T24:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": null
+      }
+    },
+    {
+      "name": "parse-colon-node",
+      "input": {
+        "encoded": "2025-02-14T13:30:00.000Z:00000042:did:key:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 42,
+          "nodeID": "did:key:node"
+        }
+      }
+    },
+    {
+      "name": "parse-max-counter",
+      "input": {
+        "encoded": "2025-02-14T13:30:00.000Z:4294967295:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1739539800000,
+          "counter": 4294967295,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-extended-year",
+      "input": {
+        "encoded": "+010000-01-01T00:00:00.000Z:00000000:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 253402300800000,
+          "counter": 0,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-negative-year",
+      "input": {
+        "encoded": "-000001-01-01T00:00:00.000Z:00000000:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": -62198755200000,
+          "counter": 0,
+          "nodeID": "node"
+        }
+      }
+    },
+    {
+      "name": "parse-padded-positive-year",
+      "input": {
+        "encoded": "+002026-01-01T00:00:00.000Z:00000001:node"
+      },
+      "expected": {
+        "parsed": {
+          "wallTime": 1767225600000,
+          "counter": 1,
+          "nodeID": "node"
+        }
+      }
+    }
+  ]
+}

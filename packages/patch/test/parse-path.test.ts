@@ -42,3 +42,21 @@ describe('parsePath() strict index parsing', () => {
     expect(parsePath('/arr/-')).toEqual(['arr', '-'])
   })
 })
+
+describe('numeric object members', () => {
+  test.each(['9007199254740993', '1000000000000000000000', '9'.repeat(400)])(
+    'preserves the exact key %s',
+    (key) => {
+      expect(parsePath(`/${key}`)).toEqual([key])
+      for (const op of ['set', 'add'] as const) {
+        const data = { nested: {} }
+        applyPatches(data, [{ op, path: `/nested/${key}`, value: { child: 1 } }])
+        expect(data).toEqual({ nested: { [key]: { child: 1 } } })
+        applyPatches(data, [{ op: 'replace', path: `/nested/${key}/child`, value: 2 }])
+        expect(data).toEqual({ nested: { [key]: { child: 2 } } })
+        applyPatches(data, [{ op: 'remove', path: `/nested/${key}` }])
+        expect(data).toEqual({ nested: {} })
+      }
+    },
+  )
+})

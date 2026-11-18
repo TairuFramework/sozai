@@ -1,0 +1,1562 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "add-property",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/b",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": 1,
+          "b": 2
+        }
+      }
+    },
+    {
+      "name": "add-array-insert",
+      "input": {
+        "document": {
+          "a": [1, 3]
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/1",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [1, 2, 3]
+        }
+      }
+    },
+    {
+      "name": "add-array-append",
+      "input": {
+        "document": {
+          "a": [1]
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [1, 2]
+        }
+      }
+    },
+    {
+      "name": "remove-property",
+      "input": {
+        "document": {
+          "a": 1,
+          "b": 2
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "b": 2
+        }
+      }
+    },
+    {
+      "name": "remove-array",
+      "input": {
+        "document": {
+          "a": [1, 2, 3]
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/1"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [1, 3]
+        }
+      }
+    },
+    {
+      "name": "replace",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a",
+            "value": {
+              "b": 2
+            }
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "b": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "move",
+      "input": {
+        "document": {
+          "a": {
+            "x": 1
+          },
+          "b": {}
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/a",
+            "path": "/b/c"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "b": {
+            "c": {
+              "x": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "move-array",
+      "input": {
+        "document": {
+          "a": [1, 2, 3]
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/a/0",
+            "path": "/a/2"
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [2, 3, 1]
+        }
+      }
+    },
+    {
+      "name": "copy",
+      "input": {
+        "document": {
+          "a": {
+            "x": 1
+          }
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/a",
+            "path": "/b"
+          },
+          {
+            "op": "replace",
+            "path": "/b/x",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "x": 1
+          },
+          "b": {
+            "x": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "test",
+      "input": {
+        "document": {
+          "a": {
+            "x": [1, true, null]
+          }
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/a",
+            "value": {
+              "x": [1, true, null]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": {
+            "x": [1, true, null]
+          }
+        }
+      }
+    },
+    {
+      "name": "set-create",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "set-replace",
+      "input": {
+        "document": {
+          "a": [1, 2]
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/0",
+            "value": 3
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [3, 2]
+        }
+      }
+    },
+    {
+      "name": "set-append",
+      "input": {
+        "document": {
+          "a": [1]
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a": [1, 2]
+        }
+      }
+    },
+    {
+      "name": "escaped-pointer",
+      "input": {
+        "document": {
+          "a/b": {
+            "~": 1
+          }
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a~1b/~0",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "a/b": {
+            "~": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-path",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/missing"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "failed-test-atomic",
+      "input": {
+        "document": {
+          "a": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/a",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "TEST_FAILED",
+        "document": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "remove-array-dash",
+      "input": {
+        "document": {
+          "a": [1]
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/-"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [1]
+        }
+      }
+    },
+    {
+      "name": "replace-array-dash",
+      "input": {
+        "document": {
+          "a": [1]
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/-",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [1]
+        }
+      }
+    },
+    {
+      "name": "test-array-dash",
+      "input": {
+        "document": {
+          "a": [1]
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/a/-",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": [1]
+        }
+      }
+    },
+    {
+      "name": "set-exact-object-key-9007199254740993",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "set",
+            "path": "/9007199254740993",
+            "value": {
+              "child": 2
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/9007199254740993/child",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/9007199254740993/child",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "9007199254740993": {
+            "child": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "add-exact-object-key-9007199254740993",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "add",
+            "path": "/9007199254740993",
+            "value": {
+              "child": 2
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/9007199254740993/child",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/9007199254740993/child",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "9007199254740993": {
+            "child": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "set-exact-object-key-1000000000000000000000",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "set",
+            "path": "/1000000000000000000000",
+            "value": {
+              "child": 2
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/1000000000000000000000/child",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/1000000000000000000000/child",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "1000000000000000000000": {
+            "child": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "add-exact-object-key-1000000000000000000000",
+      "input": {
+        "document": {},
+        "patches": [
+          {
+            "op": "add",
+            "path": "/1000000000000000000000",
+            "value": {
+              "child": 2
+            }
+          },
+          {
+            "op": "replace",
+            "path": "/1000000000000000000000/child",
+            "value": 2
+          },
+          {
+            "op": "test",
+            "path": "/1000000000000000000000/child",
+            "value": 2
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "1000000000000000000000": {
+            "child": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "test-missing-json-member-toString",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/toString",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "copy-missing-json-member-toString",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/toString",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "move-missing-json-member-toString",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/toString",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "replace-missing-json-member-toString",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/toString",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "remove-missing-json-member-toString",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/toString",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "test-missing-json-member-arr-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/arr/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "copy-missing-json-member-arr-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/arr/length",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "move-missing-json-member-arr-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/arr/length",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "replace-missing-json-member-arr-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/arr/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "remove-missing-json-member-arr-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/arr/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "test-missing-json-member-arr-1",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/arr/1",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "copy-missing-json-member-arr-1",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/arr/1",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "move-missing-json-member-arr-1",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/arr/1",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "replace-missing-json-member-arr-1",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/arr/1",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "remove-missing-json-member-arr-1",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/arr/1",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "test-missing-json-member-s-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/s/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "copy-missing-json-member-s-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/s/length",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "move-missing-json-member-s-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/s/length",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "replace-missing-json-member-s-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/s/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "remove-missing-json-member-s-length",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/length",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "test-missing-json-member-s-0",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/s/0",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "copy-missing-json-member-s-0",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "copy",
+            "from": "/s/0",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "move-missing-json-member-s-0",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "move",
+            "from": "/s/0",
+            "path": "/destination"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "replace-missing-json-member-s-0",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/s/0",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "remove-missing-json-member-s-0",
+      "input": {
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/0",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "arr": [1],
+          "s": "abc"
+        }
+      }
+    },
+    {
+      "name": "test-own-object-members",
+      "input": {
+        "document": {
+          "toString": 7,
+          "length": 8
+        },
+        "patches": [
+          {
+            "op": "test",
+            "path": "/toString",
+            "value": 7
+          },
+          {
+            "op": "test",
+            "path": "/length",
+            "value": 8
+          }
+        ]
+      },
+      "expected": {
+        "document": {
+          "toString": 7,
+          "length": 8
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b/c"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "set-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-add-through-null",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b/c",
+            "value": 1
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-length",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/length"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-index",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/1"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-string-out-of-range",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/s/3"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-number-member",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/x/b"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "set-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "set",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "replace-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-replace-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "replace",
+            "path": "/a/b",
+            "value": 1
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "remove-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b"
+          }
+        ]
+      },
+      "expected": {
+        "error": "PatchError",
+        "code": "PATH_NOT_FOUND",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "nonstrict-remove-null-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "remove",
+            "path": "/a/b"
+          }
+        ],
+        "strict": false
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    },
+    {
+      "name": "add-number-target",
+      "input": {
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        },
+        "patches": [
+          {
+            "op": "add",
+            "path": "/x/b",
+            "value": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "document": {
+          "a": null,
+          "s": "abc",
+          "x": 1
+        }
+      }
+    }
+  ]
+}

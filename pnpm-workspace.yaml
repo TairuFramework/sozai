@@ -1,6 +1,9 @@
 packages:
   - packages/*
 
+cargo:
+  enabled: true
+
 allowBuilds:
   "@swc/core": true
   esbuild: false

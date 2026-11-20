@@ -34,10 +34,13 @@ export function consume<T, TReturn = unknown>(
   const abort = () => {
     close()
     const reason = signal?.reason
-    // When abort() is called without a reason, the browser automatically creates
-    // an AbortError DOMException. Convert it to AbortInterruption, preserving the
-    // original DOMException as the cause for debuggability.
-    if (reason instanceof DOMException && reason.name === 'AbortError') {
+    // Hermes has no DOMException global. Recognise AbortError by name across runtimes.
+    if (
+      typeof reason === 'object' &&
+      reason != null &&
+      'name' in reason &&
+      reason.name === 'AbortError'
+    ) {
       ended.reject(new AbortInterruption({ cause: reason }))
     } else {
       ended.reject(reason ?? new AbortInterruption())

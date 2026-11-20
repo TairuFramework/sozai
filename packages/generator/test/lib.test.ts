@@ -18,6 +18,54 @@ function raceTimeout<T>(promise: Promise<T>, ms = 200): Promise<T> {
 }
 
 describe('consume()', () => {
+  test.each([
+    { label: 'no reason', reason: undefined, interrupted: true },
+    {
+      label: 'an Error named AbortError',
+      reason: Object.assign(new Error('aborted'), { name: 'AbortError' }),
+      interrupted: true,
+    },
+    { label: 'another reason', reason: { stopped: true }, interrupted: false },
+  ])('settles on abort with $label without DOMException', async ({ reason, interrupted }) => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'DOMException')
+    Reflect.deleteProperty(globalThis, 'DOMException')
+    try {
+      expect('DOMException' in globalThis).toBe(false)
+      const controller = new AbortController()
+      const iterator: AsyncIterator<number> = {
+        next: () => new Promise(() => {}),
+        return: async () => ({ done: true, value: undefined }),
+      }
+      const promise = raceTimeout(consume(iterator, () => {}, controller.signal))
+      controller.abort(reason)
+
+      if (interrupted) {
+        await expect(promise).rejects.toBeInstanceOf(AbortInterruption)
+        await expect(promise).rejects.toHaveProperty('cause', controller.signal.reason)
+      } else {
+        await expect(promise).rejects.toBe(reason)
+      }
+    } finally {
+      if (descriptor != null) {
+        Object.defineProperty(globalThis, 'DOMException', descriptor)
+      }
+    }
+  })
+
+  test('preserves a DOMException AbortError as the interruption cause', async () => {
+    const controller = new AbortController()
+    const reason = new DOMException('aborted', 'AbortError')
+    const iterator: AsyncIterator<number> = {
+      next: () => new Promise(() => {}),
+      return: async () => ({ done: true, value: undefined }),
+    }
+    const promise = raceTimeout(consume(iterator, () => {}, controller.signal))
+    controller.abort(reason)
+
+    await expect(promise).rejects.toBeInstanceOf(AbortInterruption)
+    await expect(promise).rejects.toHaveProperty('cause', reason)
+  })
+
   test('consumes until the generator ends', async () => {
     async function* generate() {
       yield 1

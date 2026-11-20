@@ -1,5 +1,11 @@
 # @sozai/generator
 
+## 0.2.3
+
+### Patch Changes
+
+- `consume()` recognises AbortError reasons without requiring a DOMException global, preventing aborts from hanging on Hermes. AbortInterruption preserves the original reason as its cause.
+
 ## 0.2.2
 
 ### Patch Changes

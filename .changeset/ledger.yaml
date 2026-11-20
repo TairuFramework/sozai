@@ -38,6 +38,10 @@
   dir: packages/flow-graph
   intents:
     - real-olives-sell
+"@sozai/generator@0.2.3":
+  dir: packages/generator
+  intents:
+    - generator-hermes-abort
 "@sozai/hlc@0.1.0":
   dir: packages/hlc
   intents:

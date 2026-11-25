@@ -4,8 +4,11 @@ export type HLCTimestamp = {
   nodeID: string
 }
 
+type Now = () => number
+
 type HLCParams = {
   nodeID: string
+  now?: Now
   // Test seam: lower the counter ceiling to exercise the clamp branch without
   // 1e8 calls. Capped at the real ceiling so it can only narrow, never widen
   // past the serialization pad. Omit in production.
@@ -28,9 +31,11 @@ export class HLC {
   #lastCounter = 0
   #counterCeiling: number
   #beforeMint?: () => void
+  #now: Now
 
   constructor(params: HLCParams) {
     this.#nodeID = params.nodeID
+    this.#now = params.now ?? Date.now
     this.#counterCeiling = Math.min(params.counterCeiling ?? COUNTER_CEILING, COUNTER_CEILING)
     this.#beforeMint = params.beforeMint
   }
@@ -55,7 +60,7 @@ export class HLC {
 
   now(): HLCTimestamp {
     this.#beforeMint?.()
-    const physicalTime = Date.now()
+    const physicalTime = this.#now()
     if (physicalTime > this.#lastWallTime) {
       this.#lastWallTime = physicalTime
       this.#lastCounter = 0
@@ -66,7 +71,7 @@ export class HLC {
   }
 
   receive(remote: HLCTimestamp): HLCTimestamp {
-    const physicalTime = Date.now()
+    const physicalTime = this.#now()
     if (physicalTime > this.#lastWallTime && physicalTime > remote.wallTime) {
       this.#lastWallTime = physicalTime
       this.#lastCounter = 0

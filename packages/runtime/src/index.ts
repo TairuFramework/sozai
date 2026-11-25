@@ -15,10 +15,14 @@ export type GetRandomID = () => string
 
 export type GetRandomValues = <T extends ArrayBufferView>(array: T) => T
 
+export type Now = () => number
+
 export type Runtime = {
   fetch: Fetch
   getRandomID: GetRandomID
   getRandomValues: GetRandomValues
+  now: Now
+  monotonicNow: Now
 }
 
 function defaultFetch(...args: Parameters<Fetch>): ReturnType<Fetch> {
@@ -33,10 +37,20 @@ function defaultGetRandomValues<T extends ArrayBufferView>(array: T): T {
   return globalThis.crypto.getRandomValues(array as ArrayBufferView<ArrayBuffer>) as T
 }
 
+function defaultNow(): number {
+  return Date.now()
+}
+
+function defaultMonotonicNow(): number {
+  return performance.now()
+}
+
 export function createRuntime(overrides?: Partial<Runtime>): Runtime {
   return {
     fetch: overrides?.fetch ?? defaultFetch,
     getRandomID: overrides?.getRandomID ?? defaultGetRandomID,
     getRandomValues: overrides?.getRandomValues ?? defaultGetRandomValues,
+    now: overrides?.now ?? defaultNow,
+    monotonicNow: overrides?.monotonicNow ?? defaultMonotonicNow,
   }
 }

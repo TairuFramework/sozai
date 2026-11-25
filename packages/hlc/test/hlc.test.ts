@@ -3,6 +3,21 @@ import { describe, expect, test } from 'vitest'
 import { HLC, type HLCTimestamp } from '../src/index.js'
 
 describe('HLC', () => {
+  test('HLC reads physical time from its now option', () => {
+    const hlc = new HLC({ nodeID: 'node-a', now: () => 1_700_000_000_000 })
+    expect(hlc.now().wallTime).toBe(1_700_000_000_000)
+  })
+
+  test('receive() reads physical time from its now option', () => {
+    const hlc = new HLC({ nodeID: 'node-a', now: () => 1_700_000_000_000 })
+    const received = hlc.receive({
+      wallTime: 1_699_999_999_999,
+      counter: 5,
+      nodeID: 'node-b',
+    })
+    expect(received).toEqual({ wallTime: 1_700_000_000_000, counter: 0, nodeID: 'node-a' })
+  })
+
   test('now() returns a valid timestamp', () => {
     const clock = new HLC({ nodeID: 'did:key:test1' })
     const ts = clock.now()

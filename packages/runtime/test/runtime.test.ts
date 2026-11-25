@@ -3,6 +3,33 @@ import { describe, expect, test, vi } from 'vitest'
 import { createRuntime } from '../src/index.js'
 
 describe('createRuntime', () => {
+  test('createRuntime clocks default to Date.now and performance.now at call time', () => {
+    const runtime = createRuntime()
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+    try {
+      expect(runtime.now()).toBe(1_700_000_000_000)
+    } finally {
+      spy.mockRestore()
+    }
+    const before = performance.now()
+    expect(runtime.monotonicNow()).toBeGreaterThanOrEqual(before)
+  })
+
+  test('createRuntime keeps injected clocks', () => {
+    const runtime = createRuntime({ now: () => 5, monotonicNow: () => 7 })
+    expect([runtime.now(), runtime.monotonicNow()]).toEqual([5, 7])
+  })
+
+  test('default monotonicNow delegates to performance.now at call time', () => {
+    const runtime = createRuntime()
+    const spy = vi.spyOn(performance, 'now').mockReturnValue(7)
+    try {
+      expect(runtime.monotonicNow()).toBe(7)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   test('returns a fully resolved Runtime with defaults', () => {
     const runtime = createRuntime()
     expect(typeof runtime.fetch).toBe('function')

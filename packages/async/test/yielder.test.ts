@@ -240,7 +240,17 @@ describe('fake timers', () => {
 
 describe('maybeYield()', () => {
   test('uses the shared default yielder', async () => {
-    expect(defaultYielder.maybeYield).toBe(maybeYield)
     await expect(maybeYield()).resolves.toBeUndefined()
+  })
+
+  test('reads the default yielder at call time, so a spy observes every caller', async () => {
+    const spy = vi.spyOn(defaultYielder, 'maybeYield').mockResolvedValue(undefined)
+    try {
+      await maybeYield()
+      await maybeYield()
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

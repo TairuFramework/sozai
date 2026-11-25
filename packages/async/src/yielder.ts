@@ -105,5 +105,10 @@ export function createYielder(options: YielderOptions = {}): Yielder {
 /** Shared yielder so independent libraries cooperate on a single clock and queue. */
 export const defaultYielder: Yielder = createYielder()
 
-/** {@link Yielder.maybeYield} of the shared {@link defaultYielder}. */
-export const maybeYield: () => Promise<void> = defaultYielder.maybeYield
+/**
+ * {@link Yielder.maybeYield} of the shared {@link defaultYielder}, looked up on each call so a spy
+ * on `defaultYielder` observes every caller across packages.
+ */
+export function maybeYield(): Promise<void> {
+  return defaultYielder.maybeYield()
+}

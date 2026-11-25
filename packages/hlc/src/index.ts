@@ -6,6 +6,8 @@ export type HLCTimestamp = {
 
 type Now = () => number
 
+const defaultNow: Now = () => Date.now()
+
 type HLCParams = {
   nodeID: string
   now?: Now
@@ -35,7 +37,7 @@ export class HLC {
 
   constructor(params: HLCParams) {
     this.#nodeID = params.nodeID
-    this.#now = params.now ?? Date.now
+    this.#now = params.now ?? defaultNow
     this.#counterCeiling = Math.min(params.counterCeiling ?? COUNTER_CEILING, COUNTER_CEILING)
     this.#beforeMint = params.beforeMint
   }

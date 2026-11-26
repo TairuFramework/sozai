@@ -1,5 +1,11 @@
 # @sozai/runtime-expo
 
+## 0.3.1
+
+### Patch Changes
+
+- Add injectable wall and monotonic runtime clocks and an optional physical clock for HLC.
+
 ## 0.2.2
 
 ### Patch Changes

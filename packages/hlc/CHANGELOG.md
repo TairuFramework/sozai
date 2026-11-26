@@ -1,5 +1,11 @@
 # @sozai/hlc
 
+## 0.1.2
+
+### Patch Changes
+
+- Add injectable wall and monotonic runtime clocks and an optional physical clock for HLC.
+
 ## 0.1.1
 
 ### Patch Changes

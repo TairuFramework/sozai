@@ -28,6 +28,17 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_GRACE_MS = 10_000
 const DEFAULT_CLOSE_HOOK_TIMEOUT_MS = 5_000
 
+// get-port releases its probed fallback port before we bind it, and another process can take it
+// on loopback in that gap (BSD lets that coexist with our wildcard bind). Bind 0 instead, so the
+// kernel picks a port atomically.
+async function pickPort(options: GetPortOptions): Promise<number> {
+  const requested = options.port
+  const candidates =
+    requested == null ? [] : typeof requested === 'number' ? [requested] : Array.from(requested)
+  const port = await getPort({ ...options, port: candidates })
+  return candidates.includes(port) ? port : 0
+}
+
 export type CreateServerParams = {
   plugins?: Array<AnyHTTPPlugin>
   /** A fixed port, or `get-port` options to pick a free one. Defaults to 3000 when free. */
@@ -156,7 +167,7 @@ export class HTTPServer extends Disposer {
     const port =
       typeof this.#port === 'number'
         ? this.#port
-        : await getPort(this.#port ?? { port: DEFAULT_PORT })
+        : await pickPort(this.#port ?? { port: DEFAULT_PORT })
     if (this.signal.aborted) {
       throw new Error('Server is disposed')
     }

@@ -1,5 +1,11 @@
 # @sozai/http-server
 
+## 0.2.3
+
+### Patch Changes
+
+- When the preferred port is busy, bind port 0 so the kernel picks the fallback port atomically, instead of binding the port get-port probed and released, which another process could take on loopback in the meantime.
+
 ## 0.2.2
 
 ### Patch Changes

@@ -78,6 +78,10 @@
   dir: packages/http-server
   intents:
     - http-server-plugin-exports
+"@sozai/http-server@0.2.3":
+  dir: packages/http-server
+  intents:
+    - http-server-port-race
 "@sozai/json@0.1.1":
   dir: packages/json
   intents:

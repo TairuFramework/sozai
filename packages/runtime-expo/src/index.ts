@@ -12,10 +12,20 @@ function defaultFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   return globalThis.fetch(input, init)
 }
 
+function defaultNow(): number {
+  return Date.now()
+}
+
+function defaultMonotonicNow(): number {
+  return performance.now()
+}
+
 export const expoRuntime: Runtime = {
   fetch: defaultFetch,
   getRandomID: randomUUID,
   getRandomValues: getRandomValues as GetRandomValues,
+  now: defaultNow,
+  monotonicNow: defaultMonotonicNow,
 }
 
 export function createRuntime(overrides?: Partial<Runtime>): Runtime {
@@ -23,6 +33,8 @@ export function createRuntime(overrides?: Partial<Runtime>): Runtime {
     fetch: overrides?.fetch ?? expoRuntime.fetch,
     getRandomID: overrides?.getRandomID ?? expoRuntime.getRandomID,
     getRandomValues: overrides?.getRandomValues ?? expoRuntime.getRandomValues,
+    now: overrides?.now ?? expoRuntime.now,
+    monotonicNow: overrides?.monotonicNow ?? expoRuntime.monotonicNow,
   }
 }
 

@@ -40,6 +40,26 @@ describe('expoRuntime', () => {
       spy.mockRestore()
     }
   })
+
+  test('now reads Date.now at call time', () => {
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_123)
+    try {
+      expect(expoRuntime.now()).toBe(1_700_000_000_123)
+      expect(spy).toHaveBeenCalledOnce()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('monotonicNow reads performance.now at call time', () => {
+    const spy = vi.spyOn(performance, 'now').mockReturnValue(4_242.5)
+    try {
+      expect(expoRuntime.monotonicNow()).toBe(4_242.5)
+      expect(spy).toHaveBeenCalledOnce()
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 describe('createRuntime', () => {
@@ -48,6 +68,17 @@ describe('createRuntime', () => {
     expect(runtime.fetch).toBe(expoRuntime.fetch)
     expect(runtime.getRandomID).toBe(expoRuntime.getRandomID)
     expect(runtime.getRandomValues).toBe(expoRuntime.getRandomValues)
+    expect(runtime.now).toBe(expoRuntime.now)
+    expect(runtime.monotonicNow).toBe(expoRuntime.monotonicNow)
+  })
+
+  test('clock overrides win over the expo defaults', () => {
+    const now = () => 10
+    const monotonicNow = () => 20
+    const runtime = createRuntime({ now, monotonicNow })
+    expect(runtime.now).toBe(now)
+    expect(runtime.monotonicNow).toBe(monotonicNow)
+    expect(runtime.fetch).toBe(expoRuntime.fetch)
   })
 
   test('overrides win and omitted entries fall back to the defaults', () => {
